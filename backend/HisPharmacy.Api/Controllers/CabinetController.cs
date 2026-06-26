@@ -1,0 +1,123 @@
+using HisPharmacy.Api.Data;
+using HisPharmacy.Api.Hubs;
+using HisPharmacy.Api.Services;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
+using Microsoft.EntityFrameworkCore;
+
+namespace HisPharmacy.Api.Controllers;
+
+[ApiController]
+[Route("api/[controller]")]
+public class CabinetController : ControllerBase
+{
+    private readonly HisDbContext _context;
+    private readonly CabinetService _cabinetService;
+    private readonly IHubContext<PharmacyHub> _hubContext;
+
+    public CabinetController(HisDbContext context, CabinetService cabinetService, IHubContext<PharmacyHub> hubContext)
+    {
+        _context = context;
+        _cabinetService = cabinetService;
+        _hubContext = hubContext;
+    }
+
+    [HttpGet("stocks/{departmentId}")]
+    public async Task<IActionResult> GetCabinetStocks(int departmentId)
+    {
+        var stocks = await _context.DepartmentStocks
+            .Include(ds => ds.Batch)!.ThenInclude(b => b!.Medicine)
+            .Where(ds => ds.DepartmentID == departmentId && ds.CurrentQuantity > 0)
+            .OrderBy(ds => ds.Batch!.ExpiryDate)
+            .ToListAsync();
+        return Ok(stocks);
+    }
+
+    [HttpGet("transactions/{departmentId}")]
+    public async Task<IActionResult> GetCabinetTransactions(int departmentId)
+    {
+        var txs = await _context.CabinetTransactions
+            .Include(t => t.Batch)!.ThenInclude(b => b!.Medicine)
+            .Include(t => t.Requisition)
+            .Where(t => t.DepartmentID == departmentId)
+            .OrderByDescending(t => t.TransactionDate)
+            .ToListAsync();
+        return Ok(txs);
+    }
+
+    [HttpPost("export")]
+    public async Task<IActionResult> ExportFromCabinet([FromBody] CabinetExportRequest request)
+    {
+        var userRole = Request.Headers["X-User-Role"].ToString();
+        if (userRole != "nurse")
+            return BadRequest(new { Error = "Quyền truy cập bị từ chối. Chỉ Điều dưỡng khoa mới có quyền thực hiện xuất tủ trực." });
+        if (request == null || request.Quantity <= 0)
+            return BadRequest(new { Error = "Thông tin xuất tủ trực không hợp lệ." });
+
+        try
+        {
+            var tx = await _cabinetService.ExportFromCabinetAsync(
+                request.DepartmentID, 
+                request.BatchID, 
+                request.PatientCode, 
+                request.PatientName, 
+                request.Quantity
+            );
+
+            // Broadcast real-time updates
+            await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Cabinets");
+            await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Inventory");
+            await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Dashboard");
+
+            return Ok(tx);
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { Error = ex.Message });
+        }
+    }
+
+    [HttpPost("refill/{departmentId}")]
+    public async Task<IActionResult> RequestRefill(int departmentId, [FromBody] RefillRequestPayload? payload)
+    {
+        var userRole = Request.Headers["X-User-Role"].ToString();
+        if (userRole != "nurse")
+            return BadRequest(new { Error = "Quyền truy cập bị từ chối. Chỉ Điều dưỡng khoa mới có quyền đề nghị bù tủ trực." });
+        try
+        {
+            var signature = payload?.DigitalSignature;
+            var selectedMeds = payload?.SelectedMedicineIds;
+            var req = await _cabinetService.CreateRefillRequisitionAsync(departmentId, signature, selectedMeds);
+            if (req == null)
+            {
+                return BadRequest(new { Message = "Không có phiếu xuất tủ trực nào phù hợp chưa được bù để tổng hợp." });
+            }
+
+            // Broadcast real-time updates
+            await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Cabinets");
+            await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Requisitions");
+            await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Dashboard");
+
+            return Ok(new { Message = "Đã tổng hợp phiếu bù tủ trực thành công.", RequisitionID = req.RequisitionID });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { Error = ex.Message });
+        }
+    }
+}
+
+public class CabinetExportRequest
+{
+    public int DepartmentID { get; set; }
+    public int BatchID { get; set; }
+    public string PatientCode { get; set; } = string.Empty;
+    public string PatientName { get; set; } = string.Empty;
+    public int Quantity { get; set; }
+}
+
+public class RefillRequestPayload
+{
+    public string? DigitalSignature { get; set; }
+    public List<int>? SelectedMedicineIds { get; set; }
+}

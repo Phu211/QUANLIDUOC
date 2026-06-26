@@ -1,0 +1,6 @@
+@HisPharmacy.Api_HostAddress = http://localhost:5139
+
+GET {{HisPharmacy.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
