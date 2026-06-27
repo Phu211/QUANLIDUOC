@@ -277,6 +277,7 @@ public class ImportReceipt
     public string? SecondInspectorSignature { get; set; } // Base64 signature image string của người kiểm thứ hai
     public string? DeliveryPersonSignature { get; set; } // Base64 signature image string của người giao hàng
     public string? ApproverSignature { get; set; } // Base64 signature image string của người duyệt nhập kho (Ban lãnh đạo)
+    public string? EditHistoryJson { get; set; } // Chuỗi JSON lưu vết lịch sử điều chỉnh phiếu
 
     // Navigation
     public Supplier? Supplier { get; set; }

@@ -430,6 +430,223 @@ public class StockService
             throw;
         }
     }
+
+    // Luồng 1.3: Điều chỉnh phiếu nhập kho khi chưa ký duyệt
+    public async Task<ImportReceipt> UpdateImportReceiptAsync(int importID, UpdateImportRequestDto request)
+    {
+        using var transaction = await _context.Database.BeginTransactionAsync();
+        try
+        {
+            var import = await _context.ImportReceipts
+                .Include(i => i.Details)!
+                .ThenInclude(d => d.Batch)
+                .FirstOrDefaultAsync(i => i.ImportID == importID);
+
+            if (import == null)
+                throw new KeyNotFoundException("Không tìm thấy phiếu nhập kho cần điều chỉnh.");
+
+            // Kiểm tra bảo mật: Chỉ cho phép điều chỉnh khi phiếu ở trạng thái Chờ kiểm nhập (Nháp)
+            if (import.Status != "Chờ kiểm nhập" && import.Status != "Pending")
+                throw new InvalidOperationException("Phiếu đã hoàn tất kiểm nhận và đang chờ duyệt hoặc đã hoàn thành, không được phép điều chỉnh.");
+
+            // --- Ghi nhận lịch sử điều chỉnh ---
+            var changes = new List<string>();
+
+            if (import.SupplierID != request.SupplierID)
+            {
+                var oldSup = await _context.Suppliers.FindAsync(import.SupplierID);
+                var newSup = await _context.Suppliers.FindAsync(request.SupplierID);
+                changes.Add($"Thay đổi Nhà cung cấp từ '{oldSup?.SupplierName ?? "N/A"}' thành '{newSup?.SupplierName ?? "N/A"}'");
+            }
+
+            if (import.InvoiceNumber != request.InvoiceNumber)
+                changes.Add($"Thay đổi Số hóa đơn từ '{import.InvoiceNumber ?? "N/A"}' thành '{request.InvoiceNumber ?? "N/A"}'");
+
+            if (import.InvoiceDate != request.InvoiceDate)
+                changes.Add($"Thay đổi Ngày hóa đơn từ '{(import.InvoiceDate?.ToString("dd/MM/yyyy") ?? "N/A")}' thành '{(request.InvoiceDate?.ToString("dd/MM/yyyy") ?? "N/A")}'");
+
+            if (import.DeliveryNoteNumber != request.DeliveryNoteNumber)
+                changes.Add($"Thay đổi Số phiếu xuất kho từ '{import.DeliveryNoteNumber ?? "N/A"}' thành '{request.DeliveryNoteNumber ?? "N/A"}'");
+
+            if (import.ContractNumber != request.ContractNumber)
+                changes.Add($"Thay đổi Số hợp đồng từ '{import.ContractNumber ?? "N/A"}' thành '{request.ContractNumber ?? "N/A"}'");
+
+            if (import.Notes != request.Notes)
+                changes.Add("Cập nhật ghi chú của phiếu");
+
+            if (import.DocumentsJson != request.DocumentsJson)
+                changes.Add("Cập nhật tài liệu/hình ảnh chứng từ đính kèm");
+
+            // So sánh danh sách thuốc nhập
+            var currentDetails = import.Details?.ToList() ?? new List<ImportReceiptDetail>();
+            var requestItems = request.Items ?? new List<ImportItemDto>();
+
+            foreach (var detail in currentDetails)
+            {
+                if (detail.Batch != null)
+                {
+                    var medicine = await _context.Medicines.FindAsync(detail.Batch.MedicineID);
+                    var medName = medicine?.MedicineName ?? "Thuốc";
+                    var matchingItem = requestItems.FirstOrDefault(ri => ri.MedicineID == detail.Batch.MedicineID && ri.BatchNumber == detail.Batch.BatchNumber);
+
+                    if (matchingItem == null)
+                    {
+                        changes.Add($"Xóa mặt hàng '{medName}' (Số lô: {detail.Batch.BatchNumber})");
+                    }
+                    else
+                    {
+                        if (detail.Quantity != matchingItem.Quantity)
+                            changes.Add($"Thay đổi Số lượng của '{medName}' (Lô: {detail.Batch.BatchNumber}) từ {detail.Quantity} thành {matchingItem.Quantity}");
+                        if (detail.Batch.ImportPrice != matchingItem.ImportPrice)
+                            changes.Add($"Thay đổi Đơn giá của '{medName}' (Lô: {detail.Batch.BatchNumber}) từ {detail.Batch.ImportPrice:N0}đ thành {matchingItem.ImportPrice:N0}đ");
+                        if (detail.Batch.ExpiryDate.Date != matchingItem.ExpiryDate.Date)
+                            changes.Add($"Thay đổi Hạn dùng của '{medName}' (Lô: {detail.Batch.BatchNumber}) từ {detail.Batch.ExpiryDate:dd/MM/yyyy} thành {matchingItem.ExpiryDate:dd/MM/yyyy}");
+                    }
+                }
+            }
+
+            foreach (var item in requestItems)
+            {
+                var alreadyExists = currentDetails.Any(d => d.Batch != null && d.Batch.MedicineID == item.MedicineID && d.Batch.BatchNumber == item.BatchNumber);
+                if (!alreadyExists)
+                {
+                    var medicine = await _context.Medicines.FindAsync(item.MedicineID);
+                    var medName = medicine?.MedicineName ?? "Thuốc mới";
+                    changes.Add($"Thêm mặt hàng '{medName}' (Lô: {item.BatchNumber}, SL: {item.Quantity}, Giá: {item.ImportPrice:N0}đ)");
+                }
+            }
+
+            if (changes.Any())
+            {
+                var historyList = new List<object>();
+                if (!string.IsNullOrEmpty(import.EditHistoryJson))
+                {
+                    try
+                    {
+                        var existing = System.Text.Json.JsonSerializer.Deserialize<List<object>>(import.EditHistoryJson);
+                        if (existing != null) historyList.AddRange(existing);
+                    }
+                    catch { }
+                }
+
+                historyList.Add(new
+                {
+                    Timestamp = DateTime.Now.ToString("dd/MM/yyyy HH:mm:ss"),
+                    ActionBy = request.CreatedBy ?? "Thủ kho Dược",
+                    Details = changes
+                });
+
+                import.EditHistoryJson = System.Text.Json.JsonSerializer.Serialize(historyList);
+            }
+
+            // Cập nhật thông tin phiếu nhập
+            import.SupplierID = request.SupplierID;
+            import.InvoiceNumber = request.InvoiceNumber;
+            import.InvoiceDate = request.InvoiceDate;
+            import.DeliveryNoteNumber = request.DeliveryNoteNumber;
+            import.Notes = request.Notes;
+            import.CreatedBy = string.IsNullOrWhiteSpace(request.CreatedBy) ? import.CreatedBy : request.CreatedBy;
+            
+            if (!string.IsNullOrEmpty(request.ContractNumber))
+                import.ContractNumber = request.ContractNumber;
+            
+            if (!string.IsNullOrEmpty(request.SecondInspector))
+                import.SecondInspector = request.SecondInspector;
+            
+            if (!string.IsNullOrEmpty(request.AnomalyDescription))
+                import.AnomalyDescription = request.AnomalyDescription;
+            
+            if (!string.IsNullOrEmpty(request.DocumentsJson))
+                import.DocumentsJson = request.DocumentsJson;
+
+            if (!string.IsNullOrEmpty(request.DigitalSignature))
+                import.DigitalSignature = request.DigitalSignature;
+
+            if (!string.IsNullOrEmpty(request.SecondInspectorSignature))
+                import.SecondInspectorSignature = request.SecondInspectorSignature;
+
+            if (!string.IsNullOrEmpty(request.DeliveryPersonSignature))
+                import.DeliveryPersonSignature = request.DeliveryPersonSignature;
+
+            if (!string.IsNullOrEmpty(request.Status))
+                import.Status = request.Status;
+
+            // Xóa các chi tiết phiếu nhập cũ và lô cũ (vì chưa vào kho chính thức nên xóa an toàn)
+            if (import.Details != null && import.Details.Any())
+            {
+                foreach (var detail in import.Details)
+                {
+                    if (detail.Batch != null)
+                    {
+                        // Kiểm tra an toàn phòng trường hợp có tồn kho trong InventoryStocks
+                        var invStock = await _context.InventoryStocks.FirstOrDefaultAsync(s => s.BatchID == detail.BatchID);
+                        if (invStock != null)
+                        {
+                            _context.InventoryStocks.Remove(invStock);
+                        }
+                        _context.Batches.Remove(detail.Batch);
+                    }
+                    _context.ImportReceiptDetails.Remove(detail);
+                }
+                import.Details.Clear();
+            }
+
+            // Thêm mới các mặt hàng và lô thuốc điều chỉnh
+            foreach (var item in request.Items)
+            {
+                var batch = new Batch
+                {
+                    MedicineID = item.MedicineID,
+                    BatchNumber = item.BatchNumber,
+                    ProductionDate = item.ProductionDate,
+                    ExpiryDate = item.ExpiryDate,
+                    ImportPrice = item.ImportPrice,
+                    QuantityOriginal = item.Quantity
+                };
+                _context.Batches.Add(batch);
+                await _context.SaveChangesAsync(); // Sinh BatchID
+
+                import.Details.Add(new ImportReceiptDetail
+                {
+                    BatchID = batch.BatchID,
+                    Quantity = item.Quantity
+                });
+            }
+
+            await _context.SaveChangesAsync();
+            await transaction.CommitAsync();
+
+            // Trả về đối tượng phiếu nhập đầy đủ thông tin sau khi cập nhật
+            return await _context.ImportReceipts
+                .Include(i => i.Supplier)
+                .Include(i => i.Details)!.ThenInclude(d => d.Batch)!.ThenInclude(b => b!.Medicine)
+                .FirstOrDefaultAsync(i => i.ImportID == import.ImportID);
+        }
+        catch
+        {
+            await transaction.RollbackAsync();
+            throw;
+        }
+    }
+}
+
+public class UpdateImportRequestDto
+{
+    public int SupplierID { get; set; }
+    public string? ContractNumber { get; set; }
+    public string? InvoiceNumber { get; set; }
+    public string CreatedBy { get; set; } = string.Empty;
+    public string? Notes { get; set; }
+    public string Status { get; set; } = "Đạt kiểm nhập";
+    public DateTime? InvoiceDate { get; set; }
+    public string? DeliveryNoteNumber { get; set; }
+    public string? SecondInspector { get; set; }
+    public string? AnomalyDescription { get; set; }
+    public string? DocumentsJson { get; set; }
+    public string? DigitalSignature { get; set; }
+    public string? SecondInspectorSignature { get; set; }
+    public string? DeliveryPersonSignature { get; set; }
+    public List<ImportItemDto> Items { get; set; } = new();
 }
 
 public class ImportItemDto

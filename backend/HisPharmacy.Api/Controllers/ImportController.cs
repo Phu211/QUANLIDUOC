@@ -42,6 +42,7 @@ public class ImportController : ControllerBase
                 i.DeliveryNoteNumber,
                 i.SecondInspector,
                 i.AnomalyDescription,
+                i.EditHistoryJson,
                 // Return a lightweight dummy JSON array if documents exist to avoid loading megabytes of base64
                 DocumentsJson = i.DocumentsJson != null && i.DocumentsJson != "" ? "[\"has_files\"]" : "[]",
                 Supplier = i.Supplier,
@@ -74,14 +75,151 @@ public class ImportController : ControllerBase
     public async Task<IActionResult> GetImport(int id)
     {
         var import = await _context.ImportReceipts
-            .Include(i => i.Supplier)
-            .Include(i => i.Details)!.ThenInclude(d => d.Batch)!.ThenInclude(b => b!.Medicine)
-            .FirstOrDefaultAsync(i => i.ImportID == id);
+            .Where(i => i.ImportID == id)
+            .Select(i => new
+            {
+                i.ImportID,
+                i.ImportCode,
+                i.ContractNumber,
+                i.InvoiceNumber,
+                i.SupplierID,
+                i.ImportDate,
+                i.CreatedBy,
+                i.Notes,
+                i.Status,
+                i.InvoiceDate,
+                i.DeliveryNoteNumber,
+                i.SecondInspector,
+                i.AnomalyDescription,
+                i.DocumentsJson,
+                i.DigitalSignature,
+                i.SecondInspectorSignature,
+                i.DeliveryPersonSignature,
+                i.ApproverSignature,
+                i.EditHistoryJson,
+                Supplier = i.Supplier,
+                Details = i.Details.Select(d => new
+                {
+                    d.ImportDetailID,
+                    d.ImportID,
+                    d.BatchID,
+                    d.Quantity,
+                    Batch = d.Batch != null ? new
+                    {
+                        d.Batch.BatchID,
+                        d.Batch.MedicineID,
+                        d.Batch.BatchNumber,
+                        d.Batch.ProductionDate,
+                        d.Batch.ExpiryDate,
+                        d.Batch.ImportPrice,
+                        d.Batch.QuantityOriginal,
+                        Medicine = d.Batch.Medicine
+                    } : null
+                })
+            })
+            .FirstOrDefaultAsync();
 
         if (import == null)
             return NotFound(new { Error = "Không tìm thấy phiếu nhập kho." });
 
         return Ok(import);
+    }
+
+    [HttpPost("migrate-cloudinary")]
+    public async Task<IActionResult> MigrateToCloudinary()
+    {
+        var imports = await _context.ImportReceipts.ToListAsync();
+        var migratedRecords = 0;
+        var migratedFiles = 0;
+        var failedFiles = 0;
+
+        using var httpClient = new HttpClient();
+
+        foreach (var import in imports)
+        {
+            if (string.IsNullOrEmpty(import.DocumentsJson)) continue;
+
+            try
+            {
+                var node = System.Text.Json.Nodes.JsonNode.Parse(import.DocumentsJson);
+                if (node is System.Text.Json.Nodes.JsonArray array)
+                {
+                    bool isUpdated = false;
+
+                    foreach (var item in array)
+                    {
+                        if (item is System.Text.Json.Nodes.JsonObject obj)
+                        {
+                            if (obj.TryGetPropertyValue("base64", out var base64Val) && base64Val != null)
+                            {
+                                var base64Str = base64Val.ToString();
+                                // Kiểm tra xem có phải chuỗi Base64 chưa được migrate hay không
+                                if (base64Str.StartsWith("data:image") || (base64Str.Length > 1000 && !base64Str.StartsWith("http")))
+                                {
+                                    try
+                                    {
+                                        // Upload lên Cloudinary của người dùng
+                                        using var content = new MultipartFormDataContent();
+                                        content.Add(new StringContent(base64Str), "file");
+                                        content.Add(new StringContent("his_preset"), "upload_preset");
+
+                                        var response = await httpClient.PostAsync("https://api.cloudinary.com/v1_1/drxeoxtok/image/upload", content);
+                                        if (response.IsSuccessStatusCode)
+                                        {
+                                            var responseString = await response.Content.ReadAsStringAsync();
+                                            var responseJson = System.Text.Json.JsonDocument.Parse(responseString);
+                                            if (responseJson.RootElement.TryGetProperty("secure_url", out var secureUrlProp))
+                                            {
+                                                var cloudinaryUrl = secureUrlProp.GetString();
+                                                obj["base64"] = cloudinaryUrl;
+                                                obj["url"] = cloudinaryUrl;
+                                                isUpdated = true;
+                                                migratedFiles++;
+                                            }
+                                        }
+                                        else
+                                        {
+                                            var responseString = await response.Content.ReadAsStringAsync();
+                                            Console.WriteLine($"[Cloudinary Migration] Upload failed for {import.ImportCode}: {responseString}");
+                                            failedFiles++;
+                                        }
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        Console.WriteLine($"[Cloudinary Migration] Error uploading file for {import.ImportCode}: {ex.Message}");
+                                        failedFiles++;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (isUpdated)
+                    {
+                        import.DocumentsJson = node.ToJsonString();
+                        _context.Entry(import).State = EntityState.Modified;
+                        migratedRecords++;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Cloudinary Migration] Error parsing/updating JSON for {import.ImportCode}: {ex.Message}");
+            }
+        }
+
+        if (migratedRecords > 0)
+        {
+            await _context.SaveChangesAsync();
+        }
+
+        return Ok(new
+        {
+            Message = "Quá trình di chuyển ảnh sang Cloudinary hoàn tất.",
+            TotalRecordsUpdated = migratedRecords,
+            TotalFilesMigrated = migratedFiles,
+            TotalFilesFailed = failedFiles
+        });
     }
 
     private string? StripBase64FromDocuments(string? json)
@@ -241,6 +379,52 @@ public class ImportController : ControllerBase
                 .Include(i => i.Supplier)
                 .Include(i => i.Details)!.ThenInclude(d => d.Batch)!.ThenInclude(b => b!.Medicine)
                 .FirstOrDefaultAsync(i => i.ImportID == import.ImportID);
+
+            // Broadcast real-time updates
+            await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Imports");
+            await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Inventory");
+            await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Dashboard");
+
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { Error = ex.Message });
+        }
+    }
+
+    [HttpPut("{id}/update")]
+    public async Task<IActionResult> UpdateImport(int id, [FromBody] CreateImportRequest request)
+    {
+        var userRole = Request.Headers["X-User-Role"].ToString();
+        if (userRole != "pharmacist")
+            return BadRequest(new { Error = "Quyền truy cập bị từ chối. Chỉ Dược sĩ mới có quyền điều chỉnh phiếu." });
+
+        if (request == null)
+            return BadRequest(new { Error = "Thông tin điều chỉnh không hợp lệ." });
+
+        try
+        {
+            var dto = new UpdateImportRequestDto
+            {
+                SupplierID = request.SupplierID,
+                ContractNumber = request.ContractNumber,
+                InvoiceNumber = request.InvoiceNumber,
+                CreatedBy = request.CreatedBy,
+                Notes = request.Notes,
+                Status = request.Status,
+                InvoiceDate = request.InvoiceDate,
+                DeliveryNoteNumber = request.DeliveryNoteNumber,
+                SecondInspector = request.SecondInspector,
+                AnomalyDescription = request.AnomalyDescription,
+                DocumentsJson = request.DocumentsJson,
+                DigitalSignature = request.DigitalSignature,
+                SecondInspectorSignature = request.SecondInspectorSignature,
+                DeliveryPersonSignature = request.DeliveryPersonSignature,
+                Items = request.Items
+            };
+
+            var result = await _stockService.UpdateImportReceiptAsync(id, dto);
 
             // Broadcast real-time updates
             await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Imports");
