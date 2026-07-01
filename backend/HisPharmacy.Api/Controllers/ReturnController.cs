@@ -37,8 +37,8 @@ public class ReturnController : ControllerBase
     public async Task<IActionResult> SubmitReturn([FromBody] ReturnReceipt ret)
     {
         var userRole = Request.Headers["X-User-Role"].ToString();
-        if (userRole != "nurse")
-            return BadRequest(new { Error = "Quyền truy cập bị từ chối. Chỉ Điều dưỡng khoa mới có quyền tạo phiếu hoàn trả thuốc." });
+        if (userRole != "head_nurse" && userRole != "head")
+            return BadRequest(new { Error = "Quyền truy cập bị từ chối. Chỉ Điều dưỡng trưởng khoa hoặc Trưởng khoa mới có quyền ký duyệt hoàn trả thuốc thừa về kho." });
 
         if (ret == null || ret.DepartmentID <= 0 || ret.Details == null || !ret.Details.Any())
             return BadRequest(new { Error = "Thông tin phiếu hoàn trả không hợp lệ." });
@@ -107,7 +107,7 @@ public class ReturnController : ControllerBase
     {
         var userRole = Request.Headers["X-User-Role"].ToString();
         if (userRole != "pharmacist")
-            return BadRequest(new { Error = "Quyền truy cập bị từ chối. Chỉ Thủ kho Dược mới có quyền duyệt nhận phiếu hoàn trả." });
+            return BadRequest(new { Error = "Quyền truy cập bị từ chối. Chỉ Thủ kho Dược mới có quyền duyệt nhận thực tế phiếu hoàn trả thuốc thừa." });
 
         try
         {
@@ -119,7 +119,7 @@ public class ReturnController : ControllerBase
             await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Inventory");
             await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Dashboard");
 
-            return Ok(new { Message = "Thủ kho tiếp nhận thuốc hoàn trả thành công. Đang chờ Trưởng khoa ký duyệt hành chính." });
+            return Ok(new { Message = "Thủ kho Dược đã kiểm nhận thuốc hoàn trả và ký nhận thành công." });
         }
         catch (Exception ex)
         {
@@ -132,7 +132,7 @@ public class ReturnController : ControllerBase
     {
         var userRole = Request.Headers["X-User-Role"].ToString();
         if (userRole != "director")
-            return BadRequest(new { Error = "Quyền truy cập bị từ chối. Chỉ Trưởng Khoa / Lãnh đạo mới có quyền ký duyệt tối cao phiếu hoàn trả." });
+            return BadRequest(new { Error = "Quyền truy cập bị từ chối. Chỉ Trưởng Khoa / Lãnh đạo mới có quyền ký duyệt hành chính phiếu hoàn trả." });
 
         try
         {
@@ -142,7 +142,7 @@ public class ReturnController : ControllerBase
             await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Returns");
             await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Dashboard");
 
-            return Ok(new { Message = "Lãnh đạo đã phê duyệt hành chính và ký đóng dấu đỏ thành công phiếu hoàn trả." });
+            return Ok(new { Message = "Lãnh đạo đã phê duyệt hành chính và ký đóng dấu đỏ thành công. Chờ Thủ kho Dược kiểm nhận thực nhận." });
         }
         catch (Exception ex)
         {
@@ -165,7 +165,7 @@ public class ReturnController : ControllerBase
 
         var ret = await _context.ReturnReceipts.FindAsync(id);
         if (ret == null) return NotFound();
-        if (ret.Status != "Pending" && ret.Status != "PendingLeader") 
+        if (ret.Status != "Pending" && ret.Status != "PendingPharmacist") 
             return BadRequest(new { Error = "Phiếu hoàn trả đã được xử lý trước đó và không thể từ chối." });
 
         if (string.IsNullOrWhiteSpace(payload?.RejectReason))
@@ -174,59 +174,21 @@ public class ReturnController : ControllerBase
         if (string.IsNullOrWhiteSpace(payload?.DigitalSignature))
             return BadRequest(new { Error = "Vui lòng ký xác nhận trước khi thực hiện từ chối." });
 
-        // If it was already accepted by the pharmacist (PendingLeader) but rejected by the director,
-        // we revert the stock back to the department cabinet.
-        if (ret.Status == "PendingLeader")
+        if (ret.Status == "Pending")
         {
             if (userRole != "director")
                 return BadRequest(new { Error = "Quyền từ chối bị từ chối. Chỉ Lãnh đạo mới có quyền từ chối ở bước này." });
 
-            // Revert stock changes: subtract from main store and add back to department stock
-            using var transaction = await _context.Database.BeginTransactionAsync();
-            try
-            {
-                // Reload details
-                await _context.Entry(ret).Collection(r => r.Details).LoadAsync();
-                foreach (var detail in ret.Details)
-                {
-                    // Subtract from main store InventoryStocks
-                    var invStock = await _context.InventoryStocks.FirstOrDefaultAsync(s => s.BatchID == detail.BatchID);
-                    if (invStock != null)
-                    {
-                        invStock.CurrentQuantity = Math.Max(0, invStock.CurrentQuantity - detail.Quantity);
-                    }
-
-                    // Add back to department stock
-                    var deptStock = await _context.DepartmentStocks.FirstOrDefaultAsync(ds => ds.DepartmentID == ret.DepartmentID && ds.BatchID == detail.BatchID);
-                    if (deptStock != null)
-                    {
-                        deptStock.CurrentQuantity += detail.Quantity;
-                    }
-                    else
-                    {
-                        _context.DepartmentStocks.Add(new DepartmentStock
-                        {
-                            DepartmentID = ret.DepartmentID,
-                            BatchID = detail.BatchID,
-                            CurrentQuantity = detail.Quantity
-                        });
-                    }
-                }
-
-                ret.Status = "Rejected";
-                ret.RejectReason = payload.RejectReason;
-                ret.DirectorSignature = payload.DigitalSignature; // Save leader reject signature
-                await _context.SaveChangesAsync();
-                await transaction.CommitAsync();
-            }
-            catch (Exception ex)
-            {
-                await transaction.RollbackAsync();
-                return BadRequest(new { Error = "Lỗi khi hoàn trả lại kho trực: " + ex.Message });
-            }
+            ret.Status = "Rejected";
+            ret.RejectReason = payload.RejectReason;
+            ret.DirectorSignature = payload.DigitalSignature; // Save leader reject signature
+            await _context.SaveChangesAsync();
         }
-        else
+        else // PendingPharmacist
         {
+            if (userRole != "pharmacist")
+                return BadRequest(new { Error = "Quyền từ chối bị từ chối. Chỉ Thủ kho mới có quyền từ chối ở bước này." });
+
             ret.Status = "Rejected";
             ret.RejectReason = payload.RejectReason;
             ret.ApproverSignature = payload.DigitalSignature; // Save pharmacist reject signature

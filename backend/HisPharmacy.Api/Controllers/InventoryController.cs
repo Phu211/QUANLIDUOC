@@ -70,7 +70,8 @@ public class InventoryController : ControllerBase
                 s.Batch.ExpiryDate,
                 s.Batch.ImportPrice,
                 Location = "Kho chẵn chính",
-                Quantity = s.CurrentQuantity
+                Quantity = s.CurrentQuantity,
+                Status = s.Batch.Status
             })
             .ToListAsync();
 
@@ -88,7 +89,8 @@ public class InventoryController : ControllerBase
                 s.Batch.ExpiryDate,
                 s.Batch.ImportPrice,
                 Location = s.Department != null ? s.Department.DepartmentName : "Tủ trực khoa",
-                Quantity = s.CurrentQuantity
+                Quantity = s.CurrentQuantity,
+                Status = s.Batch.Status
             })
             .ToListAsync();
 

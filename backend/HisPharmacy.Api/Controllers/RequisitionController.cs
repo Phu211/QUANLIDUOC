@@ -14,6 +14,8 @@ public class RequisitionController : ControllerBase
     private readonly HisDbContext _context;
     private readonly StockService _stockService;
     private readonly IHubContext<PharmacyHub> _hubContext;
+    public static bool IsHeadApprovalDelegated { get; set; } = false;
+    public static DateTime? DelegationActivatedAt { get; set; } = null;
 
     public RequisitionController(HisDbContext context, StockService stockService, IHubContext<PharmacyHub> hubContext)
     {
@@ -59,10 +61,22 @@ public class RequisitionController : ControllerBase
     [HttpPost("submit")]
     public async Task<IActionResult> SubmitRequisition([FromBody] MedicineRequisition req)
     {
+        var userRole = Request.Headers["X-User-Role"].ToString();
+        if (userRole != "head_nurse" && userRole != "head" && userRole != "nurse")
+            return BadRequest(new { Error = "Quyền truy cập bị từ chối. Chỉ Điều dưỡng hoặc Trưởng khoa mới có quyền đề nghị lĩnh thuốc." });
+
         if (req == null || req.DepartmentID <= 0 || !req.Details.Any())
             return BadRequest(new { Error = "Thông tin phiếu lĩnh không hợp lệ." });
 
-        req.Status = "Pending";
+        if (userRole == "head")
+        {
+            req.Status = "Pending";
+            req.HeadSignature = req.DigitalSignature;
+        }
+        else
+        {
+            req.Status = "PendingHead";
+        }
         req.RequisitionDate = DateTime.Now;
 
         _context.MedicineRequisitions.Add(req);
@@ -78,6 +92,107 @@ public class RequisitionController : ControllerBase
         await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Dashboard");
 
         return Ok(result);
+    }
+
+    [HttpGet("delegation-status")]
+    public IActionResult GetDelegationStatus()
+    {
+        return Ok(new { IsDelegated = IsHeadApprovalDelegated });
+    }
+
+    [HttpPost("toggle-delegation")]
+    public IActionResult ToggleDelegation([FromBody] DelegationToggleRequest req)
+    {
+        IsHeadApprovalDelegated = req.IsDelegated;
+        DelegationActivatedAt = req.IsDelegated ? DateTime.Now : null;
+        return Ok(new { IsDelegated = IsHeadApprovalDelegated });
+    }
+
+    public class DelegationToggleRequest
+    {
+        public bool IsDelegated { get; set; }
+    }
+
+    public class HeadApproveRequest
+    {
+        public string? DigitalSignature { get; set; }
+        public string? SignerName { get; set; }
+    }
+
+    [HttpPost("{id}/head-approve")]
+    public async Task<IActionResult> HeadApprove(int id, [FromBody] HeadApproveRequest? payload)
+    {
+        var userRole = Request.Headers["X-User-Role"].ToString();
+        if (userRole != "head" && !(userRole == "head_nurse" && IsHeadApprovalDelegated))
+            return BadRequest(new { Error = "Quyền truy cập bị từ chối. Chỉ Trưởng khoa mới có quyền ký duyệt phiếu này (hoặc Điều dưỡng trưởng khoa được ủy quyền)." });
+
+        if (payload == null || string.IsNullOrWhiteSpace(payload.DigitalSignature))
+            return BadRequest(new { Error = "Chữ ký không hợp lệ." });
+
+        try
+        {
+            var req = await _context.MedicineRequisitions.FindAsync(id);
+            if (req == null) return NotFound();
+            if (req.Status == "Rejected") return BadRequest("Không thể ký duyệt phiếu đã bị từ chối.");
+
+            req.HeadSignature = payload.DigitalSignature;
+            req.HeadApproveDate = DateTime.Now;
+            
+            if (userRole == "head_nurse")
+            {
+                var headUser = await _context.Users
+                    .FirstOrDefaultAsync(u => u.DepartmentID == req.DepartmentID && u.Role == "head");
+                req.DelegatedBy = headUser?.FullName ?? "Trưởng khoa lâm sàng";
+                req.DelegatedTo = payload.SignerName ?? "Điều dưỡng trưởng khoa";
+                req.DelegationActivatedAt = DelegationActivatedAt;
+            }
+
+            if (req.Status == "PendingHead")
+            {
+                req.Status = "Pending";
+            }
+
+            await _context.SaveChangesAsync();
+
+            // Broadcast real-time updates
+            await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Requisitions");
+            await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Dashboard");
+
+            return Ok(new { Message = "Trưởng khoa ký duyệt phiếu thành công!" });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { Error = ex.Message });
+        }
+    }
+
+    [HttpPost("{id}/receive")]
+    public async Task<IActionResult> Receive(int id)
+    {
+        var userRole = Request.Headers["X-User-Role"].ToString();
+        if (userRole != "head_nurse" && userRole != "nurse" && userRole != "head")
+            return BadRequest(new { Error = "Quyền truy cập bị từ chối. Chỉ nhân viên khoa lâm sàng mới có quyền xác nhận nhận thuốc." });
+
+        try
+        {
+            var req = await _context.MedicineRequisitions.FindAsync(id);
+            if (req == null) return NotFound();
+            if (req.Status != "Approved") return BadRequest("Phiếu chưa được cấp phát từ Kho Dược.");
+            if (req.ReceiveDate != null) return BadRequest("Phiếu đã được xác nhận nhận thuốc trước đó.");
+
+            req.ReceiveDate = DateTime.Now;
+            await _context.SaveChangesAsync();
+
+            // Broadcast real-time updates
+            await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Requisitions");
+            await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Dashboard");
+
+            return Ok(new { Message = "Xác nhận nhận thuốc thành công!" });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { Error = ex.Message });
+        }
     }
 
     [HttpPost("{id}/approve")]
@@ -110,14 +225,14 @@ public class RequisitionController : ControllerBase
     public async Task<IActionResult> Reject(int id, [FromBody] RequisitionRejectPayload? payload)
     {
         var userRole = Request.Headers["X-User-Role"].ToString();
-        if (userRole != "pharmacist")
-            return BadRequest(new { Error = "Quyền truy cập bị từ chối. Chỉ Thủ kho Dược mới có quyền từ chối phiếu dự trù." });
+        if (userRole != "pharmacist" && userRole != "head")
+            return BadRequest(new { Error = "Quyền truy cập bị từ chối. Chỉ Thủ kho Dược hoặc Trưởng khoa mới có quyền từ chối phiếu lĩnh." });
 
         try
         {
             var req = await _context.MedicineRequisitions.FindAsync(id);
             if (req == null) return NotFound();
-            if (req.Status != "Pending") return BadRequest("Phiếu đã được xử lý.");
+            if (req.Status != "Pending" && req.Status != "PendingHead") return BadRequest("Phiếu đã được xử lý hoặc không hợp lệ.");
 
             // Require reason if this is a cabinet refill request
             if (req.RequisitionType == "CabinetRefill" && string.IsNullOrWhiteSpace(payload?.RejectReason))
@@ -127,7 +242,14 @@ public class RequisitionController : ControllerBase
 
             req.Status = "Rejected";
             req.RejectReason = payload?.RejectReason;
-            req.ApproverSignature = payload?.ApproverSignature; // Save reject signature
+            if (userRole == "head")
+            {
+                req.HeadSignature = payload?.ApproverSignature;
+            }
+            else
+            {
+                req.ApproverSignature = payload?.ApproverSignature;
+            }
 
             await _context.SaveChangesAsync();
 
@@ -174,6 +296,9 @@ public class RequisitionController : ControllerBase
 
             if (invStock == null || invStock.CurrentQuantity < request.Quantity)
                 return BadRequest(new { Error = "Số lượng tồn kho chính không đủ để cấp phát." });
+
+            if (invStock.Batch != null && invStock.Batch.Status != "Bình thường")
+                return BadRequest(new { Error = $"Lô thuốc này đang ở trạng thái [{invStock.Batch.Status}], không được phép thực hiện cấp phát." });
 
             // 2. Subtract from main store
             invStock.CurrentQuantity -= request.Quantity;

@@ -71,6 +71,94 @@ public class MedicineController : ControllerBase
         return Ok(medicine);
     }
 
+    [HttpPost("bulk")]
+    public async Task<IActionResult> BulkCreateMedicines([FromBody] List<Medicine> medicines)
+    {
+        var userRole = Request.Headers["X-User-Role"].ToString();
+        if (userRole != "pharmacist" && userRole != "director")
+            return BadRequest(new { Error = "Quyền truy cập bị từ chối. Chỉ Dược sĩ hoặc Giám đốc mới có quyền thêm thuốc vào danh mục." });
+
+        if (medicines == null || !medicines.Any())
+            return BadRequest(new { Error = "Dữ liệu danh sách thuốc không hợp lệ." });
+
+        var codesToAdd = medicines.Select(m => m.MedicineCode.Trim().ToLower()).ToList();
+        var namesToAdd = medicines.Select(m => m.MedicineName.Trim().ToLower()).ToList();
+        
+        // Find existing codes
+        var existingCodes = await _context.Medicines
+            .Where(m => codesToAdd.Contains(m.MedicineCode.ToLower()))
+            .Select(m => m.MedicineCode.ToLower())
+            .ToListAsync();
+
+        // Find existing names to prevent duplicate name registrations
+        var existingNames = await _context.Medicines
+            .Where(m => namesToAdd.Contains(m.MedicineName.ToLower()))
+            .Select(m => m.MedicineName.ToLower())
+            .ToListAsync();
+
+        var newMedicines = new List<Medicine>();
+        var skippedCount = 0;
+
+        foreach (var med in medicines)
+        {
+            if (string.IsNullOrWhiteSpace(med.MedicineCode) || string.IsNullOrWhiteSpace(med.MedicineName) || string.IsNullOrWhiteSpace(med.Unit))
+            {
+                return BadRequest(new { Error = $"Dữ liệu dòng thuốc/vật tư '{med.MedicineName}' thiếu thông tin bắt buộc (Mã, Tên hoặc Đơn vị tính)." });
+            }
+
+            var cleanCode = med.MedicineCode.Trim().ToLower();
+            var cleanName = med.MedicineName.Trim().ToLower();
+
+            // Skip if code or name already exists in database
+            if (existingCodes.Contains(cleanCode) || existingNames.Contains(cleanName))
+            {
+                skippedCount++;
+                continue;
+            }
+
+            // Skip if duplicate exists in the new list to be added
+            if (newMedicines.Any(n => n.MedicineCode.ToLower() == cleanCode || n.MedicineName.ToLower() == cleanName))
+            {
+                skippedCount++;
+                continue;
+            }
+
+            newMedicines.Add(new Medicine
+            {
+                MedicineCode = med.MedicineCode.Trim(),
+                MedicineName = med.MedicineName.Trim(),
+                GenericName = med.GenericName?.Trim(),
+                Specification = med.Specification?.Trim(),
+                Manufacturer = med.Manufacturer?.Trim(),
+                Unit = med.Unit.Trim(),
+                MinInventory = med.MinInventory <= 0 ? 10 : med.MinInventory,
+                MedicineGroup = string.IsNullOrWhiteSpace(med.MedicineGroup) ? "Dược phẩm khác" : med.MedicineGroup.Trim()
+            });
+        }
+
+        if (newMedicines.Any())
+        {
+            _context.Medicines.AddRange(newMedicines);
+            await _context.SaveChangesAsync();
+        }
+
+        // Broadcast real-time updates
+        await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Inventory");
+        await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Imports");
+
+        var message = $"Nhập danh mục thành công. Đã thêm {newMedicines.Count} mục mới";
+        if (skippedCount > 0)
+        {
+            message += $", bỏ qua {skippedCount} mục trùng lặp đã tồn tại trên hệ thống.";
+        }
+        else
+        {
+            message += ".";
+        }
+
+        return Ok(new { Message = message, ImportedCount = newMedicines.Count, SkippedCount = skippedCount });
+    }
+
     [HttpPut("{id}")]
     public async Task<IActionResult> UpdateMedicine(int id, [FromBody] Medicine updated)
     {

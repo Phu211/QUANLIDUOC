@@ -1415,7 +1415,7 @@ export default function ImportReceipts({ user }) {
 
       <div style={{
         display: 'grid',
-        gridTemplateColumns: user?.role === 'director' ? '1fr' : '1.35fr 1fr',
+        gridTemplateColumns: '1fr',
         gap: '1.5rem',
         alignItems: 'start'
       }}>
@@ -1547,6 +1547,7 @@ export default function ImportReceipts({ user }) {
                         value={deliveryNoteNumber}
                         onChange={e => setDeliveryNoteNumber(e.target.value)}
                         readOnly={inspectingReceiptId !== null}
+                        autoComplete="off"
                         style={{ height: '38px', fontSize: '0.82rem' }}
                       />
                     </div>

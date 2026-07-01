@@ -315,9 +315,33 @@ INSERT INTO Departments (DepartmentName) VALUES
 (N'Khoa Đông Y');
 
 INSERT INTO Users (Username, Password, FullName, Role, DepartmentID) VALUES 
-('thukho', '123', N'Dược sĩ Nguyễn Văn Khoa', 'pharmacist', NULL),
-('dieuduong', '123', N'Điều dưỡng Trần Thị Hồng', 'nurse', 2), -- Khoa Cấp Cứu
-('giamdoc', '123', N'PGS.TS. Lê Minh Dược', 'director', NULL);
+('tri', '123', N'PGS.TS. Lê Minh Trí', 'director', NULL),
+('duy', '123', N'PGS.TS. Nguyễn Thanh Duy', 'director', NULL),
+('giamdoc', '123', N'PGS.TS. Lê Minh Trí', 'director', NULL),
+('phu', '123', N'Dược sĩ Hà Lâm Đình Phú', 'pharmacist', NULL),
+('anh', '123', N'Dược sĩ Kiều Đức Anh', 'pharmacist', NULL),
+('thukho', '123', N'Dược sĩ Hà Lâm Đình Phú', 'pharmacist', NULL),
+('luc', '123', N'BS.CKII. Nguyễn Hữu Lực', 'head', 1),
+('tkkhambenh', '123', N'BS.CKII. Nguyễn Hữu Lực', 'head', 1),
+('chuong', '123', N'BS.CKII. Lê Văn Chương', 'head', 2),
+('tkcapcuu', '123', N'BS.CKII. Lê Văn Chương', 'head', 2),
+('ducanh', '123', N'BS.CKII. Nguyễn Đăng Đức Anh', 'head', 3),
+('tknoitonghop', '123', N'BS.CKII. Nguyễn Đăng Đức Anh', 'head', 3),
+('minhquan', '123', N'BS.CKII. Trương Minh Quân', 'head', 4),
+('tkxetnghiem', '123', N'BS.CKII. Trương Minh Quân', 'head', 4),
+('thang', '123', N'BS.CKII. Nguyễn Xuân Duy Thắng', 'head', 5),
+('tkdongy', '123', N'BS.CKII. Nguyễn Xuân Duy Thắng', 'head', 5),
+('khang', '123', N'Điều dưỡng trưởng Trần Vỹ Khang', 'head_nurse', 2),
+('dieuduong', '123', N'Điều dưỡng trưởng Trần Vỹ Khang', 'head_nurse', 2),
+('nam', '123', N'Điều dưỡng trưởng Trần Trung Nam', 'head_nurse', 1),
+('ddkhambenh', '123', N'Điều dưỡng trưởng Trần Trung Nam', 'head_nurse', 1),
+('phuong', '123', N'Điều dưỡng trưởng Trần Thanh Phương', 'head_nurse', 3),
+('ddnoitonghop', '123', N'Điều dưỡng trưởng Trần Thanh Phương', 'head_nurse', 3),
+('duong', '123', N'Điều dưỡng trưởng Nguyễn Thái Bình Dương', 'head_nurse', 5),
+('dddongy', '123', N'Điều dưỡng trưởng Nguyễn Thái Bình Dương', 'head_nurse', 5),
+('giakhang', '123', N'Điều dưỡng trưởng Nguyễn Trần Gia Khang', 'head_nurse', 4),
+('ddxetnghiem', '123', N'Điều dưỡng trưởng Nguyễn Trần Gia Khang', 'head_nurse', 4),
+('quan', '123', N'Điều dưỡng Đặng Anh Quân', 'nurse', 2);
 
 -- Khôi phục danh mục thuốc và vật tư y tế chuẩn hóa theo mã tự sinh mới
 INSERT INTO Medicines (MedicineCode, MedicineName, GenericName, Specification, Manufacturer, Unit, MinInventory, MedicineGroup) VALUES 

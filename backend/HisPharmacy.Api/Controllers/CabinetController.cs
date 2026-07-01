@@ -49,8 +49,8 @@ public class CabinetController : ControllerBase
     public async Task<IActionResult> ExportFromCabinet([FromBody] CabinetExportRequest request)
     {
         var userRole = Request.Headers["X-User-Role"].ToString();
-        if (userRole != "nurse")
-            return BadRequest(new { Error = "Quyền truy cập bị từ chối. Chỉ Điều dưỡng khoa mới có quyền thực hiện xuất tủ trực." });
+        if (userRole != "nurse" && userRole != "head")
+            return BadRequest(new { Error = "Quyền truy cập bị từ chối. Chỉ Điều dưỡng khoa hoặc Trưởng khoa mới có quyền thực hiện xuất tủ trực cấp phát cho bệnh nhân." });
         if (request == null || request.Quantity <= 0)
             return BadRequest(new { Error = "Thông tin xuất tủ trực không hợp lệ." });
 
@@ -81,8 +81,8 @@ public class CabinetController : ControllerBase
     public async Task<IActionResult> RequestRefill(int departmentId, [FromBody] RefillRequestPayload? payload)
     {
         var userRole = Request.Headers["X-User-Role"].ToString();
-        if (userRole != "nurse")
-            return BadRequest(new { Error = "Quyền truy cập bị từ chối. Chỉ Điều dưỡng khoa mới có quyền đề nghị bù tủ trực." });
+        if (userRole != "head_nurse" && userRole != "head")
+            return BadRequest(new { Error = "Quyền truy cập bị từ chối. Chỉ Điều dưỡng trưởng khoa hoặc Trưởng khoa mới có quyền ký đề nghị bù tủ trực." });
         try
         {
             var signature = payload?.DigitalSignature;

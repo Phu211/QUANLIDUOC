@@ -261,7 +261,34 @@ export default function Login({ onLoginSuccess }) {
           <h4 style={{ fontSize: '0.8rem', fontWeight: '600', color: '#94a3b8', marginBottom: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
             Tài khoản chạy thử (Demo Accounts)
           </h4>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '240px', overflowY: 'auto', paddingRight: '0.3rem' }}>
+            
+            {/* BAN GIÁM ĐỐC & KHO DƯỢC */}
+            <div style={{ color: '#0d9488', fontSize: '0.72rem', fontWeight: 'bold', marginTop: '0.3rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Toàn viện & Dược chính</div>
+            <div 
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                background: 'rgba(255, 255, 255, 0.03)',
+                border: '1px solid rgba(255, 255, 255, 0.05)',
+                padding: '0.5rem 0.75rem',
+                borderRadius: '8px',
+                fontSize: '0.78rem',
+                cursor: 'pointer',
+                transition: 'background 0.15s ease'
+              }}
+              onClick={() => handleQuickLogin('giamdoc', '123')}
+              onMouseEnter={e => e.currentTarget.style.background = 'rgba(13, 148, 136, 0.15)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.03)'}
+            >
+              <div>
+                <strong style={{ color: '#ffffff' }}>giamdoc</strong> <span style={{ color: '#64748b' }}>(pass: 123)</span>
+                <div style={{ color: '#94a3b8', fontSize: '0.7rem', marginTop: '0.15rem' }}>Giám đốc - PGS.TS. Lê Minh Trí</div>
+              </div>
+              <span style={{ color: '#0d9488', fontWeight: '600', fontSize: '0.72rem' }}>Chọn</span>
+            </div>
+
             <div 
               style={{
                 display: 'flex',
@@ -280,10 +307,36 @@ export default function Login({ onLoginSuccess }) {
               onMouseLeave={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.03)'}
             >
               <div>
-                <strong style={{ color: '#ffffff' }}>thukho</strong> <span style={{ color: '#64748b' }}>(mật khẩu: 123)</span>
-                <div style={{ color: '#94a3b8', fontSize: '0.7rem', marginTop: '0.15rem' }}>Thủ kho Dược - Dược sĩ Khoa</div>
+                <strong style={{ color: '#ffffff' }}>thukho</strong> <span style={{ color: '#64748b' }}>(pass: 123)</span>
+                <div style={{ color: '#94a3b8', fontSize: '0.7rem', marginTop: '0.15rem' }}>Thủ kho Dược - DS. Hà Lâm Đình Phú</div>
               </div>
-              <span style={{ color: '#0d9488', fontWeight: '600', fontSize: '0.72rem' }}>Chọn nhanh</span>
+              <span style={{ color: '#0d9488', fontWeight: '600', fontSize: '0.72rem' }}>Chọn</span>
+            </div>
+
+            {/* KHOA CẤP CỨU */}
+            <div style={{ color: '#38bdf8', fontSize: '0.72rem', fontWeight: 'bold', marginTop: '0.3rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Khoa Cấp Cứu</div>
+            <div 
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                background: 'rgba(255, 255, 255, 0.03)',
+                border: '1px solid rgba(255, 255, 255, 0.05)',
+                padding: '0.5rem 0.75rem',
+                borderRadius: '8px',
+                fontSize: '0.78rem',
+                cursor: 'pointer',
+                transition: 'background 0.15s ease'
+              }}
+              onClick={() => handleQuickLogin('tkcapcuu', '123')}
+              onMouseEnter={e => e.currentTarget.style.background = 'rgba(13, 148, 136, 0.15)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.03)'}
+            >
+              <div>
+                <strong style={{ color: '#ffffff' }}>tkcapcuu</strong> <span style={{ color: '#64748b' }}>(pass: 123)</span>
+                <div style={{ color: '#94a3b8', fontSize: '0.7rem', marginTop: '0.15rem' }}>Trưởng khoa - BS.CKII. Lê Văn Chương</div>
+              </div>
+              <span style={{ color: '#0d9488', fontWeight: '600', fontSize: '0.72rem' }}>Chọn</span>
             </div>
 
             <div 
@@ -304,10 +357,10 @@ export default function Login({ onLoginSuccess }) {
               onMouseLeave={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.03)'}
             >
               <div>
-                <strong style={{ color: '#ffffff' }}>dieuduong</strong> <span style={{ color: '#64748b' }}>(mật khẩu: 123)</span>
-                <div style={{ color: '#94a3b8', fontSize: '0.7rem', marginTop: '0.15rem' }}>Điều dưỡng - Trần Thị Hồng (Cấp cứu)</div>
+                <strong style={{ color: '#ffffff' }}>dieuduong</strong> <span style={{ color: '#64748b' }}>(pass: 123)</span>
+                <div style={{ color: '#94a3b8', fontSize: '0.7rem', marginTop: '0.15rem' }}>Điều dưỡng trưởng - Trần Vỹ Khang</div>
               </div>
-              <span style={{ color: '#0d9488', fontWeight: '600', fontSize: '0.72rem' }}>Chọn nhanh</span>
+              <span style={{ color: '#0d9488', fontWeight: '600', fontSize: '0.72rem' }}>Chọn</span>
             </div>
 
             <div 
@@ -323,16 +376,217 @@ export default function Login({ onLoginSuccess }) {
                 cursor: 'pointer',
                 transition: 'background 0.15s ease'
               }}
-              onClick={() => handleQuickLogin('giamdoc', '123')}
+              onClick={() => handleQuickLogin('quan', '123')}
               onMouseEnter={e => e.currentTarget.style.background = 'rgba(13, 148, 136, 0.15)'}
               onMouseLeave={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.03)'}
             >
               <div>
-                <strong style={{ color: '#ffffff' }}>giamdoc</strong> <span style={{ color: '#64748b' }}>(mật khẩu: 123)</span>
-                <div style={{ color: '#94a3b8', fontSize: '0.7rem', marginTop: '0.15rem' }}>Trưởng khoa / Giám đốc - PGS.TS Dược</div>
+                <strong style={{ color: '#ffffff' }}>quan</strong> <span style={{ color: '#64748b' }}>(pass: 123)</span>
+                <div style={{ color: '#94a3b8', fontSize: '0.7rem', marginTop: '0.15rem' }}>Điều dưỡng viên - Đặng Anh Quân</div>
               </div>
-              <span style={{ color: '#0d9488', fontWeight: '600', fontSize: '0.72rem' }}>Chọn nhanh</span>
+              <span style={{ color: '#0d9488', fontWeight: '600', fontSize: '0.72rem' }}>Chọn</span>
             </div>
+
+            {/* KHOA KHÁM BỆNH */}
+            <div style={{ color: '#38bdf8', fontSize: '0.72rem', fontWeight: 'bold', marginTop: '0.3rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Khoa Khám Bệnh</div>
+            <div 
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                background: 'rgba(255, 255, 255, 0.03)',
+                border: '1px solid rgba(255, 255, 255, 0.05)',
+                padding: '0.5rem 0.75rem',
+                borderRadius: '8px',
+                fontSize: '0.78rem',
+                cursor: 'pointer',
+                transition: 'background 0.15s ease'
+              }}
+              onClick={() => handleQuickLogin('tkkhambenh', '123')}
+              onMouseEnter={e => e.currentTarget.style.background = 'rgba(13, 148, 136, 0.15)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.03)'}
+            >
+              <div>
+                <strong style={{ color: '#ffffff' }}>tkkhambenh</strong> <span style={{ color: '#64748b' }}>(pass: 123)</span>
+                <div style={{ color: '#94a3b8', fontSize: '0.7rem', marginTop: '0.15rem' }}>Trưởng khoa - BS.CKII. Nguyễn Hữu Lực</div>
+              </div>
+              <span style={{ color: '#0d9488', fontWeight: '600', fontSize: '0.72rem' }}>Chọn</span>
+            </div>
+
+            <div 
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                background: 'rgba(255, 255, 255, 0.03)',
+                border: '1px solid rgba(255, 255, 255, 0.05)',
+                padding: '0.5rem 0.75rem',
+                borderRadius: '8px',
+                fontSize: '0.78rem',
+                cursor: 'pointer',
+                transition: 'background 0.15s ease'
+              }}
+              onClick={() => handleQuickLogin('ddkhambenh', '123')}
+              onMouseEnter={e => e.currentTarget.style.background = 'rgba(13, 148, 136, 0.15)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.03)'}
+            >
+              <div>
+                <strong style={{ color: '#ffffff' }}>ddkhambenh</strong> <span style={{ color: '#64748b' }}>(pass: 123)</span>
+                <div style={{ color: '#94a3b8', fontSize: '0.7rem', marginTop: '0.15rem' }}>Điều dưỡng trưởng - Trần Trung Nam</div>
+              </div>
+              <span style={{ color: '#0d9488', fontWeight: '600', fontSize: '0.72rem' }}>Chọn</span>
+            </div>
+
+            {/* KHOA NỘI TỔNG HỢP */}
+            <div style={{ color: '#38bdf8', fontSize: '0.72rem', fontWeight: 'bold', marginTop: '0.3rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Khoa Nội Tổng Hợp</div>
+            <div 
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                background: 'rgba(255, 255, 255, 0.03)',
+                border: '1px solid rgba(255, 255, 255, 0.05)',
+                padding: '0.5rem 0.75rem',
+                borderRadius: '8px',
+                fontSize: '0.78rem',
+                cursor: 'pointer',
+                transition: 'background 0.15s ease'
+              }}
+              onClick={() => handleQuickLogin('tknoitonghop', '123')}
+              onMouseEnter={e => e.currentTarget.style.background = 'rgba(13, 148, 136, 0.15)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.03)'}
+            >
+              <div>
+                <strong style={{ color: '#ffffff' }}>tknoitonghop</strong> <span style={{ color: '#64748b' }}>(pass: 123)</span>
+                <div style={{ color: '#94a3b8', fontSize: '0.7rem', marginTop: '0.15rem' }}>Trưởng khoa - BS.CKII. Nguyễn Đăng Đức Anh</div>
+              </div>
+              <span style={{ color: '#0d9488', fontWeight: '600', fontSize: '0.72rem' }}>Chọn</span>
+            </div>
+
+            <div 
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                background: 'rgba(255, 255, 255, 0.03)',
+                border: '1px solid rgba(255, 255, 255, 0.05)',
+                padding: '0.5rem 0.75rem',
+                borderRadius: '8px',
+                fontSize: '0.78rem',
+                cursor: 'pointer',
+                transition: 'background 0.15s ease'
+              }}
+              onClick={() => handleQuickLogin('ddnoitonghop', '123')}
+              onMouseEnter={e => e.currentTarget.style.background = 'rgba(13, 148, 136, 0.15)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.03)'}
+            >
+              <div>
+                <strong style={{ color: '#ffffff' }}>ddnoitonghop</strong> <span style={{ color: '#64748b' }}>(pass: 123)</span>
+                <div style={{ color: '#94a3b8', fontSize: '0.7rem', marginTop: '0.15rem' }}>Điều dưỡng trưởng - Trần Thanh Phương</div>
+              </div>
+              <span style={{ color: '#0d9488', fontWeight: '600', fontSize: '0.72rem' }}>Chọn</span>
+            </div>
+
+            {/* KHOA XÉT NGHIỆM */}
+            <div style={{ color: '#38bdf8', fontSize: '0.72rem', fontWeight: 'bold', marginTop: '0.3rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Khoa Xét Nghiệm</div>
+            <div 
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                background: 'rgba(255, 255, 255, 0.03)',
+                border: '1px solid rgba(255, 255, 255, 0.05)',
+                padding: '0.5rem 0.75rem',
+                borderRadius: '8px',
+                fontSize: '0.78rem',
+                cursor: 'pointer',
+                transition: 'background 0.15s ease'
+              }}
+              onClick={() => handleQuickLogin('tkxetnghiem', '123')}
+              onMouseEnter={e => e.currentTarget.style.background = 'rgba(13, 148, 136, 0.15)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.03)'}
+            >
+              <div>
+                <strong style={{ color: '#ffffff' }}>tkxetnghiem</strong> <span style={{ color: '#64748b' }}>(pass: 123)</span>
+                <div style={{ color: '#94a3b8', fontSize: '0.7rem', marginTop: '0.15rem' }}>Trưởng khoa - BS.CKII. Trương Minh Quân</div>
+              </div>
+              <span style={{ color: '#0d9488', fontWeight: '600', fontSize: '0.72rem' }}>Chọn</span>
+            </div>
+
+            <div 
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                background: 'rgba(255, 255, 255, 0.03)',
+                border: '1px solid rgba(255, 255, 255, 0.05)',
+                padding: '0.5rem 0.75rem',
+                borderRadius: '8px',
+                fontSize: '0.78rem',
+                cursor: 'pointer',
+                transition: 'background 0.15s ease'
+              }}
+              onClick={() => handleQuickLogin('ddxetnghiem', '123')}
+              onMouseEnter={e => e.currentTarget.style.background = 'rgba(13, 148, 136, 0.15)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.03)'}
+            >
+              <div>
+                <strong style={{ color: '#ffffff' }}>ddxetnghiem</strong> <span style={{ color: '#64748b' }}>(pass: 123)</span>
+                <div style={{ color: '#94a3b8', fontSize: '0.7rem', marginTop: '0.15rem' }}>Điều dưỡng trưởng - Nguyễn Trần Gia Khang</div>
+              </div>
+              <span style={{ color: '#0d9488', fontWeight: '600', fontSize: '0.72rem' }}>Chọn</span>
+            </div>
+
+            {/* KHOA ĐÔNG Y */}
+            <div style={{ color: '#38bdf8', fontSize: '0.72rem', fontWeight: 'bold', marginTop: '0.3rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Khoa Đông Y</div>
+            <div 
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                background: 'rgba(255, 255, 255, 0.03)',
+                border: '1px solid rgba(255, 255, 255, 0.05)',
+                padding: '0.5rem 0.75rem',
+                borderRadius: '8px',
+                fontSize: '0.78rem',
+                cursor: 'pointer',
+                transition: 'background 0.15s ease'
+              }}
+              onClick={() => handleQuickLogin('tkdongy', '123')}
+              onMouseEnter={e => e.currentTarget.style.background = 'rgba(13, 148, 136, 0.15)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.03)'}
+            >
+              <div>
+                <strong style={{ color: '#ffffff' }}>tkdongy</strong> <span style={{ color: '#64748b' }}>(pass: 123)</span>
+                <div style={{ color: '#94a3b8', fontSize: '0.7rem', marginTop: '0.15rem' }}>Trưởng khoa - BS.CKII. Nguyễn Xuân Duy Thắng</div>
+              </div>
+              <span style={{ color: '#0d9488', fontWeight: '600', fontSize: '0.72rem' }}>Chọn</span>
+            </div>
+
+            <div 
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                background: 'rgba(255, 255, 255, 0.03)',
+                border: '1px solid rgba(255, 255, 255, 0.05)',
+                padding: '0.5rem 0.75rem',
+                borderRadius: '8px',
+                fontSize: '0.78rem',
+                cursor: 'pointer',
+                transition: 'background 0.15s ease'
+              }}
+              onClick={() => handleQuickLogin('dddongy', '123')}
+              onMouseEnter={e => e.currentTarget.style.background = 'rgba(13, 148, 136, 0.15)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.03)'}
+            >
+              <div>
+                <strong style={{ color: '#ffffff' }}>dddongy</strong> <span style={{ color: '#64748b' }}>(pass: 123)</span>
+                <div style={{ color: '#94a3b8', fontSize: '0.7rem', marginTop: '0.15rem' }}>Điều dưỡng trưởng - Nguyễn Thái Bình Dương</div>
+              </div>
+              <span style={{ color: '#0d9488', fontWeight: '600', fontSize: '0.72rem' }}>Chọn</span>
+            </div>
+
           </div>
         </div>
       </div>

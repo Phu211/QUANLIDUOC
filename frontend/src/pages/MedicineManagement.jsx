@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Edit2, Trash2, Search, RefreshCw, X, AlertTriangle, Layers } from 'lucide-react';
-
+import * as XLSX from 'xlsx';
 export default function MedicineManagement({ user }) {
   const [medicines, setMedicines] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [showTemplateDropdown, setShowTemplateDropdown] = useState(false);
+  const [showImportDropdown, setShowImportDropdown] = useState(false);
 
   // Modal State
   const [showModal, setShowModal] = useState(false);
@@ -62,6 +64,171 @@ export default function MedicineManagement({ user }) {
         console.error("Error loading medicines catalog: ", err);
         setLoading(false);
       });
+  };
+
+  const handleExcelImport = (e, forcedType) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const data = evt.target.result;
+        const workbook = XLSX.read(data, { type: 'binary' });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        const json = XLSX.utils.sheet_to_json(worksheet);
+
+        if (json.length === 0) {
+          alert("File Excel trống hoặc không đúng định dạng.");
+          return;
+        }
+
+        // Map columns dynamically
+        let tempMedicines = [...medicines];
+        const medicinesList = json.map(row => {
+          const getVal = (aliases) => {
+            const matchedKey = Object.keys(row).find(k => {
+              const cleanKey = k.replace(/\(.*?\)/g, '') // Remove parenthetical notes like (Bắt buộc)
+                               .replace(/\r?\n|\r/g, ' ')
+                               .replace(/\s+/g, ' ')
+                               .toLowerCase()
+                               .trim();
+              return aliases.some(alias => cleanKey === alias.toLowerCase().trim());
+            });
+            return matchedKey ? row[matchedKey] : null;
+          };
+
+          const name = getVal(['tên thuốc', 'tenthuoc', 'medicinename', 'name', 'tên', 'tên thuốc / vật tư', 'tên thuốc/vật tư', 'tên vật tư', 'tenvattu', 'supplyname']);
+          const generic = getVal(['hoạt chất', 'hoatchat', 'genericname', 'hoạt chất chính']);
+          const spec = getVal(['quy cách', 'quycach', 'specification']);
+          const mfg = getVal(['nhà sản xuất', 'nhasanxuat', 'manufacturer', 'hãng sản xuất']);
+          const unit = getVal(['đơn vị tính', 'donvitinh', 'unit', 'đvt', 'đơn vị']);
+          const minInvVal = getVal(['định mức tối thiểu', 'dinhmuctoithieu', 'mininventory', 'tồn tối thiểu', 'min']);
+          const group = getVal(['nhóm thuốc', 'nhomthuoc', 'medicinegroup', 'group', 'nhóm', 'nhóm vật tư', 'nhomvattu']);
+
+          const type = forcedType; // 'medicine' or 'supply'
+
+          let code = getVal(['mã thuốc', 'mathuoc', 'medicinecode', 'code', 'mã', 'mã vật tư', 'mavattu']);
+          if (!code || !String(code).trim()) {
+            code = generateNextCode(type, tempMedicines);
+          }
+
+          const newMed = {
+            medicineCode: String(code).trim(),
+            medicineName: name ? String(name).trim() : '',
+            genericName: type === 'supply' ? null : (generic ? String(generic).trim() : null),
+            specification: spec ? String(spec).trim() : null,
+            manufacturer: mfg ? String(mfg).trim() : null,
+            unit: unit ? String(unit).trim() : '',
+            minInventory: minInvVal ? parseInt(minInvVal) || 10 : 10,
+            medicineGroup: group ? String(group).trim() : (type === 'supply' ? 'Vật tư tiêu hao' : 'Dược phẩm khác')
+          };
+
+          tempMedicines.push(newMed);
+          return newMed;
+        });
+
+        // Validate required fields (only Name and Unit are now user-mandatory, Code is auto-generated if missing)
+        const invalidRows = medicinesList.filter(m => !m.medicineCode || !m.medicineName || !m.unit);
+        if (invalidRows.length > 0) {
+          const typeLabel = forcedType === 'supply' ? 'Tên vật tư hoặc Đơn vị tính' : 'Tên thuốc hoặc Đơn vị tính';
+          alert(`Lỗi dữ liệu: Có ${invalidRows.length} dòng thiếu các cột bắt buộc (${typeLabel}). Vui lòng kiểm tra lại.`);
+          return;
+        }
+
+        const confirmMsg = forcedType === 'supply' 
+          ? `Bạn có chắc chắn muốn nhập ${medicinesList.length} vật tư y tế từ file Excel vào danh mục không?`
+          : `Bạn có chắc chắn muốn nhập ${medicinesList.length} thuốc từ file Excel vào danh mục không?`;
+
+        if (window.confirm(confirmMsg)) {
+          fetch('/api/medicine/bulk', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-User-Role': user?.role || ''
+            },
+            body: JSON.stringify(medicinesList)
+          })
+          .then(async res => {
+            const text = await res.text();
+            if (res.ok) {
+              const result = JSON.parse(text);
+              alert(result.message || `Đã nhập thành công ${result.importedCount} mục vào danh mục.`);
+              fetchMedicines();
+            } else {
+              let errorMsg = "Lỗi nhập danh mục";
+              try {
+                const data = JSON.parse(text);
+                errorMsg = data.error || data.message || errorMsg;
+              } catch (e) {
+                errorMsg = text || `Mã lỗi: ${res.status}`;
+              }
+              alert("Lỗi khi nhập danh mục từ Excel: " + errorMsg);
+            }
+          })
+          .catch(err => alert("Lỗi kết nối API: " + err.message));
+        }
+      } catch (err) {
+        alert("Lỗi khi đọc file Excel: " + err.message);
+      }
+    };
+    reader.readAsBinaryString(file);
+    e.target.value = null;
+  };
+
+  const downloadExcelTemplate = (templateType) => {
+    let data = [];
+    let filename = "";
+
+    if (templateType === 'supply') {
+      data = [
+        {
+          "Tên Vật Tư (Bắt buộc)": "Bông y tế tiệt trùng 100g",
+          "Quy Cách": "Gói 100g",
+          "Đơn Vị Tính (Bắt buộc)": "Gói",
+          "Nhà Sản Xuất": "Bông Bạch Tuyết",
+          "Tồn Tối Thiểu": 20,
+          "Nhóm Vật Tư": "Vật tư tiêu hao"
+        },
+        {
+          "Tên Vật Tư (Bắt buộc)": "Bơm tiêm 5ml dùng 1 lần",
+          "Quy Cách": "Cái",
+          "Đơn Vị Tính (Bắt buộc)": "Cái",
+          "Nhà Sản Xuất": "Vinahankook",
+          "Tồn Tối Thiểu": 50,
+          "Nhóm Vật Tư": "Vật tư can thiệp"
+        }
+      ];
+      filename = "mau_nhap_danh_muc_vat_tu.xlsx";
+    } else {
+      data = [
+        {
+          "Tên Thuốc (Bắt buộc)": "Paracetamol 500mg",
+          "Hoạt Chất": "Paracetamol",
+          "Quy Cách": "Hộp 10 vỉ x 10 viên",
+          "Đơn Vị Tính (Bắt buộc)": "Viên",
+          "Nhà Sản Xuất": "Dược Hậu Giang (DHG)",
+          "Tồn Tối Thiểu": 100,
+          "Nhóm Thuốc": "Thuốc giảm đau, hạ sốt"
+        },
+        {
+          "Tên Thuốc (Bắt buộc)": "Cefixim 200mg",
+          "Hoạt Chất": "Cefixim",
+          "Quy Cách": "Hộp 2 vỉ x 10 viên",
+          "Đơn Vị Tính (Bắt buộc)": "Viên",
+          "Nhà Sản Xuất": "DHG Pharma",
+          "Tồn Tối Thiểu": 40,
+          "Nhóm Thuốc": "Kháng sinh"
+        }
+      ];
+      filename = "mau_nhap_danh_muc_thuoc.xlsx";
+    }
+
+    const worksheet = XLSX.utils.json_to_sheet(data);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, templateType === 'supply' ? "Vật tư mẫu" : "Thuốc mẫu");
+    XLSX.writeFile(workbook, filename);
   };
 
   useEffect(() => {
@@ -231,12 +398,125 @@ export default function MedicineManagement({ user }) {
           <h1 className="page-title">Quản Lý Danh Mục Thuốc</h1>
           <p className="page-subtitle">Cấu hình danh mục các loại dược phẩm, vật tư y tế được cấp phát trong hệ thống.</p>
         </div>
-        <div style={{ display: 'flex', gap: '0.75rem' }}>
-          <button className="btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }} onClick={fetchMedicines}>
-            <RefreshCw size={16} /> Làm mới
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+          <button className="btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', padding: '0.4rem 0.6rem', fontSize: '0.8rem', height: '36px' }} onClick={fetchMedicines}>
+            <RefreshCw size={14} /> Làm mới
           </button>
-          <button className="btn-premium" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }} onClick={handleOpenAddModal}>
-            <Plus size={16} /> Khai báo thuốc mới
+
+          {/* Dropdown Tải file mẫu */}
+          <div style={{ position: 'relative' }}>
+            <button 
+              className="btn-secondary" 
+              style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', padding: '0.4rem 0.6rem', fontSize: '0.8rem', height: '36px', background: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', borderColor: 'rgba(59, 130, 246, 0.2)' }}
+              onClick={() => setShowTemplateDropdown(!showTemplateDropdown)}
+              title="Tải file Excel mẫu"
+            >
+              Tải file mẫu <span style={{ fontSize: '0.65rem' }}>▼</span>
+            </button>
+            {showTemplateDropdown && (
+              <div style={{ 
+                position: 'absolute', 
+                top: '40px', 
+                left: 0, 
+                background: '#ffffff', 
+                border: '1px solid var(--border-color)', 
+                borderRadius: '8px', 
+                boxShadow: 'var(--shadow-md)', 
+                zIndex: 100, 
+                width: '180px',
+                padding: '4px'
+              }}>
+                <button 
+                  style={{ width: '100%', padding: '0.5rem 0.75rem', fontSize: '0.8rem', border: 'none', background: 'transparent', textAlign: 'left', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-main)' }}
+                  onClick={() => {
+                    downloadExcelTemplate('medicine');
+                    setShowTemplateDropdown(false);
+                  }}
+                  onMouseEnter={(e) => e.target.style.background = 'var(--bg-secondary)'}
+                  onMouseLeave={(e) => e.target.style.background = 'transparent'}
+                >
+                  File mẫu Thuốc
+                </button>
+                <button 
+                  style={{ width: '100%', padding: '0.5rem 0.75rem', fontSize: '0.8rem', border: 'none', background: 'transparent', textAlign: 'left', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-main)' }}
+                  onClick={() => {
+                    downloadExcelTemplate('supply');
+                    setShowTemplateDropdown(false);
+                  }}
+                  onMouseEnter={(e) => e.target.style.background = 'var(--bg-secondary)'}
+                  onMouseLeave={(e) => e.target.style.background = 'transparent'}
+                >
+                  File mẫu Vật tư
+                </button>
+              </div>
+            )}
+          </div>
+          
+          {/* Nhập từ Excel Dropdown */}
+          <input 
+            type="file" 
+            id="excel-import-medicine" 
+            accept=".xlsx, .xls" 
+            style={{ display: 'none' }} 
+            onChange={(e) => handleExcelImport(e, 'medicine')} 
+          />
+          <input 
+            type="file" 
+            id="excel-import-supply" 
+            accept=".xlsx, .xls" 
+            style={{ display: 'none' }} 
+            onChange={(e) => handleExcelImport(e, 'supply')} 
+          />
+          <div style={{ position: 'relative' }}>
+            <button 
+              className="btn-secondary" 
+              style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', padding: '0.4rem 0.6rem', fontSize: '0.8rem', height: '36px', background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', borderColor: 'rgba(16, 185, 129, 0.2)' }}
+              onClick={() => setShowImportDropdown(!showImportDropdown)}
+              title="Nhập danh mục từ tệp Excel"
+            >
+              Nhập từ Excel <span style={{ fontSize: '0.65rem' }}>▼</span>
+            </button>
+            {showImportDropdown && (
+              <div style={{ 
+                position: 'absolute', 
+                top: '40px', 
+                left: 0, 
+                background: '#ffffff', 
+                border: '1px solid var(--border-color)', 
+                borderRadius: '8px', 
+                boxShadow: 'var(--shadow-md)', 
+                zIndex: 100, 
+                width: '180px',
+                padding: '4px'
+              }}>
+                <button 
+                  style={{ width: '100%', padding: '0.5rem 0.75rem', fontSize: '0.8rem', border: 'none', background: 'transparent', textAlign: 'left', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-main)' }}
+                  onClick={() => {
+                    document.getElementById('excel-import-medicine').click();
+                    setShowImportDropdown(false);
+                  }}
+                  onMouseEnter={(e) => e.target.style.background = 'var(--bg-secondary)'}
+                  onMouseLeave={(e) => e.target.style.background = 'transparent'}
+                >
+                  Nhập danh mục Thuốc
+                </button>
+                <button 
+                  style={{ width: '100%', padding: '0.5rem 0.75rem', fontSize: '0.8rem', border: 'none', background: 'transparent', textAlign: 'left', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-main)' }}
+                  onClick={() => {
+                    document.getElementById('excel-import-supply').click();
+                    setShowImportDropdown(false);
+                  }}
+                  onMouseEnter={(e) => e.target.style.background = 'var(--bg-secondary)'}
+                  onMouseLeave={(e) => e.target.style.background = 'transparent'}
+                >
+                  Nhập danh mục Vật tư
+                </button>
+              </div>
+            )}
+          </div>
+
+          <button className="btn-premium" style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', padding: '0.4rem 0.8rem', fontSize: '0.8rem', height: '36px' }} onClick={handleOpenAddModal}>
+            <Plus size={14} /> Khai báo mới
           </button>
         </div>
       </div>

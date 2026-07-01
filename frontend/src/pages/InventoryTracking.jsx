@@ -203,7 +203,20 @@ export default function InventoryTracking({ user }) {
                       
                       let indicatorClass = 'safe';
                       let indicatorText = 'An toàn';
-                      if (diffDays <= 0) {
+                      
+                      if (item.status === 'Cách ly') {
+                        indicatorClass = 'warning';
+                        indicatorText = 'Cách ly (Khóa phát)';
+                      } else if (item.status === 'Thu hồi') {
+                        indicatorClass = 'critical';
+                        indicatorText = 'Đang thu hồi';
+                      } else if (item.status === 'Trả NCC') {
+                        indicatorClass = 'critical';
+                        indicatorText = 'Đã trả NCC';
+                      } else if (item.status === 'Tiêu hủy') {
+                        indicatorClass = 'critical';
+                        indicatorText = 'Đã tiêu hủy';
+                      } else if (diffDays <= 0) {
                         indicatorClass = 'critical';
                         indicatorText = 'Hết hạn';
                       } else if (diffDays <= 90) {

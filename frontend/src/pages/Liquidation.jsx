@@ -7,27 +7,35 @@ export default function Liquidation({ user }) {
   const [loading, setLoading] = useState(true);
 
   // Form State
-  const [reason, setReason] = useState('');
+  const [reason, setReason] = useState('TL01 - Hết hạn sử dụng');
   const [selectedItems, setSelectedItems] = useState([]); // List of { batchID, location, quantity }
+  const [allStoreBatches, setAllStoreBatches] = useState([]);
+  const [activeTab, setActiveTab] = useState('liquidation'); // 'liquidation' or 'destruction'
+  const [showAllLowUsage, setShowAllLowUsage] = useState(false); // Toggle to show other stock
+  const [responsiblePerson, setResponsiblePerson] = useState('');
 
   // Digital Signature & Print States
   const [showSignatureModal, setShowSignatureModal] = useState(false);
   const [isDrawing, setIsDrawing] = useState(false);
   const canvasRef = useRef(null);
   const [activeLiquidationForPrint, setActiveLiquidationForPrint] = useState(null);
+  const [signatureTarget, setSignatureTarget] = useState(null); // { action, id }
 
   const fetchData = () => {
     setLoading(true);
     Promise.all([
       fetch('/api/liquidation').then(res => res.json()),
-      fetch('/api/liquidation/expired').then(res => res.json())
+      fetch('/api/liquidation/expired').then(res => res.json()),
+      fetch('/api/inventory/batches').then(res => res.json())
     ])
-    .then(([liqData, expData]) => {
+    .then(([liqData, expData, allBatches]) => {
       setLiquidations(liqData);
       setExpiredItems(expData);
+      setAllStoreBatches(allBatches);
       setLoading(false);
       setSelectedItems([]);
-      setReason('');
+      setReason('TL01 - Hết hạn sử dụng');
+      setResponsiblePerson('');
     })
     .catch(err => {
       console.error("Error loading liquidation data: ", err);
@@ -134,9 +142,79 @@ export default function Liquidation({ user }) {
     const base64Signature = canvas.toDataURL('image/png');
     setShowSignatureModal(false);
     
-    // Resume creation with signature
-    handleCreateLiquidation(null, base64Signature);
+    if (signatureTarget?.action === 'approve_liquidation') {
+      const id = signatureTarget.id;
+      fetch(`/api/liquidation/${id}/approve`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Role': user?.role || '',
+          'X-User-FullName': encodeURIComponent(user?.fullName || '')
+        },
+        body: JSON.stringify({ approverSignature: base64Signature })
+      })
+      .then(res => {
+        if (!res.ok) return res.json().then(data => { throw new Error(data.error || "Lỗi phê duyệt."); });
+        return res.json();
+      })
+      .then(() => {
+        alert("Duyệt tiêu hủy tài sản và trừ tồn kho thành công!");
+        fetchData();
+      })
+      .catch(err => alert("Lỗi phê duyệt: " + err.message));
+    } else {
+      // Resume creation with signature
+      handleCreateLiquidation(null, base64Signature);
+    }
   };
+
+  const handleStartApprove = (id) => {
+    setSignatureTarget({ action: 'approve_liquidation', id });
+    setShowSignatureModal(true);
+  };
+
+  const handleRejectLiquidation = (id) => {
+    if (!window.confirm("Bạn có chắc chắn muốn từ chối yêu cầu thanh lý này không?")) return;
+    fetch(`/api/liquidation/${id}/reject`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-User-Role': user?.role || '',
+        'X-User-FullName': encodeURIComponent(user?.fullName || '')
+      }
+    })
+    .then(res => {
+      if (!res.ok) return res.json().then(data => { throw new Error(data.error || "Lỗi từ chối."); });
+      return res.json();
+    })
+    .then(() => {
+      alert("Đã từ chối yêu cầu thanh lý thành công.");
+      fetchData();
+    })
+    .catch(err => alert("Lỗi: " + err.message));
+  };
+
+  const handleExecuteLiquidation = (id) => {
+    if (!window.confirm("Xác nhận đã thực hiện thanh lý/tiêu hủy thực tế và cập nhật giảm tồn kho?")) return;
+    fetch(`/api/liquidation/${id}/execute`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-User-Role': user?.role || '',
+        'X-User-FullName': encodeURIComponent(user?.fullName || '')
+      }
+    })
+    .then(res => {
+      if (!res.ok) return res.json().then(data => { throw new Error(data.error || "Lỗi xử lý thực tế."); });
+      return res.json();
+    })
+    .then(() => {
+      alert("Hoàn tất quy trình xử lý thực tế và trừ tồn kho thành công!");
+      fetchData();
+    })
+    .catch(err => alert("Lỗi: " + err.message));
+  };
+
 
   const handleSelectItem = (item) => {
     // Check if already selected
@@ -171,21 +249,29 @@ export default function Liquidation({ user }) {
 
     // INTERCEPT: Request digital signature before submitting liquidation
     if (!signatureData) {
+      setSignatureTarget({ action: 'create_liquidation' });
       setShowSignatureModal(true);
       return;
     }
 
+    const finalReason = (activeTab === 'destruction' && responsiblePerson)
+      ? `${reason} (Trách nhiệm: ${responsiblePerson})`
+      : reason;
+
     const payload = {
-      reason: reason,
+      reason: finalReason,
+      type: activeTab === 'liquidation' ? 'Thanh lý' : 'Tiêu hủy',
+      createdBy: user?.fullName || 'Thủ kho Dược',
       items: selectedItems,
-      digitalSignature: signatureData // Save director signature
+      digitalSignature: signatureData
     };
 
     fetch('/api/liquidation/create', {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
-        'X-User-Role': user?.role || ''
+        'X-User-Role': user?.role || '',
+        'X-User-FullName': encodeURIComponent(user?.fullName || '')
       },
       body: JSON.stringify(payload)
     })
@@ -196,96 +282,210 @@ export default function Liquidation({ user }) {
       return res.json();
     })
     .then(newLiq => {
-      alert("Phiếu yêu cầu thanh lý đã được duyệt nhận, ký nhận và xử lý kho thành công!");
+      if (user?.role === 'director') {
+        alert("Đã duyệt tiêu hủy và trừ kho thành công!");
+      } else {
+        alert("Đã lập phiếu đề xuất thanh lý và gửi trình duyệt lên Ban lãnh đạo thành công!");
+      }
       fetchData();
     })
     .catch(err => alert("Lỗi: " + err.message));
+  };
+
+  const getExpiryStatus = (expiryDateStr) => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const expiry = new Date(expiryDateStr);
+    expiry.setHours(0, 0, 0, 0);
+    
+    if (expiry <= today) {
+      return <span className="badge-status rejected" style={{ fontSize: '0.72rem', padding: '0.2rem 0.4rem', border: '1px solid rgba(239, 68, 68, 0.2)', textTransform: 'none' }}>Hết hạn</span>;
+    } else {
+      const diffTime = expiry - today;
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      return <span className="badge-status pending" style={{ fontSize: '0.72rem', padding: '0.2rem 0.4rem', background: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b', border: '1px solid rgba(245, 158, 11, 0.2)', textTransform: 'none' }}>Cận hạn ({diffDays} ngày)</span>;
+    }
   };
 
   if (loading) return <div style={{ color: '#fff', padding: '2rem' }}>Đang tải dữ liệu nghiệp vụ thanh lý...</div>;
 
   return (
     <div>
-      <h1 className="page-title">Thanh Lý Tài Sản Hỏng, Vỡ, Hết Date</h1>
-      <p className="page-subtitle">Quản lý đóng băng và thanh lý vật tư hỏng vỡ, thuốc quá hạn dùng định kỳ.</p>
+      <h1 className="page-title">Thanh Lý & Tiêu Hủy Tài Sản</h1>
+      <p className="page-subtitle">Quản lý lập đề xuất và duyệt thanh lý các lô thuốc hết hạn, cận hạn (dưới 30 ngày) hoặc hư hỏng định kỳ.</p>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '1.5rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1.5rem' }}>
         {/* Left Side: Expired Candidates and liquidation form */}
         <div>
           {/* Candidates list */}
           <div className="glass-card">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-              <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--color-danger)' }}>
-                <AlertOctagon size={20} /> Lô thuốc quá hạn chờ thanh lý
-              </h3>
-              <button className="btn-secondary" style={{ padding: '0.4rem', borderRadius: '8px' }} onClick={fetchData}>
-                <RefreshCw size={14} />
+            {/* Tab Navigation */}
+            <div style={{ display: 'flex', borderBottom: '1px solid var(--border-glass)', marginBottom: '1.25rem', gap: '0.5rem' }}>
+              <button 
+                type="button" 
+                onClick={() => { setActiveTab('liquidation'); setSelectedItems([]); }}
+                style={{
+                  padding: '0.6rem 1.25rem',
+                  background: 'none',
+                  border: 'none',
+                  borderBottom: activeTab === 'liquidation' ? '2.5px solid var(--color-secondary)' : '2.5px solid transparent',
+                  color: activeTab === 'liquidation' ? 'var(--color-secondary)' : 'var(--text-muted)',
+                  fontWeight: '700',
+                  cursor: 'pointer',
+                  fontSize: '0.88rem',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                1. Đề xuất Thanh lý (Cận hạn, ít dùng)
+              </button>
+              <button 
+                type="button" 
+                onClick={() => { setActiveTab('destruction'); setSelectedItems([]); }}
+                style={{
+                  padding: '0.6rem 1.25rem',
+                  background: 'none',
+                  border: 'none',
+                  borderBottom: activeTab === 'destruction' ? '2.5px solid var(--color-danger)' : '2.5px solid transparent',
+                  color: activeTab === 'destruction' ? 'var(--color-danger)' : 'var(--text-muted)',
+                  fontWeight: '700',
+                  cursor: 'pointer',
+                  fontSize: '0.88rem',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                2. Đề xuất Tiêu hủy (Quá hạn, hỏng vỡ)
               </button>
             </div>
-            
-            {expiredItems.length === 0 ? (
-              <p style={{ color: 'var(--text-muted)' }}>Hiện không phát hiện lô thuốc hết hạn nào còn tồn tại trong kho.</p>
-            ) : (
-              <div className="table-container" style={{ maxHeight: '350px', overflowY: 'auto' }}>
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Chọn</th>
-                      <th>Thuốc / Hóa chất</th>
-                      <th>Số lô</th>
-                      <th>Hạn dùng</th>
-                      <th>Nơi lưu trữ</th>
-                      <th>Tồn kho</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {expiredItems.map(item => {
-                      const isSelected = !!selectedItems.find(x => x.batchID === item.batchID && x.location === item.location);
-                      return (
-                        <tr key={`${item.batchID}-${item.location}`}>
-                          <td style={{ textAlign: 'center' }}>
-                            <input 
-                              type="checkbox" 
-                              checked={isSelected}
-                              onChange={() => handleSelectItem(item)}
-                              style={{ width: '18px', height: '18px', cursor: 'pointer' }}
-                            />
-                          </td>
-                          <td><strong>{item.medicineName}</strong></td>
-                          <td>{item.batchNumber}</td>
-                          <td style={{ color: 'var(--color-danger)' }}>{new Date(item.expiryDate).toLocaleDateString('vi-VN')}</td>
-                          <td>{item.location}</td>
-                          <td><strong>{item.quantity}</strong></td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: activeTab === 'liquidation' ? 'var(--color-secondary)' : 'var(--color-danger)', fontSize: '1rem' }}>
+                <AlertOctagon size={18} /> 
+                {activeTab === 'liquidation' ? 'Lô thuốc cận hạn/ít dùng chờ thanh lý' : 'Lô thuốc quá hạn chờ tiêu hủy'}
+              </h3>
+              
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                {activeTab === 'liquidation' && (
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.78rem', color: 'var(--text-muted)', cursor: 'pointer', userSelect: 'none' }}>
+                    <input 
+                      type="checkbox" 
+                      checked={showAllLowUsage}
+                      onChange={e => { setShowAllLowUsage(e.target.checked); setSelectedItems([]); }}
+                      style={{ width: '15px', height: '15px', cursor: 'pointer' }}
+                    />
+                    Hiển thị tất cả thuốc trong kho (thuốc ít dùng)
+                  </label>
+                )}
+                <button className="btn-secondary" style={{ padding: '0.4rem', borderRadius: '8px' }} onClick={fetchData}>
+                  <RefreshCw size={14} />
+                </button>
               </div>
-            )}
+            </div>
+            
+            {(() => {
+              const today = new Date();
+              today.setHours(0,0,0,0);
+              const isExpired = (d) => {
+                const expiry = new Date(d);
+                expiry.setHours(0,0,0,0);
+                return expiry <= today;
+              };
+              const candidates = activeTab === 'liquidation'
+                ? (showAllLowUsage ? allStoreBatches.filter(b => !isExpired(b.expiryDate)) : expiredItems.filter(b => !isExpired(b.expiryDate)))
+                : expiredItems.filter(b => isExpired(b.expiryDate));
+
+              return candidates.length === 0 ? (
+                <p style={{ color: 'var(--text-muted)', padding: '1rem 0' }}>
+                  {activeTab === 'liquidation' 
+                    ? 'Không phát hiện lô thuốc cận hạn hoặc ít dùng nào.' 
+                    : 'Không phát hiện lô thuốc quá hạn nào còn tồn.'}
+                </p>
+              ) : (
+                <div className="table-container" style={{ maxHeight: '350px', overflowY: 'auto' }}>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Chọn</th>
+                        <th>Thuốc / Hóa chất</th>
+                        <th>Số lô</th>
+                        <th>Hạn dùng</th>
+                        <th>Trạng thái</th>
+                        <th>Nơi lưu trữ</th>
+                        <th>Tồn kho</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {candidates.map(item => {
+                        const isSelected = !!selectedItems.find(x => x.batchID === item.batchID && x.location === item.location);
+                        return (
+                          <tr key={`${item.batchID}-${item.location}`}>
+                            <td style={{ textAlign: 'center' }}>
+                              <input 
+                                type="checkbox" 
+                                checked={isSelected}
+                                onChange={() => handleSelectItem(item)}
+                                style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                              />
+                            </td>
+                            <td><strong>{item.medicineName}</strong></td>
+                            <td>{item.batchNumber}</td>
+                            <td>{new Date(item.expiryDate).toLocaleDateString('vi-VN')}</td>
+                            <td>{getExpiryStatus(item.expiryDate)}</td>
+                            <td>{item.location}</td>
+                            <td><strong>{item.quantity}</strong></td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
           </div>
 
           {/* Form */}
           {selectedItems.length > 0 && (
             <div className="glass-card">
-              <h3 style={{ marginBottom: '1.25rem' }}>Lập Phiếu Trình Lãnh Đạo Phê Duyệt Thanh Lý</h3>
+              <h3 style={{ marginBottom: '1.25rem' }}>
+                {activeTab === 'liquidation' ? 'Lập Phiếu Đề Xuất Thanh Lý Tài Sản' : 'Lập Phiếu Đề Xuất Tiêu Hủy Tài Sản'}
+              </h3>
               <form onSubmit={handleCreateLiquidation}>
                 <div className="form-group">
-                  <label className="form-label">Lý do thanh lý tài sản</label>
-                  <input 
-                    type="text" 
+                  <label className="form-label">
+                    {activeTab === 'liquidation' ? 'Lý do đề xuất thanh lý' : 'Lý do đề xuất tiêu hủy'}
+                  </label>
+                  <select 
                     className="form-input" 
-                    placeholder="VD: Thuốc hết hạn sử dụng định kỳ, vỡ hỏng trong bảo quản..."
                     value={reason} 
                     onChange={e => setReason(e.target.value)}
-                  />
+                    style={{ background: 'var(--bg-secondary)', color: 'var(--text-main)', border: '1px solid var(--border-glass)', borderRadius: '8px', padding: '0.6rem 0.8rem', cursor: 'pointer', width: '100%' }}
+                  >
+                    <option value="TL01 - Hết hạn sử dụng">TL01 - Hết hạn sử dụng</option>
+                    <option value="TL02 - Hư hỏng">TL02 - Hư hỏng</option>
+                    <option value="TL03 - Thu hồi nhà sản xuất">TL03 - Thu hồi nhà sản xuất</option>
+                    <option value="TL04 - Bảo quản sai điều kiện">TL04 - Bảo quản sai điều kiện</option>
+                    <option value="TL05 - Bao bì không đạt">TL05 - Bao bì không đạt</option>
+                    <option value="TL06 - Không còn nhu cầu sử dụng">TL06 - Không còn nhu cầu sử dụng</option>
+                  </select>
                 </div>
+
+                {activeTab === 'destruction' && (
+                  <div className="form-group" style={{ marginTop: '1rem' }}>
+                    <label className="form-label">Ghi nhận trách nhiệm / Cá nhân làm hao hụt (nếu có)</label>
+                    <input 
+                      type="text" 
+                      className="form-input" 
+                      placeholder="VD: Điều dưỡng Nguyễn Văn A (Làm vỡ chai truyền)"
+                      value={responsiblePerson}
+                      onChange={e => setResponsiblePerson(e.target.value)}
+                      style={{ background: 'var(--bg-secondary)', color: 'var(--text-main)', border: '1px solid var(--border-glass)', borderRadius: '8px', padding: '0.6rem 0.8rem' }}
+                    />
+                  </div>
+                )}
 
                 <div style={{ marginTop: '1rem', borderTop: '1px solid var(--border-glass)', paddingTop: '1rem' }}>
                   <h4 style={{ color: 'var(--text-muted)', marginBottom: '0.75rem' }}>Danh sách chọn ({selectedItems.length})</h4>
                   {selectedItems.map((item, idx) => {
-                    // find details in expiredItems
-                    const orig = expiredItems.find(x => x.batchID === item.batchID && x.location === item.location);
+                    const orig = expiredItems.find(x => x.batchID === item.batchID && x.location === item.location) || allStoreBatches.find(x => x.batchID === item.batchID && x.location === item.location);
                     return (
                       <div key={idx} style={{
                         display: 'flex',
@@ -304,7 +504,9 @@ export default function Liquidation({ user }) {
                           </span>
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                          <label className="form-label" style={{ margin: 0, fontSize: '0.75rem' }}>SL thanh lý:</label>
+                          <label className="form-label" style={{ margin: 0, fontSize: '0.75rem' }}>
+                            {activeTab === 'liquidation' ? 'SL thanh lý:' : 'SL tiêu hủy:'}
+                          </label>
                           <input 
                             type="number"
                             className="form-input"
@@ -319,8 +521,19 @@ export default function Liquidation({ user }) {
                   })}
                 </div>
 
-                <button type="submit" className="btn-premium" style={{ width: '100%', justifyContent: 'center', marginTop: '1rem' }}>
-                  Tạo Phiếu Yêu Cầu & Thanh Lý Hủy Kho
+                <button 
+                  type="submit" 
+                  className="btn-premium" 
+                  style={{ 
+                    width: '100%', 
+                    justifyContent: 'center', 
+                    marginTop: '1rem',
+                    background: activeTab === 'liquidation' ? 'linear-gradient(90deg, var(--color-secondary), #0d9488)' : 'linear-gradient(90deg, var(--color-danger), #b91c1c)' 
+                  }}
+                >
+                  {user?.role === 'director' 
+                    ? (activeTab === 'liquidation' ? 'Lập Biên Bản & Thanh Lý Ngay' : 'Lập Biên Bản & Tiêu Hủy Ngay')
+                    : (activeTab === 'liquidation' ? 'Lập Đề Xuất Thanh Lý & Ký Trình' : 'Lập Đề Xuất Tiêu Hủy & Ký Trình')}
                 </button>
               </form>
             </div>
@@ -330,11 +543,11 @@ export default function Liquidation({ user }) {
         {/* Right Side: Historical Liquidations */}
         <div className="glass-card">
           <h3 style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <FileText size={20} color="var(--color-secondary)" /> Biên Bản Thanh Lý Đã Thực Hiện
+            <FileText size={20} color="var(--color-secondary)" /> Lịch Sử Thanh Lý & Tiêu Hủy
           </h3>
           <div style={{ maxHeight: '600px', overflowY: 'auto', paddingRight: '0.5rem' }}>
             {liquidations.length === 0 ? (
-              <p style={{ color: 'var(--text-muted)' }}>Chưa có lịch sử thanh lý tài sản.</p>
+              <p style={{ color: 'var(--text-muted)' }}>Chưa có lịch sử thanh lý/tiêu hủy tài sản.</p>
             ) : (
               liquidations.map(liq => (
                 <div key={liq.liquidationID} style={{
@@ -358,12 +571,29 @@ export default function Liquidation({ user }) {
                       >
                         <Printer size={12} /> In biên bản
                       </button>
-                      <span className="badge-status rejected" style={{ fontSize: '0.75rem' }}>Đã hủy kho</span>
+                      <span className="badge-status" style={{ 
+                        fontSize: '0.72rem', 
+                        padding: '0.2rem 0.5rem', 
+                        borderRadius: '6px', 
+                        fontWeight: '600',
+                        textTransform: 'none',
+                        background: liq.type === 'Thanh lý' ? 'rgba(13, 148, 136, 0.12)' : 'rgba(239, 68, 68, 0.12)',
+                        color: liq.type === 'Thanh lý' ? '#0d9488' : '#ef4444',
+                        border: liq.type === 'Thanh lý' ? '1px solid rgba(13, 148, 136, 0.2)' : '1px solid rgba(239, 68, 68, 0.2)'
+                      }}>
+                        {liq.type || 'Tiêu hủy'}
+                      </span>
+                      {liq.status === 'Chờ duyệt' && <span className="badge-status pending" style={{ fontSize: '0.75rem', background: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b', border: '1px solid rgba(245, 158, 11, 0.2)' }}>Chờ duyệt</span>}
+                      {liq.status === 'Đã duyệt' && <span className="badge-status approved" style={{ fontSize: '0.75rem', background: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', border: '1px solid rgba(59, 130, 246, 0.2)' }}>Đã duyệt</span>}
+                      {liq.status === 'Đã thanh lý' && <span className="badge-status approved" style={{ fontSize: '0.75rem', background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', border: '1px solid rgba(16, 185, 129, 0.2)' }}>Đã thanh lý</span>}
+                      {liq.status === 'Đã tiêu hủy' && <span className="badge-status approved" style={{ fontSize: '0.75rem', background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.2)' }}>Đã tiêu hủy</span>}
+                      {liq.status === 'Từ chối' && <span className="badge-status rejected" style={{ fontSize: '0.75rem', background: 'rgba(120, 120, 120, 0.1)', color: '#999', border: '1px solid rgba(120, 120, 120, 0.2)' }}>Từ chối</span>}
                     </div>
                   </div>
                   <div style={{ fontSize: '0.85rem' }}>
-                    <p><strong>Lý do:</strong> {liq.reason}</p>
-                    <p><strong>Ngày thực hiện:</strong> {new Date(liq.liquidationDate).toLocaleString('vi-VN')}</p>
+                    <p style={{ margin: '0 0 0.35rem 0' }}><strong>Lý do:</strong> {liq.reason}</p>
+                    <p style={{ margin: '0 0 0.35rem 0', color: 'var(--text-muted)', fontSize: '0.8rem' }}><strong>Người lập:</strong> {liq.createdBy || 'Thủ kho Dược'}</p>
+                    <p style={{ margin: '0 0 0.35rem 0' }}><strong>Ngày thực hiện:</strong> {new Date(liq.liquidationDate).toLocaleString('vi-VN')}</p>
                     <div style={{ background: 'rgba(255,255,255,0.02)', borderRadius: '8px', padding: '0.5rem 0.75rem', marginTop: '0.5rem' }}>
                       {liq.details?.map(d => (
                         <div key={d.liquidationDetailID} style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
@@ -371,6 +601,49 @@ export default function Liquidation({ user }) {
                         </div>
                       ))}
                     </div>
+
+                    {liq.status === 'Chờ duyệt' && user?.role === 'director' && (
+                      <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', borderTop: '1px dashed var(--border-glass)', paddingTop: '0.75rem' }}>
+                        <button
+                          type="button"
+                          className="btn-premium"
+                          style={{ padding: '0.25rem 0.75rem', fontSize: '0.74rem', height: '28px', background: 'linear-gradient(135deg, #10b981, #059669)', display: 'flex', alignItems: 'center', gap: '0.2rem', fontWeight: '600' }}
+                          onClick={() => handleStartApprove(liq.liquidationID)}
+                        >
+                          <Check size={12} /> Duyệt {liq.type === 'Thanh lý' ? 'thanh lý' : 'tiêu hủy'}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          style={{ padding: '0.25rem 0.75rem', fontSize: '0.74rem', height: '28px', color: '#ef4444', borderColor: 'rgba(239, 68, 68, 0.4)', display: 'flex', alignItems: 'center', gap: '0.2rem', background: 'none' }}
+                          onClick={() => handleRejectLiquidation(liq.liquidationID)}
+                        >
+                          <X size={12} /> Từ chối
+                        </button>
+                      </div>
+                    )}
+
+                    {liq.status === 'Đã duyệt' && (user?.role === 'pharmacist' || user?.role === 'director') && (
+                      <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', borderTop: '1px dashed var(--border-glass)', paddingTop: '0.75rem' }}>
+                        <button
+                          type="button"
+                          className="btn-premium"
+                          style={{ 
+                            padding: '0.25rem 0.75rem', 
+                            fontSize: '0.74rem', 
+                            height: '28px', 
+                            background: liq.type === 'Thanh lý' ? 'linear-gradient(135deg, #0d9488, #0f766e)' : 'linear-gradient(135deg, #ef4444, #dc2626)', 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            gap: '0.2rem', 
+                            fontWeight: '600' 
+                          }}
+                          onClick={() => handleExecuteLiquidation(liq.liquidationID)}
+                        >
+                          <Check size={12} /> Xác nhận đã {liq.type === 'Thanh lý' ? 'thanh lý' : 'tiêu hủy'} thực tế
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               ))
@@ -396,15 +669,31 @@ export default function Liquidation({ user }) {
 
             <div id="printable-liquidation-invoice" style={{ fontFamily: 'Times New Roman, serif', padding: '0.5rem' }}>
               <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
-                <h2 style={{ margin: 0, fontSize: '1.3rem', fontWeight: 'bold' }}>BIÊN BẢN THANH LÝ TIÊU HỦY DƯỢC PHẨM HẾT HẠN</h2>
+                <h2 style={{ margin: 0, fontSize: '1.3rem', fontWeight: 'bold', textTransform: 'uppercase' }}>
+                  {activeLiquidationForPrint.type === 'Thanh lý' 
+                    ? 'BIÊN BẢN THANH LÝ DƯỢC PHẨM CẬN HẠN / ÍT DÙNG' 
+                    : activeLiquidationForPrint.reason?.includes('Trách nhiệm:') 
+                    ? 'BIÊN BẢN HAO HỤT VÀ TIÊU HỦY DƯỢC PHẨM HỎNG VỠ' 
+                    : 'BIÊN BẢN TIÊU HỦY DƯỢC PHẨM HẾT HẠN / HƯ HỎNG'}
+                </h2>
                 <p style={{ margin: '0.3rem 0 0 0', fontSize: '0.85rem', color: '#333', fontWeight: '600' }}>Mã biên bản: LIQ-{activeLiquidationForPrint.liquidationID}</p>
-                <p style={{ margin: '0.1rem 0 0 0', fontSize: '0.75rem', color: '#666' }}>Trạng thái: <strong>Đã tiêu hủy kho chính thức (GSP)</strong></p>
+                <p style={{ margin: '0.1rem 0 0 0', fontSize: '0.75rem', color: '#666' }}>
+                  Trạng thái: <strong>
+                    {activeLiquidationForPrint.status === 'Chờ duyệt' && 'Yêu cầu (Chờ duyệt)'}
+                    {activeLiquidationForPrint.status === 'Đã duyệt' && (activeLiquidationForPrint.type === 'Thanh lý' ? 'Đã duyệt thanh lý kho chính thức (GSP)' : 'Đã duyệt tiêu hủy kho chính thức (GSP)')}
+                    {activeLiquidationForPrint.status === 'Từ chối' && 'Yêu cầu đã bị từ chối'}
+                  </strong>
+                </p>
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '1.5rem', fontSize: '0.82rem', marginBottom: '1.5rem', lineHeight: '1.5', borderBottom: '1px dashed #ccc', paddingBottom: '1rem' }}>
                 <div>
-                  <p style={{ margin: '0.25rem 0' }}><strong>Lý do thanh lý:</strong> {activeLiquidationForPrint.reason}</p>
-                  <p style={{ margin: '0.25rem 0' }}><strong>Biện pháp xử lý:</strong> Đóng băng hủy kho, tiêu hủy theo quy định xử lý chất thải y tế.</p>
+                  <p style={{ margin: '0.25rem 0' }}><strong>Lý do:</strong> {activeLiquidationForPrint.reason}</p>
+                  <p style={{ margin: '0.25rem 0' }}>
+                    <strong>Biện pháp xử lý:</strong> {activeLiquidationForPrint.type === 'Thanh lý' 
+                      ? 'Thanh lý thu hồi vốn hoặc điều chuyển cơ sở lâm sàng.' 
+                      : 'Đóng băng hủy kho, tiêu hủy theo quy định xử lý chất thải y tế.'}
+                  </p>
                 </div>
                 <div>
                   <p style={{ margin: '0.25rem 0' }}><strong>Ngày lập biên bản:</strong> {new Date(activeLiquidationForPrint.liquidationDate).toLocaleString('vi-VN')}</p>
@@ -466,24 +755,34 @@ export default function Liquidation({ user }) {
               {/* Signatures block */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', textAlign: 'center', fontSize: '0.82rem', marginTop: '1.5rem', lineHeight: '1.4' }}>
                 <div>
-                  <p style={{ margin: 0 }}><strong>Người lập biên bản</strong></p>
-                  <p style={{ margin: '0.1rem 0 0 0', color: '#555', fontStyle: 'italic' }}>(Ký, ghi rõ họ tên)</p>
-                  <p style={{ marginTop: '3.5rem', fontWeight: 'bold' }}>Thủ kho Dược</p>
-                </div>
-                <div>
-                  <p style={{ margin: 0 }}><strong>Hội đồng thanh lý khoa</strong></p>
-                  <p style={{ margin: '0.1rem 0 0 0', color: '#555', fontStyle: 'italic' }}>(Ký, ghi rõ họ tên)</p>
-                  <p style={{ marginTop: '3.5rem', fontWeight: 'bold' }}>Ban kiểm kê Dược</p>
-                </div>
-                <div>
-                  <p style={{ margin: 0 }}><strong>Giám đốc bệnh viện</strong></p>
-                  <p style={{ margin: '0.1rem 0 0 0', color: '#555', fontStyle: 'italic' }}>(Ký tay trên hệ thống, đóng dấu)</p>
-                  {activeLiquidationForPrint.digitalSignature ? (
+                  <p style={{ margin: 0 }}><strong>Người lập đề xuất</strong></p>
+                  <p style={{ margin: '0.1rem 0 0 0', color: '#555', fontStyle: 'italic' }}>(Ký ghi nhận đề xuất)</p>
+                  {activeLiquidationForPrint.proposerSignature ? (
                     <div style={{ height: '55px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0' }}>
-                      <img src={activeLiquidationForPrint.digitalSignature} alt="Chữ ký Giám đốc" style={{ maxHeight: '100%', maxWidth: '120px', objectFit: 'contain' }} />
+                      <img src={activeLiquidationForPrint.proposerSignature} alt="Chữ ký Người lập" style={{ maxHeight: '100%', maxWidth: '120px', objectFit: 'contain' }} />
                     </div>
                   ) : (
                     <div style={{ height: '55px' }} />
+                  )}
+                  <p style={{ fontWeight: 'bold' }}>{activeLiquidationForPrint.createdBy || 'Thủ kho Dược'}</p>
+                </div>
+                <div>
+                  <p style={{ margin: 0 }}><strong>Ban kiểm kê Dược</strong></p>
+                  <p style={{ margin: '0.1rem 0 0 0', color: '#555', fontStyle: 'italic' }}>(Xác nhận đối chiếu)</p>
+                  <div style={{ height: '55px' }} />
+                  <p style={{ fontWeight: 'bold' }}>Thành viên Hội đồng</p>
+                </div>
+                <div>
+                  <p style={{ margin: 0 }}><strong>Giám đốc bệnh viện</strong></p>
+                  <p style={{ margin: '0.1rem 0 0 0', color: '#555', fontStyle: 'italic' }}>(Ký duyệt tiêu hủy)</p>
+                  {activeLiquidationForPrint.approverSignature ? (
+                    <div style={{ height: '55px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0' }}>
+                      <img src={activeLiquidationForPrint.approverSignature} alt="Chữ ký Giám đốc" style={{ maxHeight: '100%', maxWidth: '120px', objectFit: 'contain' }} />
+                    </div>
+                  ) : (
+                    <div style={{ height: '55px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0', color: '#eab308', fontWeight: 'bold', fontSize: '0.74rem' }}>
+                      {activeLiquidationForPrint.status === 'Từ chối' ? 'ĐÃ TỪ CHỐI' : 'CHỜ DUYỆT'}
+                    </div>
                   )}
                   <p style={{ fontWeight: 'bold' }}>PGS.TS. Lê Minh Dược</p>
                 </div>

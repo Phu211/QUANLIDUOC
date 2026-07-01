@@ -13,7 +13,8 @@ import {
   Warehouse,
   Database,
   LogOut,
-  AlertTriangle
+  AlertTriangle,
+  ShieldAlert
 } from 'lucide-react';
 import { HubConnectionBuilder } from '@microsoft/signalr';
 import Dashboard from './pages/Dashboard';
@@ -22,6 +23,7 @@ import Requisitions from './pages/Requisitions';
 import CabinetManagement from './pages/CabinetManagement';
 import Returns from './pages/Returns';
 import Liquidation from './pages/Liquidation';
+import Recall from './pages/Recall';
 import InventoryTracking from './pages/InventoryTracking';
 import MedicineManagement from './pages/MedicineManagement';
 import Login from './pages/Login';
@@ -91,6 +93,7 @@ export default function App() {
       case 'cabinet': return 'Quản Lý Tủ Trực Khoa';
       case 'returns': return 'Hoàn Trả Thuốc Thừa';
       case 'liquidation': return 'Thanh Lý Tài Sản';
+      case 'recall': return 'Thu Hồi & Cách Ly Lô';
       case 'tracking': return 'Báo Cáo Nhập Xuất Tồn';
       case 'restock': return 'Cảnh Báo & Đề Xuất Đặt Hàng';
       default: return 'Hệ Thống Quản Lý Dược';
@@ -113,12 +116,14 @@ export default function App() {
         return <Returns user={user} />;
       case 'liquidation':
         return <Liquidation user={user} />;
+      case 'recall':
+        return <Recall user={user} />;
       case 'tracking':
         return <InventoryTracking user={user} />;
       case 'restock':
         return <RestockManagement user={user} />;
       default:
-        return user?.role === 'nurse' ? <CabinetManagement user={user} /> : <Dashboard setPage={setPage} user={user} />;
+        return (user?.role === 'nurse' || user?.role === 'head_nurse' || user?.role === 'head') ? <CabinetManagement user={user} /> : <Dashboard setPage={setPage} user={user} />;
     }
   };
 
@@ -128,7 +133,7 @@ export default function App() {
         onLoginSuccess={(u) => {
           setUser(u);
           localStorage.setItem('his-pharmacy-user', JSON.stringify(u));
-          if (u.role === 'nurse') {
+          if (u.role === 'nurse' || u.role === 'head_nurse' || u.role === 'head') {
             setPage('cabinet');
           } else {
             setPage('dashboard');
@@ -198,17 +203,31 @@ export default function App() {
                 <span>Duyệt hoàn trả thuốc</span>
               </a>
               <a 
+                className={`nav-item ${page === 'liquidation' ? 'active' : ''}`}
+                onClick={() => setPage('liquidation')}
+              >
+                <Trash2 className="nav-icon" />
+                <span>Đề xuất thanh lý</span>
+              </a>
+              <a 
                 className={`nav-item ${page === 'restock' ? 'active' : ''}`}
                 onClick={() => setPage('restock')}
               >
                 <AlertTriangle className="nav-icon" />
                 <span>Đề xuất đặt hàng</span>
               </a>
+              <a 
+                className={`nav-item ${page === 'recall' ? 'active' : ''}`}
+                onClick={() => setPage('recall')}
+              >
+                <ShieldAlert className="nav-icon" />
+                <span>Thu hồi & cách ly</span>
+              </a>
             </>
           )}
 
           {/* Tủ trực khoa lâm sàng */}
-          {user.role === 'nurse' && (
+          {(user.role === 'nurse' || user.role === 'head_nurse' || user.role === 'head') && (
             <>
               <div className="nav-section-title">Tủ trực khoa lâm sàng</div>
               <a 
@@ -317,7 +336,7 @@ export default function App() {
             <div className="top-bar-badge" style={{ background: 'rgba(13, 148, 136, 0.1)', color: 'var(--color-secondary)' }}>
               <User size={14} />
               <span>
-                <strong>{user.fullName}</strong> ({user.role === 'pharmacist' ? 'Thủ kho Dược' : user.role === 'nurse' ? 'Điều dưỡng' : 'Giám đốc'})
+                <strong>{user.fullName}</strong> ({user.role === 'pharmacist' ? 'Thủ kho Dược' : user.role === 'nurse' ? 'Điều dưỡng' : user.role === 'head_nurse' ? 'Điều dưỡng trưởng' : user.role === 'head' ? 'Trưởng khoa' : 'Trưởng khoa Dược / Trưởng phòng KHTH'})
               </span>
             </div>
             <div className="top-bar-badge">

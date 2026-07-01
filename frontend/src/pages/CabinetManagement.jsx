@@ -24,7 +24,7 @@ export default function CabinetManagement({ user }) {
       .then(res => res.json())
       .then(data => {
         setDepartments(data);
-        if (user?.role === 'nurse' && user?.departmentID) {
+        if (user?.departmentID) {
           setSelectedDept(user.departmentID.toString());
         } else if (data.length > 0) {
           setSelectedDept(data[0].departmentID.toString());
@@ -123,6 +123,31 @@ export default function CabinetManagement({ user }) {
     .catch(err => alert(err.message));
   };
 
+  const handleReturnRecall = (batchID) => {
+    if (!window.confirm("Xác nhận trả khẩn cấp lô thuốc bị thu hồi này về kho cách ly trung tâm?")) return;
+    fetch('/api/recall/return-dept', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-User-Role': user?.role || '',
+        'X-User-FullName': encodeURIComponent(user?.fullName || '')
+      },
+      body: JSON.stringify({
+        departmentID: parseInt(selectedDept),
+        batchID: batchID
+      })
+    })
+    .then(res => {
+      if (!res.ok) return res.json().then(data => { throw new Error(data.error || "Lỗi hoàn trả."); });
+      return res.json();
+    })
+    .then(() => {
+      alert("Đã hoàn trả thuốc thu hồi cách ly thành công! Số lượng tại khoa đã chuyển về 0.");
+      fetchCabinetData(selectedDept);
+    })
+    .catch(err => alert("Lỗi: " + err.message));
+  };
+
   const [showSignatureModal, setShowSignatureModal] = useState(false);
   const canvasRef = useRef(null);
 
@@ -207,6 +232,10 @@ export default function CabinetManagement({ user }) {
   };
 
   const handleRefillRequest = () => {
+    if (user?.role === 'nurse') {
+      alert("Quyền hạn bị từ chối. Chỉ Điều dưỡng trưởng khoa mới có quyền đề xuất và ký duyệt phiếu bù tủ trực.");
+      return;
+    }
     if (!selectedDept) return;
     const pendingTxs = transactions.filter(t => !t.requisition || t.requisition.status === 'Rejected');
     if (pendingTxs.length === 0) {
@@ -277,7 +306,7 @@ export default function CabinetManagement({ user }) {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
         <div>
-          <h1 className="page-title">Mô Phỏng Tủ Trực Khoa Lâm Sàng</h1>
+          <h1 className="page-title">Tủ Trực Khoa Lâm Sàng</h1>
           <p className="page-subtitle">Nhập xuất tủ trực ngoài giờ và đề nghị bù tủ trực định kỳ về khoa Dược.</p>
         </div>
         <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
@@ -287,7 +316,7 @@ export default function CabinetManagement({ user }) {
             style={{ width: '220px' }}
             value={selectedDept} 
             onChange={e => setSelectedDept(e.target.value)}
-            disabled={user?.role === 'nurse'}
+            disabled={!!user?.departmentID}
           >
             {departments.map(d => (
               <option key={d.departmentID} value={d.departmentID}>{d.departmentName}</option>
@@ -321,20 +350,81 @@ export default function CabinetManagement({ user }) {
                       <th>Hạn dùng</th>
                       <th>Tồn tủ trực</th>
                       <th>Đơn giá</th>
+                      <th>Trạng thái / Thao tác</th>
                     </tr>
                   </thead>
                   <tbody>
                     {cabinetStocks.map(stock => (
                       <tr key={stock.departmentStockID}>
-                        <td><strong>{stock.batch?.medicine?.medicineName}</strong></td>
+                        <td>
+                          <strong>{stock.batch?.medicine?.medicineName}</strong>
+                          {(() => {
+                            const expiryDate = new Date(stock.batch?.expiryDate);
+                            const today = new Date();
+                            today.setHours(0,0,0,0);
+                            const diffTime = expiryDate - today;
+                            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                            
+                            if (diffDays <= 0) {
+                              return (
+                                <div style={{ marginTop: '0.25rem' }}>
+                                  <span style={{ fontSize: '0.68rem', padding: '0.15rem 0.35rem', background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '4px', display: 'inline-block', fontWeight: 'bold' }}>
+                                    ⚠️ ĐÃ HẾT HẠN
+                                  </span>
+                                </div>
+                              );
+                            } else if (diffDays <= 90) {
+                              return (
+                                <div style={{ marginTop: '0.25rem' }}>
+                                  <span style={{ fontSize: '0.68rem', padding: '0.15rem 0.35rem', background: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b', border: '1px solid rgba(245, 158, 11, 0.3)', borderRadius: '4px', display: 'inline-block', fontWeight: 'bold' }}>
+                                    ⚠️ Sắp hết hạn ({diffDays} ngày)
+                                  </span>
+                                </div>
+                              );
+                            }
+                            return null;
+                          })()}
+                        </td>
                         <td>{stock.batch?.batchNumber}</td>
-                        <td>{new Date(stock.batch?.expiryDate).toLocaleDateString('vi-VN')}</td>
+                        <td style={(() => {
+                          const expiryDate = new Date(stock.batch?.expiryDate);
+                          const today = new Date();
+                          today.setHours(0,0,0,0);
+                          const diffTime = expiryDate - today;
+                          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                          if (diffDays <= 0) return { color: '#ef4444', fontWeight: 'bold' };
+                          if (diffDays <= 90) return { color: '#f59e0b', fontWeight: '600' };
+                          return {};
+                        })()}>
+                          {new Date(stock.batch?.expiryDate).toLocaleDateString('vi-VN')}
+                        </td>
                         <td>
                           <span style={{ fontSize: '1.1rem', fontWeight: '600', color: 'var(--color-primary)' }}>
                             {stock.currentQuantity}
                           </span> {stock.batch?.medicine?.unit}
                         </td>
                         <td>{stock.batch?.importPrice.toLocaleString('vi-VN')}đ</td>
+                        <td>
+                          {stock.batch?.status !== 'Bình thường' ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', alignItems: 'flex-start' }}>
+                              <span className="badge-status rejected" style={{ fontSize: '0.68rem', padding: '0.15rem 0.35rem', background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.2)', textTransform: 'none', whiteSpace: 'nowrap' }}>
+                                Đình chỉ: {stock.batch?.status}
+                              </span>
+                              {stock.currentQuantity > 0 && (
+                                <button 
+                                  type="button" 
+                                  className="btn-secondary" 
+                                  style={{ padding: '0.15rem 0.4rem', fontSize: '0.68rem', background: 'rgba(59, 130, 246, 0.15)', color: '#3b82f6', border: '1px solid rgba(59, 130, 246, 0.25)', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.15rem', whiteSpace: 'nowrap' }}
+                                  onClick={() => handleReturnRecall(stock.batchID)}
+                                >
+                                  Trả thu hồi khẩn cấp
+                                </button>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="badge-status approved" style={{ fontSize: '0.68rem', padding: '0.15rem 0.35rem', textTransform: 'none' }}>Bình thường</span>
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -384,9 +474,10 @@ export default function CabinetManagement({ user }) {
                       {cabinetStocks.map((s, idx) => {
                         const isEarliest = cabinetStocks.findIndex(item => item.batch?.medicineID === s.batch?.medicineID) === idx;
                         const expiryStr = s.batch?.expiryDate ? new Date(s.batch.expiryDate).toLocaleDateString('vi-VN') : 'N/A';
+                        const isSuspended = s.batch?.status !== 'Bình thường';
                         return (
-                          <option key={s.batchID} value={s.batchID}>
-                            {s.batch?.medicine?.medicineName} (Lô: {s.batch?.batchNumber} - Tồn: {s.currentQuantity} - HSD: {expiryStr}){isEarliest ? ' ★ [ƯU TIÊN FEFO]' : ''}
+                          <option key={s.batchID} value={s.batchID} disabled={isSuspended}>
+                            {s.batch?.medicine?.medicineName} (Lô: {s.batch?.batchNumber} - Tồn: {s.currentQuantity} - HSD: {expiryStr}){isSuspended ? ` [ĐÌNH CHỈ / THU HỒI: ${s.batch?.status}]` : isEarliest ? ' ★ [ƯU TIÊN FEFO]' : ''}
                           </option>
                         );
                       })}
@@ -432,13 +523,15 @@ export default function CabinetManagement({ user }) {
         <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', height: 'fit-content' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
             <h3>Nhật Ký Xuất Tủ Trực Khoa</h3>
-            <button 
-              className="btn-premium" 
-              style={{ fontSize: '0.8rem', padding: '0.4rem 0.8rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
-              onClick={handleRefillRequest}
-            >
-              <CheckSquare size={14} /> Bù tủ trực
-            </button>
+            {user?.role !== 'nurse' && (
+              <button 
+                className="btn-premium" 
+                style={{ fontSize: '0.8rem', padding: '0.4rem 0.8rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+                onClick={handleRefillRequest}
+              >
+                <CheckSquare size={14} /> Bù tủ trực
+              </button>
+            )}
           </div>
           
           <div style={{ maxHeight: '530px', overflowY: 'auto', paddingRight: '0.5rem' }}>

@@ -26,6 +26,7 @@ public class HisDbContext : DbContext
     public DbSet<LiquidationReceiptDetail> LiquidationReceiptDetails => Set<LiquidationReceiptDetail>();
     public DbSet<PurchaseProposal> PurchaseProposals => Set<PurchaseProposal>();
     public DbSet<PurchaseProposalDetail> PurchaseProposalDetails => Set<PurchaseProposalDetail>();
+    public DbSet<RecallLog> RecallLogs => Set<RecallLog>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -60,6 +61,8 @@ public class HisDbContext : DbContext
         modelBuilder.Entity<ReturnReceiptDetail>().HasKey(e => e.ReturnDetailID);
         modelBuilder.Entity<LiquidationReceipt>().HasKey(e => e.LiquidationID);
         modelBuilder.Entity<LiquidationReceiptDetail>().HasKey(e => e.LiquidationDetailID);
+        modelBuilder.Entity<RecallLog>().HasKey(e => e.RecallID);
+        modelBuilder.Entity<RecallLog>().Property(e => e.RecallID).ValueGeneratedOnAdd();
 
         // Explicit foreign key mappings to match database schemas exactly
         modelBuilder.Entity<Batch>()
@@ -184,6 +187,7 @@ public class Batch
     public DateTime ExpiryDate { get; set; }
     public decimal ImportPrice { get; set; }
     public int QuantityOriginal { get; set; }
+    public string Status { get; set; } = "Bình thường"; // 'Bình thường', 'Cách ly', 'Thu hồi', 'Trả NCC', 'Tiêu hủy'
 
     // Navigation
     public Medicine? Medicine { get; set; }
@@ -217,10 +221,18 @@ public class MedicineRequisition
     public int DepartmentID { get; set; }
     public DateTime RequisitionDate { get; set; } = DateTime.Now;
     public string RequisitionType { get; set; } = "Regular"; // 'Regular' or 'CabinetRefill'
-    public string Status { get; set; } = "Pending"; // 'Pending', 'Approved', 'Rejected'
+    public string Status { get; set; } = "Pending"; // 'Pending', 'PendingHead', 'Approved', 'Rejected'
     public string? DigitalSignature { get; set; } // Base64 signature of proposer (nurse)
+    public string? HeadSignature { get; set; } // Base64 signature of department head (Trưởng khoa)
     public string? ApproverSignature { get; set; } // Base64 signature of approver (pharmacist)
     public string? RejectReason { get; set; } // Reason for rejection
+    
+    public DateTime? HeadApproveDate { get; set; }
+    public DateTime? DispenseDate { get; set; }
+    public DateTime? ReceiveDate { get; set; }
+    public string? DelegatedBy { get; set; }
+    public string? DelegatedTo { get; set; }
+    public DateTime? DelegationActivatedAt { get; set; }
 
     // Navigation
     public Department? Department { get; set; }
@@ -356,6 +368,11 @@ public class LiquidationReceipt
     public DateTime LiquidationDate { get; set; } = DateTime.Now;
     public string? Reason { get; set; }
     public string? DigitalSignature { get; set; } // Base64 signature image string của người lập/duyệt thanh lý
+    public string Status { get; set; } = "Chờ duyệt"; // 'Chờ duyệt', 'Đã duyệt', 'Từ chối'
+    public string CreatedBy { get; set; } = "Thủ kho Dược";
+    public string? ProposerSignature { get; set; }
+    public string? ApproverSignature { get; set; }
+    public string Type { get; set; } = "Tiêu hủy"; // 'Thanh lý', 'Tiêu hủy'
 
     // Navigation
     public List<LiquidationReceiptDetail> Details { get; set; } = new();
@@ -413,4 +430,18 @@ public class PurchaseProposalDetail
 
     // Navigation
     public Medicine? Medicine { get; set; }
+}
+
+public class RecallLog
+{
+    public int RecallID { get; set; }
+    public int BatchID { get; set; }
+    public DateTime RecallDate { get; set; } = DateTime.Now;
+    public string? Reason { get; set; }
+    public string ActionType { get; set; } = "Cách ly"; // 'Cách ly', 'Trả NCC', 'Tiêu hủy'
+    public string? CreatedBy { get; set; }
+    public string? DigitalSignature { get; set; }
+
+    // Navigation
+    public Batch? Batch { get; set; }
 }

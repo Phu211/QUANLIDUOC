@@ -20,11 +20,17 @@ public class CabinetService
         {
             // Find stock card in the department cabinet
             var stock = await _context.DepartmentStocks
+                .Include(ds => ds.Batch)
                 .FirstOrDefaultAsync(ds => ds.DepartmentID == departmentID && ds.BatchID == batchID);
 
             if (stock == null || stock.CurrentQuantity < quantity)
             {
                 throw new InvalidOperationException("Số lượng tồn trong tủ trực tại khoa phòng không đủ để xuất phát.");
+            }
+
+            if (stock.Batch != null && stock.Batch.Status != "Bình thường")
+            {
+                throw new InvalidOperationException($"Lô thuốc {stock.Batch.BatchNumber} đang bị đình chỉ hoặc thu hồi (Trạng thái: {stock.Batch.Status}). Không thể cấp phát cho bệnh nhân!");
             }
 
             // Subtract cabinet stock

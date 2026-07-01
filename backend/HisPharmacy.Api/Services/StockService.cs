@@ -73,7 +73,8 @@ public class StockService
                     .Include(s => s.Batch)
                     .Where(s => s.Batch!.MedicineID == detail.MedicineID && 
                                 s.CurrentQuantity > 0 && 
-                                s.Batch.ExpiryDate > DateTime.Today)
+                                s.Batch.ExpiryDate > DateTime.Today &&
+                                s.Batch.Status == "Bình thường")
                     .OrderBy(s => s.Batch!.ExpiryDate)
                     .ToListAsync();
 
@@ -124,6 +125,7 @@ public class StockService
             }
 
             req.Status = "Approved";
+            req.DispenseDate = DateTime.Now;
             await _context.SaveChangesAsync();
             await transaction.CommitAsync();
         }
@@ -134,7 +136,27 @@ public class StockService
         }
     }
 
-    // Luồng 4.1: Thủ kho Dược kiểm nhận và thực nhận hoàn trả thuốc thừa (trừ kho lẻ khoa phòng, cộng kho chẵn chính)
+    // Luồng 4.1: Lãnh đạo duyệt đề xuất trước (chưa cập nhật tồn kho)
+    public async Task LeaderApproveReturnAsync(int returnID, string? directorSignature = null)
+    {
+        var ret = await _context.ReturnReceipts
+            .FirstOrDefaultAsync(r => r.ReturnID == returnID);
+
+        if (ret == null)
+            throw new KeyNotFoundException("Không tìm thấy phiếu hoàn trả.");
+
+        if (ret.Status != "Pending")
+            throw new InvalidOperationException("Phiếu hoàn trả không ở trạng thái chờ Lãnh đạo phê duyệt.");
+
+        ret.Status = "PendingPharmacist"; // Chờ thủ kho Dược kiểm nhận thực tế và ký nhận cuối cùng
+        if (!string.IsNullOrEmpty(directorSignature))
+        {
+            ret.DirectorSignature = directorSignature;
+        }
+        await _context.SaveChangesAsync();
+    }
+
+    // Luồng 4.2: Thủ kho Dược kiểm nhận thực tế thuốc hoàn trả, cập nhật tồn kho và ký nhận cuối cùng
     public async Task PharmacistApproveReturnAsync(int returnID, string? approverSignature = null)
     {
         using var transaction = await _context.Database.BeginTransactionAsync();
@@ -147,8 +169,8 @@ public class StockService
             if (ret == null)
                 throw new KeyNotFoundException("Không tìm thấy phiếu hoàn trả.");
 
-            if (ret.Status != "Pending")
-                throw new InvalidOperationException("Phiếu hoàn trả đã được xử lý hoặc đang chờ duyệt ở bước tiếp theo.");
+            if (ret.Status != "PendingPharmacist")
+                throw new InvalidOperationException("Phiếu hoàn trả chưa được Lãnh đạo phê duyệt hoặc đã được xử lý trước đó.");
 
             foreach (var detail in ret.Details)
             {
@@ -182,7 +204,7 @@ public class StockService
                 }
             }
 
-            ret.Status = "PendingLeader"; // Chờ Trưởng Khoa / Lãnh đạo ký duyệt tối cao
+            ret.Status = "Approved"; // Hoàn thành quy trình, Thủ kho ký cuối cùng
             if (!string.IsNullOrEmpty(approverSignature))
             {
                 ret.ApproverSignature = approverSignature;
@@ -197,35 +219,6 @@ public class StockService
         }
     }
 
-    // Luồng 4.2: Trưởng Khoa / Lãnh đạo phê duyệt hành chính tối cao và ký đóng dấu đỏ biên bản hoàn trả
-    public async Task LeaderApproveReturnAsync(int returnID, string? directorSignature = null)
-    {
-        using var transaction = await _context.Database.BeginTransactionAsync();
-        try
-        {
-            var ret = await _context.ReturnReceipts
-                .FirstOrDefaultAsync(r => r.ReturnID == returnID);
-
-            if (ret == null)
-                throw new KeyNotFoundException("Không tìm thấy phiếu hoàn trả.");
-
-            if (ret.Status != "PendingLeader")
-                throw new InvalidOperationException("Phiếu hoàn trả chưa được thủ kho tiếp nhận hoặc đã được phê duyệt tối cao trước đó.");
-
-            ret.Status = "Approved"; // Hoàn thành quy trình hoàn trả 3 bước
-            if (!string.IsNullOrEmpty(directorSignature))
-            {
-                ret.DirectorSignature = directorSignature;
-            }
-            await _context.SaveChangesAsync();
-            await transaction.CommitAsync();
-        }
-        catch
-        {
-            await transaction.RollbackAsync();
-            throw;
-        }
-    }
 
     // Luồng 1: Nhập kho chẵn và Kiểm nhập
     public async Task<ImportReceipt> CreateImportAsync(

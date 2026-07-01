@@ -29,7 +29,7 @@ export default function Returns({ user }) {
     .then(([returnsData, deptsData]) => {
       setReturns(returnsData);
       setDepartments(deptsData);
-      if (user?.role === 'nurse' && user?.departmentID) {
+      if (user?.departmentID) {
         setSelectedDept(user.departmentID.toString());
       } else if (deptsData.length > 0) {
         setSelectedDept(deptsData[0].departmentID.toString());
@@ -212,6 +212,10 @@ export default function Returns({ user }) {
 
   const handleSubmitReturn = (e, signatureData = null) => {
     if (e) e.preventDefault();
+    if (user?.role !== 'head_nurse') {
+      alert("Quyền hạn bị từ chối. Chỉ Điều dưỡng trưởng khoa mới có quyền lập đề xuất và ký số phiếu hoàn trả thuốc thừa về Kho Dược.");
+      return;
+    }
     if (!selectedDept) return;
 
     // Validate return reason
@@ -421,11 +425,11 @@ export default function Returns({ user }) {
 
       <div style={{ 
         display: 'grid', 
-        gridTemplateColumns: user?.role === 'pharmacist' ? '1fr' : '1.2fr 1fr', 
+        gridTemplateColumns: user?.role === 'head_nurse' ? '1.2fr 1fr' : '1fr', 
         gap: '1.5rem' 
       }}>
-        {/* Left Side: Create Return Receipt - Only visible to nurses */}
-        {user?.role === 'nurse' && (
+        {/* Left Side: Create Return Receipt - Only visible to head_nurse */}
+        {user?.role === 'head_nurse' && (
           <div className="glass-card">
             <h3 style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <FileText size={20} color="var(--color-primary)" /> Đề Nghị Hoàn Trả Thuốc Thừa
@@ -437,7 +441,7 @@ export default function Returns({ user }) {
                   className="form-input" 
                   value={selectedDept} 
                   onChange={e => setSelectedDept(e.target.value)}
-                  disabled={user?.role === 'nurse'}
+                  disabled={!!user?.departmentID}
                 >
                   {departments.map(d => (
                     <option key={d.departmentID} value={d.departmentID}>{d.departmentName}</option>
@@ -611,24 +615,24 @@ export default function Returns({ user }) {
                         className="badge-status"
                         style={{
                           background: ret.status === 'Pending' 
-                            ? 'rgba(245, 158, 11, 0.15)' 
-                            : ret.status === 'PendingLeader'
-                            ? 'rgba(59, 130, 246, 0.15)'
+                            ? 'rgba(59, 130, 246, 0.15)' 
+                            : ret.status === 'PendingPharmacist'
+                            ? 'rgba(245, 158, 11, 0.15)'
                             : ret.status === 'Approved'
                             ? 'rgba(16, 185, 129, 0.15)'
                             : 'rgba(239, 68, 68, 0.15)',
                           color: ret.status === 'Pending' 
-                            ? '#f59e0b' 
-                            : ret.status === 'PendingLeader'
-                            ? '#3b82f6'
+                            ? '#3b82f6' 
+                            : ret.status === 'PendingPharmacist'
+                            ? '#f59e0b'
                             : ret.status === 'Approved'
                             ? '#10b981'
                             : '#ef4444',
                           border: `1px solid ${
                             ret.status === 'Pending' 
-                              ? 'rgba(245, 158, 11, 0.3)' 
-                              : ret.status === 'PendingLeader'
-                              ? 'rgba(59, 130, 246, 0.3)'
+                              ? 'rgba(59, 130, 246, 0.3)' 
+                              : ret.status === 'PendingPharmacist'
+                              ? 'rgba(245, 158, 11, 0.3)'
                               : ret.status === 'Approved'
                               ? 'rgba(16, 185, 129, 0.3)'
                               : 'rgba(239, 68, 68, 0.3)'
@@ -636,9 +640,9 @@ export default function Returns({ user }) {
                         }}
                       >
                         {ret.status === 'Pending' 
-                          ? 'Chờ thủ kho nhận' 
-                          : ret.status === 'PendingLeader' 
-                          ? 'Chờ lãnh đạo duyệt' 
+                          ? 'Chờ Lãnh đạo duyệt' 
+                          : ret.status === 'PendingPharmacist' 
+                          ? 'Chờ Thủ kho nhận' 
                           : ret.status === 'Approved' 
                           ? 'Đã duyệt nhận' 
                           : 'Từ chối'}
@@ -670,25 +674,7 @@ export default function Returns({ user }) {
                       </div>
                     )}
                   </div>
-                  {ret.status === 'Pending' && user?.role === 'pharmacist' && (
-                    <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
-                      <button 
-                        className="btn-danger" 
-                        style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem' }}
-                        onClick={() => handleRejectReturn(ret.returnID)}
-                      >
-                        Từ chối
-                      </button>
-                      <button 
-                        className="btn-premium" 
-                        style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem' }}
-                        onClick={() => handleApproveReturn(ret.returnID)}
-                      >
-                        Duyệt Nhận Về Kho
-                      </button>
-                    </div>
-                  )}
-                  {ret.status === 'PendingLeader' && user?.role === 'director' && (
+                  {ret.status === 'Pending' && user?.role === 'director' && (
                     <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
                       <button 
                         className="btn-danger" 
@@ -703,6 +689,24 @@ export default function Returns({ user }) {
                         onClick={() => handleApproveReturn(ret.returnID)}
                       >
                         Ký Duyệt (Lãnh đạo)
+                      </button>
+                    </div>
+                  )}
+                  {ret.status === 'PendingPharmacist' && user?.role === 'pharmacist' && (
+                    <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+                      <button 
+                        className="btn-danger" 
+                        style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem' }}
+                        onClick={() => handleRejectReturn(ret.returnID)}
+                      >
+                        Từ chối
+                      </button>
+                      <button 
+                        className="btn-premium" 
+                        style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem' }}
+                        onClick={() => handleApproveReturn(ret.returnID)}
+                      >
+                        Duyệt Nhận Về Kho
                       </button>
                     </div>
                   )}
@@ -837,42 +841,21 @@ export default function Returns({ user }) {
                   <p style={{ fontWeight: 'bold' }}>Điều dưỡng khoa lâm sàng</p>
                 </div>
                 <div>
-                  <p style={{ margin: 0 }}><strong>Thủ kho Dược nhận</strong></p>
-                  <p style={{ margin: '0.1rem 0 0 0', color: '#555', fontStyle: 'italic' }}>(Ký tay trên hệ thống)</p>
-                  {activeReturnForPrint.approverSignature ? (
-                    <div style={{ height: '80px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0' }}>
-                      <img src={activeReturnForPrint.approverSignature} alt="Chữ ký Dược sĩ" style={{ maxHeight: '100%', maxWidth: '120px', objectFit: 'contain' }} />
-                    </div>
-                  ) : (
-                    <div style={{ height: '80px' }} />
-                  )}
-                  <p style={{ fontWeight: 'bold' }}>{
-                    activeReturnForPrint.status === 'Pending' 
-                      ? 'Chờ tiếp nhận' 
-                      : activeReturnForPrint.status === 'Rejected' && activeReturnForPrint.approverSignature
-                      ? 'Dược sĩ Khoa Dược (Từ chối)'
-                      : 'Dược sĩ Khoa Dược (Đã nhận)'
-                  }</p>
-                </div>
-                <div>
                   <p style={{ margin: 0 }}><strong>Trưởng Khoa / Lãnh đạo</strong></p>
                   <p style={{ margin: '0.1rem 0 0 0', color: '#555', fontStyle: 'italic' }}>(Ký, đóng dấu)</p>
-                  {activeReturnForPrint.status === 'Approved' ? (
+                  {activeReturnForPrint.directorSignature ? (
                     <div style={{ height: '80px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0', position: 'relative' }}>
-                      {/* Leader handwritten signature */}
-                      {activeReturnForPrint.directorSignature && (
-                        <img 
-                          src={activeReturnForPrint.directorSignature} 
-                          alt="Chữ ký Lãnh đạo" 
-                          style={{ 
-                            maxHeight: '100%', 
-                            maxWidth: '120px', 
-                            objectFit: 'contain',
-                            position: 'absolute',
-                            zIndex: 1
-                          }} 
-                        />
-                      )}
+                      <img 
+                        src={activeReturnForPrint.directorSignature} 
+                        alt="Chữ ký Lãnh đạo" 
+                        style={{ 
+                          maxHeight: '100%', 
+                          maxWidth: '120px', 
+                          objectFit: 'contain',
+                          position: 'absolute',
+                          zIndex: 1
+                        }} 
+                      />
                       {/* Overlapping Red Stamp */}
                       <div style={{ 
                         position: 'absolute', 
@@ -883,36 +866,24 @@ export default function Returns({ user }) {
                         pointerEvents: 'none'
                       }}>
                         <svg width="85" height="85" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" style={{ opacity: 0.85 }}>
-                          {/* Outer circle */}
-                          <circle cx="60" cy="60" r="52" fill="none" stroke="#dc2626" stroke-width="3" />
-                          {/* Inner circle */}
-                          <circle cx="60" cy="60" r="46" fill="none" stroke="#dc2626" stroke-width="1.2" />
-                          
-                          {/* Curved text path */}
+                          <circle cx="60" cy="60" r="52" fill="none" stroke="#dc2626" strokeWidth="3" />
+                          <circle cx="60" cy="60" r="46" fill="none" stroke="#dc2626" strokeWidth="1.2" />
                           <defs>
                             <path id="stampTextPathTop" d="M 18 60 A 42 42 0 0 1 102 60" fill="none" />
                             <path id="stampTextPathBottom" d="M 102 60 A 42 42 0 0 1 18 60" fill="none" />
                           </defs>
-                          
-                          <text fill="#dc2626" font-size="7.5" font-family="Arial, Helvetica, sans-serif" font-weight="bold" letter-spacing="0.5">
-                            <textPath href="#stampTextPathTop" startOffset="50%" text-anchor="middle">BỆNH VIỆN ĐA KHOA HIS PHARMACY</textPath>
+                          <text fill="#dc2626" fontSize="7.5" fontFamily="Arial, Helvetica, sans-serif" fontWeight="bold" letterSpacing="0.5">
+                            <textPath href="#stampTextPathTop" startOffset="50%" textAnchor="middle">BỆNH VIỆN ĐA KHOA HIS PHARMACY</textPath>
                           </text>
-                          
-                          <text fill="#dc2626" font-size="8" font-family="Arial, Helvetica, sans-serif" font-weight="bold" letter-spacing="1">
-                            <textPath href="#stampTextPathBottom" startOffset="50%" text-anchor="middle">KHOA DƯỢC ★</textPath>
+                          <text fill="#dc2626" fontSize="8" fontFamily="Arial, Helvetica, sans-serif" fontWeight="bold" letterSpacing="1">
+                            <textPath href="#stampTextPathBottom" startOffset="50%" textAnchor="middle">KHOA DƯỢC ★</textPath>
                           </text>
-                          
-                          {/* Center text */}
-                          <text x="60" y="52" fill="#dc2626" font-size="10" font-family="Times New Roman, serif" font-weight="bold" text-anchor="middle">ĐÃ DUYỆT</text>
-                          <text x="60" y="66" fill="#dc2626" font-size="6.5" font-family="Arial, sans-serif" font-weight="bold" text-anchor="middle">PGS.TS. L.M.DƯỢC</text>
+                          <text x="60" y="52" fill="#dc2626" fontSize="10" fontFamily="Times New Roman, serif" fontWeight="bold" textAnchor="middle">ĐÃ DUYỆT</text>
+                          <text x="60" y="66" fill="#dc2626" fontSize="6.5" fontFamily="Arial, sans-serif" fontWeight="bold" textAnchor="middle">PGS.TS. L.M.DƯỢC</text>
                         </svg>
                       </div>
                     </div>
-                  ) : activeReturnForPrint.status === 'Rejected' && activeReturnForPrint.directorSignature ? (
-                    <div style={{ height: '80px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0' }}>
-                      <img src={activeReturnForPrint.directorSignature} alt="Chữ ký Lãnh đạo" style={{ maxHeight: '100%', maxWidth: '120px', objectFit: 'contain' }} />
-                    </div>
-                  ) : activeReturnForPrint.status === 'PendingLeader' ? (
+                  ) : activeReturnForPrint.status === 'Pending' ? (
                     <div style={{ height: '80px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0' }}>
                       <span style={{ color: '#3b82f6', fontSize: '0.8rem', fontWeight: 'bold', fontStyle: 'italic', border: '1px dashed #3b82f6', padding: '0.25rem 0.5rem', borderRadius: '4px' }}>
                         Chờ Lãnh đạo ký duyệt
@@ -926,11 +897,39 @@ export default function Returns({ user }) {
                     </div>
                   )}
                   <p style={{ fontWeight: 'bold' }}>{
-                    activeReturnForPrint.status === 'Approved' 
+                    activeReturnForPrint.directorSignature
                       ? 'PGS.TS. Lê Minh Dược (Đã duyệt)' 
                       : activeReturnForPrint.status === 'Rejected' && activeReturnForPrint.directorSignature
                       ? 'PGS.TS. Lê Minh Dược (Từ chối)'
                       : 'Chờ phê duyệt'
+                  }</p>
+                </div>
+                <div>
+                  <p style={{ margin: 0 }}><strong>Thủ kho Dược nhận</strong></p>
+                  <p style={{ margin: '0.1rem 0 0 0', color: '#555', fontStyle: 'italic' }}>(Ký tay trên hệ thống)</p>
+                  {activeReturnForPrint.approverSignature ? (
+                    <div style={{ height: '80px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0' }}>
+                      <img src={activeReturnForPrint.approverSignature} alt="Chữ ký Dược sĩ" style={{ maxHeight: '100%', maxWidth: '120px', objectFit: 'contain' }} />
+                    </div>
+                  ) : activeReturnForPrint.status === 'PendingPharmacist' ? (
+                    <div style={{ height: '80px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0' }}>
+                      <span style={{ color: '#f59e0b', fontSize: '0.8rem', fontWeight: 'bold', fontStyle: 'italic', border: '1px dashed #f59e0b', padding: '0.25rem 0.5rem', borderRadius: '4px' }}>
+                        Chờ thủ kho nhận
+                      </span>
+                    </div>
+                  ) : (
+                    <div style={{ height: '80px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0' }}>
+                      <span style={{ color: '#94a3b8', fontSize: '0.75rem', fontStyle: 'italic' }}>
+                        {activeReturnForPrint.status === 'Pending' ? 'Chờ Lãnh đạo duyệt trước' : 'Chờ tiếp nhận'}
+                      </span>
+                    </div>
+                  )}
+                  <p style={{ fontWeight: 'bold' }}>{
+                    activeReturnForPrint.approverSignature 
+                      ? 'Dược sĩ Khoa Dược (Đã nhận)' 
+                      : activeReturnForPrint.status === 'Rejected' && activeReturnForPrint.approverSignature
+                      ? 'Dược sĩ Khoa Dược (Từ chối)'
+                      : 'Chờ tiếp nhận'
                   }</p>
                 </div>
               </div>
