@@ -111,6 +111,19 @@ public class ReturnController : ControllerBase
 
         try
         {
+            var ret = await _context.ReturnReceipts.FindAsync(id);
+            if (ret == null) return NotFound();
+
+            // Check lock MainStore
+            var isMainStoreLocked = await _context.InventoryAudits.AnyAsync(a => a.LocationType == "MainStore" && (a.Status == "Nháp" || a.Status == "Chờ xác nhận" || a.Status == "Có chênh lệch"));
+            if (isMainStoreLocked)
+                return BadRequest(new { Error = "Kho chẵn chính đang tiến hành kiểm kê và bị khóa giao dịch nhập kho hoàn trả." });
+
+            // Check lock Cabinet
+            var isCabinetLocked = await _context.InventoryAudits.AnyAsync(a => a.LocationType == "Cabinet" && a.DepartmentID == ret.DepartmentID && (a.Status == "Nháp" || a.Status == "Chờ xác nhận" || a.Status == "Có chênh lệch"));
+            if (isCabinetLocked)
+                return BadRequest(new { Error = "Tủ trực của khoa hoàn trả đang tiến hành kiểm kê và bị khóa giao dịch nhập xuất." });
+
             await _stockService.PharmacistApproveReturnAsync(id, request?.DigitalSignature);
 
             // Broadcast real-time updates
@@ -131,7 +144,7 @@ public class ReturnController : ControllerBase
     public async Task<IActionResult> LeaderApproveReturn(int id, [FromBody] ApproveReturnRequest? request)
     {
         var userRole = Request.Headers["X-User-Role"].ToString();
-        if (userRole != "director")
+        if (userRole != "director" && userRole != "head")
             return BadRequest(new { Error = "Quyền truy cập bị từ chối. Chỉ Trưởng Khoa / Lãnh đạo mới có quyền ký duyệt hành chính phiếu hoàn trả." });
 
         try
@@ -160,8 +173,8 @@ public class ReturnController : ControllerBase
     public async Task<IActionResult> RejectReturn(int id, [FromBody] ReturnRejectPayload? payload)
     {
         var userRole = Request.Headers["X-User-Role"].ToString();
-        if (userRole != "pharmacist" && userRole != "director")
-            return BadRequest(new { Error = "Quyền truy cập bị từ chối. Chỉ Thủ kho hoặc Lãnh đạo mới có quyền từ chối phiếu hoàn trả." });
+        if (userRole != "pharmacist" && userRole != "director" && userRole != "head")
+            return BadRequest(new { Error = "Quyền truy cập bị từ chối. Chỉ Trưởng Khoa, Thủ kho hoặc Lãnh đạo mới có quyền từ chối phiếu hoàn trả." });
 
         var ret = await _context.ReturnReceipts.FindAsync(id);
         if (ret == null) return NotFound();
@@ -176,8 +189,8 @@ public class ReturnController : ControllerBase
 
         if (ret.Status == "Pending")
         {
-            if (userRole != "director")
-                return BadRequest(new { Error = "Quyền từ chối bị từ chối. Chỉ Lãnh đạo mới có quyền từ chối ở bước này." });
+            if (userRole != "director" && userRole != "head")
+                return BadRequest(new { Error = "Quyền từ chối bị từ chối. Chỉ Trưởng Khoa hoặc Lãnh đạo mới có quyền từ chối ở bước này." });
 
             ret.Status = "Rejected";
             ret.RejectReason = payload.RejectReason;

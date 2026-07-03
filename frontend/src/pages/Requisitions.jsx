@@ -18,9 +18,107 @@ import {
   Trash
 } from 'lucide-react';
 
+const SIG = {
+  duoc: (
+    <svg width="100" height="50" viewBox="0 0 120 60" style={{ display: 'block', margin: 'auto' }}>
+      <path d="M15,35 C30,15 45,5 55,25 C65,45 80,45 95,20 C105,5 110,15 115,25 M35,45 C50,35 70,25 90,40" fill="none" stroke="#0000ff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  khoa: (
+    <svg width="100" height="50" viewBox="0 0 120 60" style={{ display: 'block', margin: 'auto' }}>
+      <path d="M10,25 Q30,45 50,20 T90,30 T110,15 M20,15 C40,25 60,35 80,20" fill="none" stroke="#0000ff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  hong: (
+    <svg width="100" height="50" viewBox="0 0 120 60" style={{ display: 'block', margin: 'auto' }}>
+      <path d="M15,20 Q35,5 50,35 T85,25 T110,40 M40,45 C60,40 80,35 100,30" fill="none" stroke="#0000ff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  chuong: (
+    <svg width="100" height="50" viewBox="0 0 120 60" style={{ display: 'block', margin: 'auto' }}>
+      <path d="M12,30 C25,10 40,20 50,40 C60,15 75,5 90,25 C100,45 108,35 115,20 M25,45 Q55,30 85,45" fill="none" stroke="#0000ff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+};
+
+const RedStamp = ({ name }) => (
+  <svg width="85" height="85" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" style={{ opacity: 0.85 }}>
+    <circle cx="60" cy="60" r="52" fill="none" stroke="#dc2626" strokeWidth="3" />
+    <circle cx="60" cy="60" r="46" fill="none" stroke="#dc2626" strokeWidth="1.2" />
+    <circle cx="60" cy="60" r="46" fill="none" stroke="#dc2626" strokeWidth="1.2" />
+    <defs>
+      <path id="stampTextPathTop" d="M 18 60 A 42 42 0 0 1 102 60" fill="none" />
+      <path id="stampTextPathBottom" d="M 102 60 A 42 42 0 0 1 18 60" fill="none" />
+    </defs>
+    <text fill="#dc2626" fontSize="7.5" fontFamily="Arial, Helvetica, sans-serif" fontWeight="bold" letterSpacing="0.5">
+      <textPath href="#stampTextPathTop" startOffset="50%" textAnchor="middle">BỆNH VIỆN ĐA KHOA HIS PHARMACY</textPath>
+    </text>
+    <text fill="#dc2626" fontSize="8" fontFamily="Arial, Helvetica, sans-serif" fontWeight="bold" letterSpacing="1">
+      <textPath href="#stampTextPathBottom" startOffset="50%" textAnchor="middle">KHOA DƯỢC ★</textPath>
+    </text>
+    <text x="60" y="52" fill="#dc2626" fontSize="10" fontFamily="Times New Roman, serif" fontWeight="bold" textAnchor="middle">ĐÃ DUYỆT</text>
+    <text x="60" y="66" fill="#dc2626" fontSize="6.5" fontFamily="Arial, sans-serif" fontWeight="bold" textAnchor="middle">{name}</text>
+  </svg>
+);
+
 export default function Requisitions({ user }) {
   const [requisitions, setRequisitions] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  const getRequisitionCode = (req) => {
+    if (!req) return '';
+    const date = new Date(req.requisitionDate || new Date());
+    const yyyy = date.getFullYear();
+    const mm = String(date.getMonth() + 1).padStart(2, '0');
+    const dd = String(date.getDate()).padStart(2, '0');
+    const idStr = String(req.requisitionID).padStart(4, '0');
+    return `PL-${yyyy}${mm}${dd}-${idStr}`;
+  };
+
+  const getTransferCode = (tx) => {
+    if (!tx) return '';
+    const date = new Date(tx.transferDate || new Date());
+    const yyyy = date.getFullYear();
+    const mm = String(date.getMonth() + 1).padStart(2, '0');
+    const dd = String(date.getDate()).padStart(2, '0');
+    const idStr = String(tx.transferID).padStart(4, '0');
+    return `PCK-${yyyy}${mm}${dd}-${idStr}`;
+  };
+
+  const getStatusText = (status, receiveDate) => {
+    switch (status) {
+      case 'PendingHead': return 'Chờ Trưởng khoa duyệt';
+      case 'Pending': return 'Chờ Dược duyệt';
+      case 'InTransit': return 'Đang vận chuyển';
+      case 'Received': return 'Đã nhận đủ';
+      case 'PartiallyReceived': return 'Nhận một phần';
+      case 'Rejected': return 'Đã từ chối';
+      case 'RejectedByHead': return 'Trưởng khoa từ chối';
+      case 'RejectedByPharmacy': return 'Kho Dược từ chối';
+      case 'RejectedOnReceive': return 'Khoa từ chối nhận';
+      case 'Cancelled': return 'Đã hủy phiếu';
+      case 'Approved': return receiveDate ? 'Đã nhận đủ' : 'Đang vận chuyển';
+      default: return status || 'Chờ duyệt';
+    }
+  };
+
+  const getStatusClass = (status, receiveDate) => {
+    switch (status) {
+      case 'PendingHead': return 'pendinghead';
+      case 'Pending': return 'pending';
+      case 'InTransit': return 'warning';
+      case 'Received': return 'approved';
+      case 'PartiallyReceived': return 'partiallyreceived';
+      case 'Rejected': return 'rejected';
+      case 'RejectedByHead': return 'rejected';
+      case 'RejectedByPharmacy': return 'rejected';
+      case 'RejectedOnReceive': return 'rejectedonreceive';
+      case 'Cancelled': return 'cancelled';
+      case 'Approved': return receiveDate ? 'approved' : 'warning';
+      default: return 'pending';
+    }
+  };
+
   const [activeReqForDetail, setActiveReqForDetail] = useState(null);
   
   // Custom Dispensing Qty State (keyed by RequisitionDetailID)
@@ -41,6 +139,19 @@ export default function Requisitions({ user }) {
   const [showSignatureModal, setShowSignatureModal] = useState(false);
   const [signatureTarget, setSignatureTarget] = useState(null); // { action: 'approve_requisition'|'direct_transfer', requisitionID?: number }
   const canvasRef = useRef(null);
+  const witnessCanvasRef = useRef(null);
+
+  // Receive Confirmation Modal States
+  const [showReceiveConfirmModal, setShowReceiveConfirmModal] = useState(false);
+  const [receivingReq, setReceivingReq] = useState(null);
+  const [receiverName, setReceiverName] = useState(user?.fullName || '');
+  const [witnessName, setWitnessName] = useState('');
+  const [witnessSignature, setWitnessSignature] = useState('');
+  const [receiveTemp, setReceiveTemp] = useState('5.0'); // Default cold chain temp (2-8°C)
+  const [deliveryConfirmStatus, setDeliveryConfirmStatus] = useState('Accept'); // 'Accept', 'PartialAccept', 'Reject'
+  const [receiveDetails, setReceiveDetails] = useState([]); // Array of { batchID, quantity, receivedQuantity, rejectReason, medicineName, batchNumber, expiryDate }
+  const [deliveryBy, setDeliveryBy] = useState('');
+  const [deliveryPhone, setDeliveryPhone] = useState('');
 
   // Create Requisition States for Nurse
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -158,11 +269,10 @@ export default function Requisitions({ user }) {
 
   // Signature Canvas Drawing Logic
   useEffect(() => {
-    if (showSignatureModal) {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
+    const initializeCanvas = (canvas, strokeColor = '#1e3a8a') => {
+      if (!canvas) return () => {};
       const ctx = canvas.getContext('2d');
-      ctx.strokeStyle = '#1e3a8a'; // Clinical dark blue ink
+      ctx.strokeStyle = strokeColor;
       ctx.lineWidth = 3;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
@@ -217,11 +327,38 @@ export default function Requisitions({ user }) {
         canvas.removeEventListener('touchmove', draw);
         canvas.removeEventListener('touchend', stop);
       };
+    };
+
+    let cleanup1 = () => {};
+    let cleanup2 = () => {};
+
+    if (showSignatureModal && canvasRef.current) {
+      cleanup1 = initializeCanvas(canvasRef.current);
     }
-  }, [showSignatureModal]);
+    if (showReceiveConfirmModal) {
+      if (canvasRef.current) {
+        cleanup1 = initializeCanvas(canvasRef.current);
+      }
+      if (witnessCanvasRef.current) {
+        cleanup2 = initializeCanvas(witnessCanvasRef.current, '#ef4444'); // Red witness ink
+      }
+    }
+
+    return () => {
+      cleanup1();
+      cleanup2();
+    };
+  }, [showSignatureModal, showReceiveConfirmModal]);
 
   const clearCanvas = () => {
     const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+  };
+
+  const clearWitnessCanvas = () => {
+    const canvas = witnessCanvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -234,6 +371,131 @@ export default function Requisitions({ user }) {
       canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data.buffer
     );
     return !buffer.some(color => color !== 0);
+  };
+
+  const isWitnessCanvasEmpty = () => {
+    const canvas = witnessCanvasRef.current;
+    if (!canvas) return true;
+    const buffer = new Uint32Array(
+      canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data.buffer
+    );
+    return !buffer.some(color => color !== 0);
+  };
+
+  const handleOpenReceiveConfirm = (req) => {
+    setReceivingReq(req);
+    setReceiverName(user?.fullName || '');
+    setWitnessName('');
+    setWitnessSignature('');
+    setReceiveTemp('5.0');
+    setDeliveryConfirmStatus('Accept');
+    
+    // Find internal transfer to match details
+    const associatedTransfer = internalTransfers.find(t => t.requisitionID === req.requisitionID);
+    
+    const details = req.details?.map(d => {
+      const transferDetail = associatedTransfer?.details?.find(td => td.batch?.medicineID === d.medicineID) || associatedTransfer?.details?.[0];
+      return {
+        requisitionDetailID: d.requisitionDetailID,
+        medicineName: d.medicine?.medicineName || 'Dược phẩm',
+        batchNumber: transferDetail?.batch?.batchNumber || 'Lô chính',
+        expiryDate: transferDetail?.batch?.expiryDate || '',
+        quantity: d.dispensedQuantity || d.requestedQuantity,
+        receivedQuantity: d.dispensedQuantity || d.requestedQuantity,
+        rejectReason: ''
+      };
+    }) || [];
+    
+    setReceiveDetails(details);
+    setShowReceiveConfirmModal(true);
+  };
+
+  const handleConfirmReceiveSubmit = () => {
+    if (isCanvasEmpty()) {
+      alert("Vui lòng vẽ chữ ký tay của Điều dưỡng tiếp nhận.");
+      return;
+    }
+
+    if (witnessName.trim() && isWitnessCanvasEmpty()) {
+      alert("Vui lòng vẽ chữ ký tay của Người làm chứng (Xác thực kép).");
+      return;
+    }
+
+    const tempVal = parseFloat(receiveTemp);
+    if (isNaN(tempVal)) {
+      alert("Vui lòng nhập nhiệt độ giao nhận thực tế hợp lệ.");
+      return;
+    }
+
+    // Cold chain alert: normal clinical refrigeration is 2°C to 8°C
+    if (tempVal < 2.0 || tempVal > 8.0) {
+      const confirmWarning = window.confirm(`⚠️ CẢNH BÁO NHIỆT ĐỘ: Nhiệt độ bảo quản thực tế khi giao nhận là ${tempVal}°C, nằm ngoài điều kiện tiêu chuẩn bảo quản lạnh (2°C - 8°C). Bạn có chắc chắn muốn ký nhận thuốc không?`);
+      if (!confirmWarning) return;
+    }
+
+    // Expiry check of received batches (Transit Expiry Check)
+    let hasExpiredOrNearExpiry = false;
+    receiveDetails.forEach(d => {
+      if (d.expiryDate) {
+        const daysLeft = Math.round((new Date(d.expiryDate) - new Date()) / (1000 * 60 * 60 * 24));
+        if (daysLeft <= 0) {
+          alert(`CẢNH BÁO AN TOÀN: Lô thuốc ${d.batchNumber} của thuốc ${d.medicineName} ĐÃ HẾT HẠN sử dụng. Hệ thống từ chối nhận lô thuốc này.`);
+          hasExpiredOrNearExpiry = true;
+        } else if (daysLeft < 30) {
+          const confirmExp = window.confirm(`⚠️ LƯU Ý HẠN DÙNG: Lô thuốc ${d.batchNumber} của thuốc ${d.medicineName} chỉ còn ${daysLeft} ngày sử dụng (cận date dưới 30 ngày). Bạn có chắc chắn muốn nhận không?`);
+          if (!confirmExp) hasExpiredOrNearExpiry = true;
+        }
+      }
+    });
+
+    if (hasExpiredOrNearExpiry) return;
+
+    const receiverSig = canvasRef.current.toDataURL('image/png');
+    const witnessSig = witnessName.trim() ? witnessCanvasRef.current.toDataURL('image/png') : null;
+    const id = receivingReq.requisitionID;
+
+    fetch(`/api/requisition/${id}/receive`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-User-Role': user?.role || '',
+        'X-User-FullName': encodeURIComponent(user?.fullName || '')
+      },
+      body: JSON.stringify({
+        receiverSignature: receiverSig,
+        receiverName: receiverName,
+        witnessName: witnessName,
+        witnessSignature: witnessSig,
+        temp: tempVal,
+        deliveryConfirmStatus: deliveryConfirmStatus,
+        details: receiveDetails.map(d => ({
+          requisitionDetailID: d.requisitionDetailID,
+          receivedQuantity: parseInt(d.receivedQuantity) || 0,
+          rejectReason: d.rejectReason
+        }))
+      })
+    })
+    .then(async res => {
+      const text = await res.text();
+      if (res.ok) {
+        alert("Xác nhận bàn giao giao nhận dược lâm sàng thành công!");
+        setShowReceiveConfirmModal(false);
+        fetchRequisitions();
+        fetchMainStoreBatches();
+        fetchInternalTransfers();
+        setActiveReqForDetail(null);
+      } else {
+        let errorMsg = "Lỗi nghiệp vụ bàn giao";
+        try {
+          const data = JSON.parse(text);
+          errorMsg = data.error || data.message || errorMsg;
+        } catch (e) {
+          errorMsg = text || `Mã lỗi: ${res.status}`;
+        }
+        alert("Lỗi bàn giao: " + errorMsg);
+      }
+    })
+    .catch(err => alert("Lỗi kết nối API: " + err.message));
   };
 
   // Open Requisition Details & Init Adjusted Quantities
@@ -427,13 +689,17 @@ export default function Requisitions({ user }) {
         },
         body: JSON.stringify({
           approverSignature: signatureBase64,
-          details: payloadDetails
+          details: payloadDetails,
+          deliveryBy: deliveryBy,
+          deliveryPhone: deliveryPhone
         })
       })
         .then(async res => {
           const text = await res.text();
           if (res.ok) {
             alert("Phê duyệt hoàn tất! Hệ thống đã xuất kho chẵn và chuyển vào kho tủ trực khoa phòng.");
+            setDeliveryBy('');
+            setDeliveryPhone('');
             fetchRequisitions();
             fetchMainStoreBatches();
             fetchInternalTransfers();
@@ -472,7 +738,7 @@ export default function Requisitions({ user }) {
         return res.json();
       })
       .then(data => {
-        alert("Cấp phát trực tiếp thành công! Cơ số đã được chuyển xuống tủ trực khoa.");
+        alert("Xuất cấp phát trực tiếp thành công! Phiếu đã chuyển sang trạng thái [Đang vận chuyển], vui lòng thông báo cho điều dưỡng khoa tiếp nhận thực hiện ký nhận.");
         setTransferQty('');
         setSelectedBatchId('');
         fetchRequisitions();
@@ -582,10 +848,41 @@ export default function Requisitions({ user }) {
           } catch (e) {
             errorMsg = text || `Mã lỗi: ${res.status}`;
           }
-          alert("Lỗi khi tạo phiếu lĩnh: " + errorMsg);
         }
       })
       .catch(err => alert("Lỗi kết nối: " + err.message));
+    } else if (signatureTarget.action === 'receive_requisition') {
+      const id = signatureTarget.requisitionID;
+      fetch(`/api/requisition/${id}/receive`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Role': user?.role || ''
+        },
+        body: JSON.stringify({
+          receiverSignature: signatureBase64
+        })
+      })
+      .then(async res => {
+        const text = await res.text();
+        if (res.ok) {
+          alert("Xác nhận nhận thuốc và ký biên bản giao nhận thành công!");
+          fetchRequisitions();
+          fetchMainStoreBatches();
+          fetchInternalTransfers();
+          setActiveReqForDetail(null);
+        } else {
+          let errorMsg = "Không thể xác nhận nhận thuốc.";
+          try {
+            const data = JSON.parse(text);
+            errorMsg = data.error || data.message || errorMsg;
+          } catch (e) {
+            errorMsg = text || `Mã lỗi: ${res.status}`;
+          }
+          alert("Lỗi khi xác nhận nhận thuốc: " + errorMsg);
+        }
+      })
+      .catch(err => alert("Lỗi kết nối API: " + err.message));
     }
   };
 
@@ -682,7 +979,39 @@ export default function Requisitions({ user }) {
 
       {(user?.role === 'nurse' || user?.role === 'head_nurse' || user?.role === 'head') ? (
         // Giao diện của Điều dưỡng: Chỉ xem danh sách phiếu lĩnh thuốc của khoa mình
-        <div className="glass-card">
+        <>
+          {(() => {
+            const pendingReceipts = requisitions.filter(r => r.departmentID === user.departmentID && r.status === 'Approved' && !r.receiveDate);
+            if (pendingReceipts.length === 0) return null;
+            return (
+              <div className="glass-card" style={{ 
+                background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.12) 0%, rgba(5, 150, 105, 0.05) 100%)', 
+                border: '1px solid rgba(16, 185, 129, 0.3)',
+                padding: '1.25rem 1.5rem',
+                borderRadius: '12px',
+                marginBottom: '1.5rem',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                boxShadow: '0 8px 30px rgba(16, 185, 129, 0.08)'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+                  <div style={{ background: '#10b981', color: '#fff', width: '40px', height: '40px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)' }}>
+                    📦
+                  </div>
+                  <div>
+                    <h4 style={{ margin: 0, color: '#10b981', fontSize: '0.92rem', fontWeight: '700' }}>Yêu cầu ký xác nhận nhận bàn giao thuốc</h4>
+                    <p style={{ margin: '0.25rem 0 0 0', color: 'var(--text-muted)', fontSize: '0.8rem', lineHeight: '1.4' }}>
+                      Khoa đang có <strong>{pendingReceipts.length}</strong> phiếu lĩnh thuốc đã được thủ kho dược xuất cấp và đang vận chuyển xuống khoa. <br />
+                      Vui lòng kiểm tra thực tế thuốc tại tủ trực và thực hiện <strong>Ký nhận bàn giao thuốc</strong> để nhập thuốc vào hệ thống tủ trực của khoa.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
+          <div className="glass-card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
             <h3>Danh Sách Phiếu Yêu Cầu Lĩnh Thuốc Đã Gửi</h3>
             <span className="badge-status pending" style={{ textTransform: 'none', background: 'rgba(13, 148, 136, 0.1)', color: 'var(--color-secondary)' }}>
@@ -711,10 +1040,10 @@ export default function Requisitions({ user }) {
                     .sort((a, b) => new Date(b.requisitionDate) - new Date(a.requisitionDate))
                     .map(req => (
                       <tr key={req.requisitionID}>
-                        <td><strong>#REQ-{req.requisitionID}</strong></td>
+                        <td><strong>{getRequisitionCode(req)}</strong></td>
                         <td>
-                          <span className={`badge-status ${req.requisitionType === 'Regular' ? 'regular' : req.requisitionType === 'Urgent' ? 'urgent' : 'refill'}`}>
-                            {req.requisitionType === 'Regular' ? 'Lĩnh thường quy' : req.requisitionType === 'Urgent' ? '🚨 Lĩnh khẩn' : 'Bù tủ trực cấp cứu'}
+                          <span className={`badge-status ${req.requisitionType === 'Regular' ? 'regular' : req.requisitionType === 'Urgent' ? 'urgent' : req.requisitionType === 'DirectTransfer' ? 'approved' : 'refill'}`}>
+                            {req.requisitionType === 'Regular' ? 'Lĩnh thường quy' : req.requisitionType === 'Urgent' ? '🚨 Lĩnh khẩn' : req.requisitionType === 'DirectTransfer' ? 'Xuất chuyển chủ động' : 'Bù tủ trực cấp cứu'}
                           </span>
                         </td>
                         <td>{new Date(req.requisitionDate).toLocaleString('vi-VN')}</td>
@@ -724,8 +1053,8 @@ export default function Requisitions({ user }) {
                           </span>
                         </td>
                         <td>
-                          <span className={`badge-status ${req.status.toLowerCase()}`}>
-                            {req.status === 'PendingHead' ? 'Chờ Trưởng khoa duyệt' : req.status === 'Pending' ? 'Chờ Dược duyệt' : req.status === 'Approved' ? 'Đã duyệt' : 'Đã từ chối'}
+                          <span className={`badge-status ${getStatusClass(req.status, req.receiveDate)}`}>
+                            {getStatusText(req.status, req.receiveDate)}
                           </span>
                         </td>
                         <td>
@@ -737,9 +1066,9 @@ export default function Requisitions({ user }) {
                             >
                               Chi tiết
                             </button>
-                            {req.status === 'Approved' && (
+                            {(req.status === 'InTransit' || req.status === 'Approved' || req.status === 'Received' || req.status === 'PartiallyReceived' || req.status === 'RejectedOnReceive') && (
                               <button 
-                                className="btn-premium" 
+                                className="btn-secondary" 
                                 style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -747,6 +1076,18 @@ export default function Requisitions({ user }) {
                                 }}
                               >
                                 <Printer size={12} /> In (A4)
+                              </button>
+                            )}
+                            {(req.status === 'InTransit' || (req.status === 'Approved' && !req.receiveDate)) && (
+                              <button 
+                                className="btn-premium" 
+                                style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem', background: '#10b981', borderColor: '#059669', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleOpenReceiveConfirm(req);
+                                }}
+                              >
+                                <PenTool size={12} /> Ký nhận thuốc
                               </button>
                             )}
                             {((user?.role === 'head') || (user?.role === 'head_nurse' && isDelegated)) && (req.status === 'PendingHead' || !req.headSignature) && req.status !== 'Rejected' && (
@@ -792,6 +1133,7 @@ export default function Requisitions({ user }) {
             </div>
           )}
         </div>
+        </>
       ) : (
         // Giao diện của Thủ kho Dược: Có Tab Navigation và các chức năng phê duyệt/cấp phát trực tiếp
         <>
@@ -854,11 +1196,11 @@ export default function Requisitions({ user }) {
                     })
                     .map(req => (
                     <tr key={req.requisitionID}>
-                      <td><strong>#REQ-{req.requisitionID}</strong></td>
+                      <td><strong>{getRequisitionCode(req)}</strong></td>
                       <td><strong>{req.department?.departmentName}</strong></td>
                       <td>
-                        <span className={`badge-status ${req.requisitionType === 'Regular' ? 'regular' : req.requisitionType === 'Urgent' ? 'urgent' : 'refill'}`}>
-                          {req.requisitionType === 'Regular' ? 'Lĩnh thường quy' : req.requisitionType === 'Urgent' ? '🚨 Lĩnh khẩn' : 'Bù tủ trực cấp cứu'}
+                        <span className={`badge-status ${req.requisitionType === 'Regular' ? 'regular' : req.requisitionType === 'Urgent' ? 'urgent' : req.requisitionType === 'DirectTransfer' ? 'approved' : 'refill'}`}>
+                          {req.requisitionType === 'Regular' ? 'Lĩnh thường quy' : req.requisitionType === 'Urgent' ? '🚨 Lĩnh khẩn' : req.requisitionType === 'DirectTransfer' ? 'Xuất chuyển chủ động' : 'Bù tủ trực cấp cứu'}
                         </span>
                       </td>
                       <td>{new Date(req.requisitionDate).toLocaleString('vi-VN')}</td>
@@ -868,8 +1210,8 @@ export default function Requisitions({ user }) {
                         </span>
                       </td>
                       <td>
-                        <span className={`badge-status ${req.status.toLowerCase()}`}>
-                          {req.status === 'Pending' ? 'Chờ duyệt' : req.status === 'Approved' ? 'Đã duyệt' : 'Đã từ chối'}
+                        <span className={`badge-status ${getStatusClass(req.status, req.receiveDate)}`}>
+                          {getStatusText(req.status, req.receiveDate)}
                         </span>
                       </td>
                       <td>
@@ -977,7 +1319,7 @@ export default function Requisitions({ user }) {
                 onClick={() => setHistoryTabType('requisition_based')}
                 style={{ fontSize: '0.75rem', padding: '0.35rem 0.75rem' }}
               >
-                Cấp phát theo yêu cầu lĩnh ({requisitions.filter(r => r.status === 'Approved').length})
+                Cấp phát theo yêu cầu lĩnh ({requisitions.filter(r => ['Approved', 'InTransit', 'Received', 'PartiallyReceived', 'RejectedOnReceive'].includes(r.status)).length})
               </button>
               <button 
                 className={historyTabType === 'direct_based' ? 'btn-premium' : 'btn-secondary'}
@@ -990,8 +1332,8 @@ export default function Requisitions({ user }) {
           </div>
 
           {historyTabType === 'requisition_based' ? (
-            requisitions.filter(r => r.status === 'Approved').length === 0 ? (
-              <p style={{ color: 'var(--text-muted)', marginTop: '1rem' }}>Chưa có hồ sơ cấp phát theo yêu cầu lĩnh nào được phê duyệt.</p>
+            requisitions.filter(r => ['Approved', 'InTransit', 'Received', 'PartiallyReceived', 'RejectedOnReceive'].includes(r.status)).length === 0 ? (
+              <p style={{ color: 'var(--text-muted)', marginTop: '1rem' }}>Chưa có hồ sơ cấp phát theo yêu cầu lĩnh nào được thực hiện.</p>
             ) : (
               <div className="table-container">
                 <table>
@@ -1007,21 +1349,27 @@ export default function Requisitions({ user }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {requisitions.filter(r => r.status === 'Approved').map(req => (
+                    {requisitions.filter(r => ['Approved', 'InTransit', 'Received', 'PartiallyReceived', 'RejectedOnReceive'].includes(r.status)).map(req => (
                       <tr key={req.requisitionID}>
-                        <td><strong>#REQ-{req.requisitionID}</strong></td>
+                        <td><strong>{getRequisitionCode(req)}</strong></td>
                         <td><strong>{req.department?.departmentName}</strong></td>
                         <td>
-                          <span className={`badge-status ${req.requisitionType === 'Regular' ? 'regular' : req.requisitionType === 'Urgent' ? 'urgent' : 'refill'}`}>
-                            {req.requisitionType === 'Regular' ? 'Lĩnh thường quy' : req.requisitionType === 'Urgent' ? '🚨 Lĩnh khẩn' : 'Bù tủ trực cấp cứu'}
+                          <span className={`badge-status ${req.requisitionType === 'Regular' ? 'regular' : req.requisitionType === 'Urgent' ? 'urgent' : req.requisitionType === 'DirectTransfer' ? 'approved' : 'refill'}`}>
+                            {req.requisitionType === 'Regular' ? 'Lĩnh thường quy' : req.requisitionType === 'Urgent' ? '🚨 Lĩnh khẩn' : req.requisitionType === 'DirectTransfer' ? 'Xuất chuyển chủ động' : 'Bù tủ trực cấp cứu'}
                           </span>
                         </td>
                         <td>{new Date(req.requisitionDate).toLocaleString('vi-VN')}</td>
                         <td style={{ textAlign: 'center' }}><strong>{req.details?.length || 0}</strong></td>
                         <td style={{ textAlign: 'center' }}>
-                          <span className="badge-status approved" style={{ textTransform: 'none', fontSize: '0.72rem', padding: '0.15rem 0.4rem' }}>
-                            ✍️ Đã ký số hai đầu
-                          </span>
+                          {req.receiveDate ? (
+                            <span className="badge-status approved" style={{ textTransform: 'none', fontSize: '0.72rem', padding: '0.15rem 0.4rem' }}>
+                              ✍️ Đã ký số hai đầu
+                            </span>
+                          ) : (
+                            <span className="badge-status warning" style={{ textTransform: 'none', fontSize: '0.72rem', padding: '0.15rem 0.4rem' }}>
+                              ✍️ Chờ khoa ký nhận
+                            </span>
+                          )}
                         </td>
                         <td>
                           <button 
@@ -1060,15 +1408,27 @@ export default function Requisitions({ user }) {
                       const totalQty = tx.details?.reduce((sum, d) => sum + d.quantity, 0) || 0;
                       return (
                         <tr key={tx.transferID}>
-                          <td><strong>#PTX-{tx.transferID}</strong></td>
+                          <td><strong>{getTransferCode(tx)}</strong></td>
                           <td><strong>{tx.toDepartment?.departmentName}</strong></td>
                           <td><span className="badge-status regular" style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#10b981' }}>Kho chẵn chính</span></td>
                           <td>{new Date(tx.transferDate).toLocaleString('vi-VN')}</td>
                           <td style={{ textAlign: 'center' }}><strong>{totalQty}</strong> sản phẩm</td>
                           <td style={{ textAlign: 'center' }}>
-                            <span className="badge-status approved" style={{ textTransform: 'none', fontSize: '0.72rem', padding: '0.15rem 0.4rem' }}>
-                              ✍️ Đã ký xác nhận
-                            </span>
+                            {tx.requisition ? (
+                              tx.requisition.receiveDate ? (
+                                <span className="badge-status approved" style={{ textTransform: 'none', fontSize: '0.72rem', padding: '0.15rem 0.4rem' }}>
+                                  ✍️ Đã ký số hai đầu
+                                </span>
+                              ) : (
+                                <span className="badge-status warning" style={{ textTransform: 'none', fontSize: '0.72rem', padding: '0.15rem 0.4rem' }}>
+                                  ✍️ Chờ khoa ký nhận
+                                </span>
+                              )
+                            ) : (
+                              <span className="badge-status approved" style={{ textTransform: 'none', fontSize: '0.72rem', padding: '0.15rem 0.4rem' }}>
+                                ✍️ Đã ký xác nhận
+                              </span>
+                            )}
                           </td>
                           <td>
                             <button 
@@ -1104,7 +1464,7 @@ export default function Requisitions({ user }) {
             </button>
 
             <h3 style={{ marginBottom: '0.5rem', borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.5rem' }}>
-              {activeReqForDetail.status === 'Pending' ? 'Xem xét & Phê duyệt cấp phát chi tiết' : 'Chi tiết phiếu lĩnh cấp'} #REQ-{activeReqForDetail.requisitionID}
+              {activeReqForDetail.status === 'Pending' ? 'Xem xét & Phê duyệt cấp phát chi tiết' : 'Chi tiết phiếu lĩnh cấp'} {getRequisitionCode(activeReqForDetail)}
             </h3>
             
             {/* TIMELINE / TIME LOG */}
@@ -1120,7 +1480,13 @@ export default function Requisitions({ user }) {
               let step2Date = activeReqForDetail.headApproveDate ? new Date(activeReqForDetail.headApproveDate).toLocaleString('vi-VN') : 'Chờ duyệt';
               let step2BoxShadow = 'none';
 
-              if (isRejectedByHead) {
+              if (activeReqForDetail.requisitionType === 'DirectTransfer') {
+                step2Bg = '#059669';
+                step2Label = 'Cấp phát chủ động';
+                step2Color = 'var(--text-main)';
+                step2Date = 'Tự động duyệt';
+                step2BoxShadow = '0 0 10px rgba(5, 150, 105, 0.3)';
+              } else if (isRejectedByHead) {
                 step2Bg = '#ef4444';
                 step2Label = 'Bị từ chối';
                 step2Color = '#ef4444';
@@ -1183,6 +1549,7 @@ export default function Requisitions({ user }) {
                 step4BoxShadow = '0 0 10px rgba(16, 185, 129, 0.5)';
               } else if (activeReqForDetail.status === 'Approved') {
                 step4Bg = '#f59e0b';
+                step4Label = 'Khoa lâm sàng nhận';
                 step4Color = '#f59e0b';
                 step4BoxShadow = '0 0 10px rgba(245, 158, 11, 0.5)';
               }
@@ -1197,8 +1564,8 @@ export default function Requisitions({ user }) {
                 lineBg = `linear-gradient(90deg, 
                   var(--color-primary) 0%, 
                   var(--color-primary) 15%, 
-                  ${activeReqForDetail.headSignature ? '#059669' : '#334155'} 35%, 
-                  ${activeReqForDetail.headSignature ? '#059669' : '#334155'} 50%, 
+                  ${(activeReqForDetail.headSignature || activeReqForDetail.requisitionType === 'DirectTransfer') ? '#059669' : '#334155'} 35%, 
+                  ${(activeReqForDetail.headSignature || activeReqForDetail.requisitionType === 'DirectTransfer') ? '#059669' : '#334155'} 50%, 
                   ${activeReqForDetail.approverSignature ? '#7e22ce' : '#334155'} 65%, 
                   ${activeReqForDetail.approverSignature ? '#7e22ce' : '#334155'} 80%, 
                   ${activeReqForDetail.receiveDate ? '#10b981' : '#334155'} 100%)`;
@@ -1338,14 +1705,14 @@ export default function Requisitions({ user }) {
             <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '1rem', marginBottom: '1.25rem', fontSize: '0.88rem' }}>
               <div>
                 <p style={{ marginBottom: '0.35rem' }}><strong>Khoa lâm sàng nhận:</strong> {activeReqForDetail.department?.departmentName}</p>
-                <p style={{ marginBottom: '0.35rem' }}><strong>Loại phiếu đề nghị:</strong> {activeReqForDetail.requisitionType === 'Regular' ? 'Lĩnh thường quy' : 'Bù tủ trực cấp cứu'}</p>
+                <p style={{ marginBottom: '0.35rem' }}><strong>Loại phiếu đề nghị:</strong> {activeReqForDetail.requisitionType === 'Regular' ? 'Lĩnh thường quy' : activeReqForDetail.requisitionType === 'DirectTransfer' ? 'Xuất chuyển chủ động' : 'Bù tủ trực cấp cứu'}</p>
                 <p style={{ marginBottom: '0' }}><strong>Ngày lập phiếu:</strong> {new Date(activeReqForDetail.requisitionDate).toLocaleString('vi-VN')}</p>
               </div>
               <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-glass)', borderRadius: '6px', padding: '0.5rem 0.75rem', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
                 <p style={{ margin: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span>Trạng thái:</span>
-                  <span className={`badge-status ${activeReqForDetail.status.toLowerCase()}`}>
-                    {activeReqForDetail.status === 'PendingHead' ? 'Chờ Trưởng khoa duyệt' : activeReqForDetail.status === 'Pending' ? 'Chờ kiểm duyệt' : activeReqForDetail.status === 'Approved' ? 'Đã duyệt cấp phát' : 'Đã từ chối'}
+                  <span className={`badge-status ${getStatusClass(activeReqForDetail.status, activeReqForDetail.receiveDate)}`}>
+                    {getStatusText(activeReqForDetail.status, activeReqForDetail.receiveDate)}
                   </span>
                 </p>
                 {activeReqForDetail.status === 'Rejected' && activeReqForDetail.rejectReason && (
@@ -1613,37 +1980,15 @@ export default function Requisitions({ user }) {
                   </button>
                 </>
               )}
-              {activeReqForDetail.status === 'Approved' && (
+              {(activeReqForDetail.status === 'Approved' || activeReqForDetail.status === 'InTransit' || activeReqForDetail.status === 'Received' || activeReqForDetail.status === 'PartiallyReceived' || activeReqForDetail.status === 'RejectedOnReceive') && (
                 <>
-                  {!activeReqForDetail.receiveDate && (user?.role === 'nurse' || user?.role === 'head_nurse' || user?.role === 'head') && (
+                  {(activeReqForDetail.status === 'InTransit' || (activeReqForDetail.status === 'Approved' && !activeReqForDetail.receiveDate)) && (user?.role === 'nurse' || user?.role === 'head_nurse' || user?.role === 'head') && (
                     <button 
                       className="btn-premium" 
                       style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', background: '#10b981', borderColor: '#059669' }}
-                      onClick={() => {
-                        if (window.confirm("Bạn xác nhận đã nhận bàn giao đầy đủ cơ số thực tế từ Kho Dược?")) {
-                          fetch(`/api/requisition/${activeReqForDetail.requisitionID}/receive`, {
-                            method: 'POST',
-                            headers: {
-                              'X-User-Role': user?.role || ''
-                            }
-                          })
-                          .then(async res => {
-                            if (!res.ok) {
-                              const errText = await res.text();
-                              throw new Error(errText || "Không thể xác nhận nhận thuốc.");
-                            }
-                            return res.json();
-                          })
-                          .then(() => {
-                            alert("Đã xác nhận nhận thuốc thành công!");
-                            fetchRequisitions();
-                            setActiveReqForDetail(null);
-                          })
-                          .catch(err => alert("Lỗi khi xác nhận nhận thuốc: " + err.message));
-                        }
-                      }}
+                      onClick={() => handleOpenReceiveConfirm(activeReqForDetail)}
                     >
-                      <CheckCircle2 size={14} /> Xác nhận đã nhận thuốc
+                      <PenTool size={14} /> Ký nhận bàn giao thuốc
                     </button>
                   )}
                   <button 
@@ -1682,7 +2027,7 @@ export default function Requisitions({ user }) {
 
             <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '1.25rem', marginBottom: '1.5rem', fontSize: '0.88rem', lineHeight: '1.5' }}>
               <div>
-                <p style={{ margin: '0 0 0.35rem 0' }}><strong>Mã hồ sơ xuất:</strong> #PTX-{activeTransferForDetail.transferID}</p>
+                <p style={{ margin: '0 0 0.35rem 0' }}><strong>Mã hồ sơ xuất:</strong> {getTransferCode(activeTransferForDetail)}</p>
                 <p style={{ margin: '0 0 0.35rem 0' }}><strong>Kho xuất phát:</strong> Kho chẵn chính (Kho Dược)</p>
                 <p style={{ margin: '0 0 0.35rem 0' }}><strong>Khoa lâm sàng nhận:</strong> {activeTransferForDetail.toDepartment?.departmentName}</p>
                 <p style={{ margin: 0 }}><strong>Thời gian xuất chuyển:</strong> {new Date(activeTransferForDetail.transferDate).toLocaleString('vi-VN')}</p>
@@ -1737,32 +2082,71 @@ export default function Requisitions({ user }) {
             </div>
 
             {/* Signature Area */}
+            {/* Signature Area */}
             <div style={{ 
               display: 'grid', 
-              gridTemplateColumns: '1fr', 
-              width: '260px',
-              marginLeft: 'auto',
+              gridTemplateColumns: activeTransferForDetail.requisition ? 'repeat(auto-fit, minmax(200px, 1fr))' : '1fr', 
+              gap: '1rem',
+              marginTop: '1rem',
               background: 'rgba(255, 255, 255, 0.01)', 
               border: '1px solid var(--border-glass)', 
               borderRadius: '8px', 
-              padding: '0.75rem', 
-              textAlign: 'center' 
+              padding: '1rem'
             }}>
-              <div style={{ fontSize: '0.72rem', fontWeight: '700', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
-                NGƯỜI XUẤT CẤP (THỦ KHO DƯỢC)
-              </div>
-              {activeTransferForDetail.digitalSignature ? (
-                <div style={{ height: '85px', display: 'flex', justifyContent: 'center', alignItems: 'center', background: '#ffffff', borderRadius: '4px', padding: '0.25rem' }}>
-                  <img src={activeTransferForDetail.digitalSignature} alt="Chữ ký thủ kho" style={{ maxHeight: '100%', maxWidth: '180px', objectFit: 'contain' }} />
+              {/* Pharmacist Signature */}
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: '0.72rem', fontWeight: '700', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
+                  NGƯỜI XUẤT CẤP (THỦ KHO DƯỢC)
                 </div>
-              ) : (
-                <div style={{ height: '85px', display: 'flex', justifyContent: 'center', alignItems: 'center', color: 'var(--text-dim)', fontSize: '0.8rem', fontStyle: 'italic' }}>
-                  Không có chữ ký số
+                {activeTransferForDetail.digitalSignature ? (
+                  <div style={{ height: '85px', display: 'flex', justifyContent: 'center', alignItems: 'center', background: '#ffffff', borderRadius: '4px', padding: '0.25rem' }}>
+                    <img src={activeTransferForDetail.digitalSignature} alt="Chữ ký thủ kho" style={{ maxHeight: '100%', maxWidth: '180px', objectFit: 'contain' }} />
+                  </div>
+                ) : (
+                  <div style={{ height: '85px', display: 'flex', justifyContent: 'center', alignItems: 'center', color: 'var(--text-dim)', fontSize: '0.8rem', fontStyle: 'italic' }}>
+                    Không có chữ ký số
+                  </div>
+                )}
+                <div style={{ fontSize: '0.7rem', marginTop: '0.5rem', fontWeight: '500', color: 'var(--text-dim)' }}>
+                  Dược sĩ Nguyễn Văn Khoa
+                </div>
+              </div>
+
+              {/* Receiver Signature (Nurse) */}
+              {activeTransferForDetail.requisition && (
+                <div style={{ textAlign: 'center', borderLeft: '1px dashed var(--border-glass)', paddingLeft: '1rem' }}>
+                  <div style={{ fontSize: '0.72rem', fontWeight: '700', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
+                    ĐIỀU DƯỠNG TIẾP NHẬN
+                  </div>
+                  {activeTransferForDetail.requisition.receiverSignature ? (
+                    <div style={{ height: '85px', display: 'flex', justifyContent: 'center', alignItems: 'center', background: '#ffffff', borderRadius: '4px', padding: '0.25rem' }}>
+                      <img src={activeTransferForDetail.requisition.receiverSignature} alt="Chữ ký điều dưỡng" style={{ maxHeight: '100%', maxWidth: '180px', objectFit: 'contain' }} />
+                    </div>
+                  ) : (
+                    <div style={{ height: '85px', display: 'flex', justifyContent: 'center', alignItems: 'center', color: '#d97706', fontSize: '0.8rem', fontStyle: 'italic', background: 'rgba(245, 158, 11, 0.05)', borderRadius: '4px' }}>
+                      ⏳ Chờ khoa ký nhận thuốc
+                    </div>
+                  )}
+                  <div style={{ fontSize: '0.7rem', marginTop: '0.5rem', fontWeight: '500', color: 'var(--text-dim)' }}>
+                    {activeTransferForDetail.requisition.receiverName || 'Chưa tiếp nhận'}
+                  </div>
                 </div>
               )}
-              <div style={{ fontSize: '0.7rem', marginTop: '0.5rem', fontWeight: '500', color: 'var(--text-dim)' }}>
-                Dược sĩ Nguyễn Văn Khoa
-              </div>
+
+              {/* Witness Signature */}
+              {activeTransferForDetail.requisition && activeTransferForDetail.requisition.witnessSignature && (
+                <div style={{ textAlign: 'center', borderLeft: '1px dashed var(--border-glass)', paddingLeft: '1rem' }}>
+                  <div style={{ fontSize: '0.72rem', fontWeight: '700', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
+                    NGƯỜI LÀM CHỨNG (XÁC THỰC KÉP)
+                  </div>
+                  <div style={{ height: '85px', display: 'flex', justifyContent: 'center', alignItems: 'center', background: '#ffffff', borderRadius: '4px', padding: '0.25rem' }}>
+                    <img src={activeTransferForDetail.requisition.witnessSignature} alt="Chữ ký người làm chứng" style={{ maxHeight: '100%', maxWidth: '180px', objectFit: 'contain' }} />
+                  </div>
+                  <div style={{ fontSize: '0.7rem', marginTop: '0.5rem', fontWeight: '500', color: 'var(--text-dim)' }}>
+                    {activeTransferForDetail.requisition.witnessName}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '1.5rem', borderTop: '1px solid var(--border-glass)', paddingTop: '1rem' }}>
@@ -1791,7 +2175,15 @@ export default function Requisitions({ user }) {
             </button>
 
             <h3 style={{ marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <PenTool size={20} color="var(--color-secondary)" /> {signatureTarget?.action === 'submit_requisition' ? 'Ký Xác Nhận Gửi Phiếu Lĩnh Thuốc' : signatureTarget?.action === 'head_approve_requisition' ? 'Ký Duyệt Phiếu Lĩnh (Trưởng Khoa)' : 'Ký Xác Nhận Cấp Phát Vật Tư'}
+              <PenTool size={20} color="var(--color-secondary)" /> {
+                signatureTarget?.action === 'submit_requisition' 
+                  ? 'Ký Xác Nhận Gửi Phiếu Lĩnh Thuốc' 
+                  : signatureTarget?.action === 'head_approve_requisition' 
+                  ? 'Ký Duyệt Phiếu Lĩnh (Trưởng Khoa)' 
+                  : signatureTarget?.action === 'receive_requisition'
+                  ? 'Ký Xác Nhận Nhận Thuốc (Khoa Lâm Sàng)'
+                  : 'Ký Xác Nhận Cấp Phát Vật Tư'
+              }
             </h3>
             <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginBottom: '1.25rem' }}>
               {signatureTarget?.action === 'direct_transfer' 
@@ -1802,13 +2194,23 @@ export default function Requisitions({ user }) {
                 ? 'Vui lòng vẽ chữ ký tay điện tử để xác nhận gửi đề xuất lĩnh thuốc khoa lâm sàng lên Kho Dược.'
                 : signatureTarget?.action === 'head_approve_requisition'
                 ? 'Vui lòng vẽ chữ ký tay điện tử để xác nhận phê duyệt (ký duyệt) phiếu lĩnh thuốc của khoa lâm sàng.'
+                : signatureTarget?.action === 'receive_requisition'
+                ? 'Vui lòng vẽ chữ ký tay điện tử để xác nhận thực nhận bàn giao thuốc từ Kho Dược tại khoa.'
                 : 'Vui lòng vẽ chữ ký tay điện tử để xác nhận phê duyệt cấp phát cơ số thuốc/vật tư y tế theo phiếu lĩnh.'}
             </p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               <div>
                 <div style={{ fontSize: '0.78rem', fontWeight: '700', marginBottom: '0.35rem', color: 'var(--text-main)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span>{signatureTarget?.action === 'submit_requisition' ? (user?.role === 'head_nurse' ? 'Chữ ký Người lập phiếu (Điều dưỡng trưởng khoa)' : 'Chữ ký Người lập phiếu (Điều dưỡng viên)') : signatureTarget?.action === 'head_approve_requisition' ? (user?.role === 'head_nurse' ? 'Chữ ký Điều dưỡng trưởng (Ký thay Trưởng khoa)' : 'Chữ ký Trưởng khoa lâm sàng') : 'Chữ ký Người cấp phát (Thủ kho Dược)'} <span style={{ color: '#ef4444' }}>*</span></span>
+                  <span>{
+                    signatureTarget?.action === 'submit_requisition' 
+                      ? (user?.role === 'head_nurse' ? 'Chữ ký Người lập phiếu (Điều dưỡng trưởng khoa)' : 'Chữ ký Người lập phiếu (Điều dưỡng viên)') 
+                      : signatureTarget?.action === 'head_approve_requisition' 
+                      ? (user?.role === 'head_nurse' ? 'Chữ ký Điều dưỡng trưởng (Ký thay Trưởng khoa)' : 'Chữ ký Trưởng khoa lâm sàng') 
+                      : signatureTarget?.action === 'receive_requisition'
+                      ? 'Chữ ký Người nhận thuốc (Điều dưỡng khoa lâm sàng)'
+                      : 'Chữ ký Người cấp phát (Thủ kho Dược)'
+                  } <span style={{ color: '#ef4444' }}>*</span></span>
                   <button type="button" className="btn-secondary" style={{ padding: '0.15rem 0.4rem', fontSize: '0.65rem', height: '22px', display: 'flex', alignItems: 'center', gap: '0.15rem' }} onClick={clearCanvas}>
                     <Eraser size={10} /> Xóa chữ ký
                   </button>
@@ -1827,12 +2229,280 @@ export default function Requisitions({ user }) {
                 style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', padding: '0.4rem 1rem', fontSize: '0.8rem', height: '34px' }}
                 onClick={handleConfirmSignature}
               >
-                <ThumbsUp size={14} /> {signatureTarget?.action === 'submit_requisition' ? 'Xác nhận & Gửi yêu cầu' : signatureTarget?.action === 'head_approve_requisition' ? 'Phê duyệt & Ký nhận' : 'Xác nhận & Cấp phát'}
+                <ThumbsUp size={14} /> {
+                  signatureTarget?.action === 'submit_requisition' 
+                    ? 'Xác nhận & Gửi yêu cầu' 
+                    : signatureTarget?.action === 'head_approve_requisition' 
+                    ? 'Phê duyệt & Ký nhận' 
+                    : signatureTarget?.action === 'receive_requisition'
+                    ? 'Xác nhận & Ký nhận thuốc'
+                    : 'Xác nhận & Cấp phát'
+                }
               </button>
             </div>
           </div>
         </div>
       )}
+
+      {/* CUSTOM CLINICAL RECEIVE CONFIRMATION MODAL WITH DOUBLE SIGNATURE & COLD-CHAIN */}
+      {showReceiveConfirmModal && receivingReq && (() => {
+        const hasControlledDrugs = receivingReq.details?.some(d => d.medicine?.priorityLevel === 'High' || d.medicine?.priorityLevel === 'Critical');
+        const hasDiscrepancy = deliveryConfirmStatus === 'PartialAccept' || deliveryConfirmStatus === 'Reject';
+        const requireWitness = hasControlledDrugs || hasDiscrepancy;
+
+        return (
+          <div className="modal-overlay" style={{ background: 'rgba(0,0,0,0.6)', zIndex: 1000 }}>
+            <div className="modal-content" style={{ maxWidth: '750px', padding: '1.5rem', width: '95%', maxHeight: '90vh', overflowY: 'auto' }}>
+              <button 
+                style={{ position: 'absolute', top: '1.25rem', right: '1.25rem', border: 'none', background: 'none', cursor: 'pointer', color: '#888', zIndex: 10 }}
+                onClick={() => setShowReceiveConfirmModal(false)}
+              >
+                <X size={20} />
+              </button>
+
+              <h2 style={{ marginBottom: '0.25rem', fontSize: '1.2rem', fontWeight: '700', textTransform: 'uppercase', color: 'var(--color-secondary)' }}>
+                Xác nhận bàn giao & giao nhận dược lâm sàng
+              </h2>
+              <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginBottom: '1rem' }}>
+                Phiếu lĩnh: <strong style={{ color: '#fff' }}>{getRequisitionCode(receivingReq)}</strong> | Khoa: <strong>{receivingReq.department?.departmentName}</strong>
+              </p>
+
+              {hasControlledDrugs && (
+                <div style={{ background: 'rgba(239, 68, 68, 0.15)', border: '1px solid #ef4444', borderRadius: '8px', padding: '0.75rem', marginBottom: '1rem', color: '#f87171', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Info size={16} />
+                  <span><strong>⚠️ CẢNH BÁO AN TOÀN:</strong> Phiếu này chứa thuốc kiểm soát đặc biệt (Gây nghiện/Hướng thần). Bắt buộc phải có chữ ký của Người làm chứng (Xác thực kép).</span>
+                </div>
+              )}
+
+              {/* Form Grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem', background: 'var(--bg-glass)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border-glass)' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '600', marginBottom: '0.25rem', color: 'var(--text-main)' }}>
+                      Điều dưỡng tiếp nhận <span style={{ color: '#ef4444' }}>*</span>
+                    </label>
+                    <input 
+                      type="text" 
+                      className="input-main" 
+                      style={{ padding: '0.4rem', fontSize: '0.85rem' }}
+                      value={receiverName}
+                      onChange={(e) => setReceiverName(e.target.value)}
+                      placeholder="Họ tên điều dưỡng nhận thuốc"
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '600', marginBottom: '0.25rem', color: 'var(--text-main)' }}>
+                      Người làm chứng (Xác thực kép) {requireWitness && <span style={{ color: '#ef4444' }}>*</span>}
+                    </label>
+                    <input 
+                      type="text" 
+                      className="input-main" 
+                      style={{ padding: '0.4rem', fontSize: '0.85rem' }}
+                      value={witnessName}
+                      onChange={(e) => setWitnessName(e.target.value)}
+                      placeholder={requireWitness ? "Bắt buộc nhập tên người chứng kiến" : "Họ tên người làm chứng (nếu có)"}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '600', marginBottom: '0.25rem', color: 'var(--text-main)' }}>
+                      Nhiệt độ giao nhận thực tế (°C) <span style={{ color: '#ef4444' }}>*</span>
+                    </label>
+                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                      <input 
+                        type="number" 
+                        step="0.1"
+                        className="input-main" 
+                        style={{ padding: '0.4rem', fontSize: '0.85rem', width: '100px' }}
+                        value={receiveTemp}
+                        onChange={(e) => setReceiveTemp(e.target.value)}
+                      />
+                      <span className="badge" style={{ background: parseFloat(receiveTemp) >= 2.0 && parseFloat(receiveTemp) <= 8.0 ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)', color: parseFloat(receiveTemp) >= 2.0 && parseFloat(receiveTemp) <= 8.0 ? '#10b981' : '#ef4444', border: '1px solid currentColor', fontSize: '0.7rem' }}>
+                        {parseFloat(receiveTemp) >= 2.0 && parseFloat(receiveTemp) <= 8.0 ? 'Lạnh tiêu chuẩn (2°C - 8°C)' : 'Ngoài dải bảo quản!'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '600', marginBottom: '0.25rem', color: 'var(--text-main)' }}>
+                      Hình thức Giao nhận <span style={{ color: '#ef4444' }}>*</span>
+                    </label>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      {[
+                        { val: 'Accept', label: 'Nhận đủ', color: '#10b981' },
+                        { val: 'PartialAccept', label: 'Nhận một phần', color: '#f59e0b' },
+                        { val: 'Reject', label: 'Từ chối nhận', color: '#ef4444' }
+                      ].map(opt => (
+                        <button
+                          key={opt.val}
+                          type="button"
+                          style={{
+                            flex: 1,
+                            padding: '0.4rem',
+                            fontSize: '0.8rem',
+                            borderRadius: '6px',
+                            border: `1px solid ${deliveryConfirmStatus === opt.val ? opt.color : 'var(--border-glass)'}`,
+                            background: deliveryConfirmStatus === opt.val ? `${opt.color}20` : 'transparent',
+                            color: deliveryConfirmStatus === opt.val ? opt.color : 'var(--text-muted)',
+                            fontWeight: deliveryConfirmStatus === opt.val ? 'bold' : 'normal',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s'
+                          }}
+                          onClick={() => {
+                            setDeliveryConfirmStatus(opt.val);
+                            // Adjust quantities based on choice
+                            setReceiveDetails(prev => prev.map(d => ({
+                              ...d,
+                              receivedQuantity: opt.val === 'Reject' ? 0 : d.quantity,
+                              rejectReason: opt.val === 'Accept' ? '' : d.rejectReason
+                            })));
+                          }}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Medicine Grid */}
+              <div style={{ marginBottom: '1rem', overflowX: 'auto' }}>
+                <table className="table-main" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                  <thead>
+                    <tr style={{ background: 'var(--bg-glass)' }}>
+                      <th style={{ padding: '0.5rem', textAlign: 'center', width: '5%' }}>STT</th>
+                      <th style={{ padding: '0.5rem', textAlign: 'left', width: '35%' }}>Tên thuốc / Quy cách</th>
+                      <th style={{ padding: '0.5rem', textAlign: 'center', width: '15%' }}>Lô / Hạn dùng</th>
+                      <th style={{ padding: '0.5rem', textAlign: 'center', width: '10%' }}>SL Xuất</th>
+                      <th style={{ padding: '0.5rem', textAlign: 'center', width: '12%' }}>SL Thực nhận</th>
+                      <th style={{ padding: '0.5rem', textAlign: 'left', width: '23%' }}>Lý do chênh lệch / từ chối</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {receiveDetails.map((detail, idx) => {
+                      const expDate = detail.expiryDate ? new Date(detail.expiryDate) : null;
+                      const daysLeft = expDate ? Math.round((expDate - new Date()) / (1000 * 60 * 60 * 24)) : null;
+                      let expColor = 'var(--text-muted)';
+                      if (daysLeft !== null) {
+                        if (daysLeft <= 0) expColor = '#ef4444';
+                        else if (daysLeft < 30) expColor = '#f97316';
+                        else if (daysLeft < 90) expColor = '#eab308';
+                      }
+
+                      return (
+                        <tr key={idx} style={{ borderBottom: '1px solid var(--border-glass)' }}>
+                          <td style={{ padding: '0.5rem', textAlign: 'center' }}>{idx + 1}</td>
+                          <td style={{ padding: '0.5rem' }}>
+                            <div><strong>{detail.medicineName}</strong></div>
+                            {detail.priorityLevel && (
+                              <span style={{ fontSize: '0.65rem', padding: '0.1rem 0.3rem', borderRadius: '4px', background: detail.priorityLevel === 'Critical' ? '#ef444430' : '#eab30830', color: detail.priorityLevel === 'Critical' ? '#f87171' : '#facc15' }}>
+                                {detail.priorityLevel === 'Critical' ? 'Thuốc gây nghiện' : 'Thuốc hướng thần'}
+                              </span>
+                            )}
+                          </td>
+                          <td style={{ padding: '0.5rem', textAlign: 'center' }}>
+                            <div>{detail.batchNumber}</div>
+                            <div style={{ fontSize: '0.7rem', color: expColor }}>
+                              {detail.expiryDate ? new Date(detail.expiryDate).toLocaleDateString('vi-VN') : 'N/A'}
+                              {daysLeft !== null && daysLeft < 90 && ` (Còn ${daysLeft} ngày)`}
+                            </div>
+                          </td>
+                          <td style={{ padding: '0.5rem', textAlign: 'center', fontWeight: 'bold' }}>{detail.quantity}</td>
+                          <td style={{ padding: '0.5rem', textAlign: 'center' }}>
+                            {deliveryConfirmStatus === 'PartialAccept' ? (
+                              <input 
+                                type="number" 
+                                className="input-main" 
+                                style={{ padding: '0.2rem', width: '70px', textAlign: 'center', margin: '0 auto' }}
+                                min="0"
+                                max={detail.quantity}
+                                value={detail.receivedQuantity}
+                                onChange={(e) => {
+                                  const val = Math.min(detail.quantity, Math.max(0, parseInt(e.target.value) || 0));
+                                  setReceiveDetails(prev => prev.map((item, dIdx) => dIdx === idx ? { ...item, receivedQuantity: val } : item));
+                                }}
+                              />
+                            ) : (
+                              <span style={{ fontWeight: 'bold', color: deliveryConfirmStatus === 'Reject' ? '#ef4444' : '#10b981' }}>
+                                {detail.receivedQuantity}
+                              </span>
+                            )}
+                          </td>
+                          <td style={{ padding: '0.5rem' }}>
+                            {detail.receivedQuantity < detail.quantity ? (
+                              <input 
+                                type="text"
+                                className="input-main"
+                                style={{ padding: '0.2rem', fontSize: '0.75rem' }}
+                                placeholder="Nhập lý do thiếu/hỏng/hết hạn"
+                                value={detail.rejectReason}
+                                onChange={(e) => {
+                                  setReceiveDetails(prev => prev.map((item, dIdx) => dIdx === idx ? { ...item, rejectReason: e.target.value } : item));
+                                }}
+                              />
+                            ) : (
+                              <span style={{ color: 'var(--text-dim)', fontStyle: 'italic', fontSize: '0.75rem' }}>Đủ số lượng</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Dual Signature Panels */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.5rem' }}>
+                {/* Receiver Signature */}
+                <div style={{ background: 'var(--bg-glass)', border: '1px solid var(--border-glass)', borderRadius: '8px', padding: '1rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                    <span style={{ fontSize: '0.8rem', fontWeight: '700', color: 'var(--text-main)' }}>
+                      Chữ ký Điều dưỡng nhận <span style={{ color: '#ef4444' }}>*</span>
+                    </span>
+                    <button type="button" className="btn-secondary" style={{ padding: '0.15rem 0.4rem', fontSize: '0.65rem', height: '22px', display: 'flex', alignItems: 'center', gap: '0.15rem' }} onClick={clearCanvas}>
+                      <Eraser size={10} /> Xóa
+                    </button>
+                  </div>
+                  <div style={{ background: '#ffffff', borderRadius: '6px', overflow: 'hidden', height: '110px' }}>
+                    <canvas ref={canvasRef} width="320" height="110" style={{ background: '#ffffff', cursor: 'crosshair', touchAction: 'none', width: '100%', height: '100%' }} />
+                  </div>
+                </div>
+
+                {/* Witness Signature */}
+                <div style={{ background: 'var(--bg-glass)', border: '1px solid var(--border-glass)', borderRadius: '8px', padding: '1rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                    <span style={{ fontSize: '0.8rem', fontWeight: '700', color: 'var(--text-main)' }}>
+                      Chữ ký Người làm chứng {requireWitness && <span style={{ color: '#ef4444' }}>*</span>}
+                    </span>
+                    <button type="button" className="btn-secondary" style={{ padding: '0.15rem 0.4rem', fontSize: '0.65rem', height: '22px', display: 'flex', alignItems: 'center', gap: '0.15rem' }} onClick={clearWitnessCanvas}>
+                      <Eraser size={10} /> Xóa
+                    </button>
+                  </div>
+                  <div style={{ background: '#ffffff', borderRadius: '6px', overflow: 'hidden', height: '110px' }}>
+                    <canvas ref={witnessCanvasRef} width="320" height="110" style={{ background: '#ffffff', cursor: 'crosshair', touchAction: 'none', width: '100%', height: '100%' }} />
+                  </div>
+                </div>
+              </div>
+
+              {/* Dialog Footer Actions */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', borderTop: '1px solid var(--border-glass)', paddingTop: '1rem' }}>
+                <button type="button" className="btn-secondary" onClick={() => setShowReceiveConfirmModal(false)}>Hủy bỏ</button>
+                <button 
+                  type="button" 
+                  className="btn-premium" 
+                  style={{ background: '#10b981', borderColor: '#059669' }}
+                  onClick={handleConfirmReceiveSubmit}
+                >
+                  <ThumbsUp size={14} /> Xác nhận & Ký biên bản
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* A4 PRINT PREVIEW: REQUISITION HANDOVER DOSSIER */}
       {activeReqForPrint && (() => {
@@ -1845,7 +2515,7 @@ export default function Requisitions({ user }) {
               {/* Toolbar */}
               <div style={{ background: '#f3f4f6', padding: '0.75rem 1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e5e7eb' }}>
                 <span style={{ fontSize: '0.88rem', fontWeight: '600', color: '#374151', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                  <Printer size={16} /> Xem trước bản in A4 (Biên bản cấp phát thuốc #REQ-{activeReqForPrint.requisitionID})
+                  <Printer size={16} /> Xem trước bản in A4 (Biên bản cấp phát thuốc {getRequisitionCode(activeReqForPrint)})
                 </span>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
                   <button 
@@ -1881,7 +2551,7 @@ export default function Requisitions({ user }) {
                       <h4 style={{ margin: '0 0 0.2rem 0', fontWeight: 'bold', fontSize: '13px', textTransform: 'uppercase' }}>BỆNH VIỆN TRUNG ƯƠNG</h4>
                       <h4 style={{ margin: '0 0 0.2rem 0', fontWeight: 'bold', fontSize: '13px', textTransform: 'uppercase' }}>KHOA DƯỢC</h4>
                       <div style={{ width: '60px', borderBottom: '1px solid #000000', margin: '0.3rem auto 0 auto' }}></div>
-                      <p style={{ margin: '0.4rem 0 0 0', fontSize: '12px', fontStyle: 'italic' }}>Số: REQ-{activeReqForPrint.requisitionID}</p>
+                      <p style={{ margin: '0.4rem 0 0 0', fontSize: '12px', fontStyle: 'italic' }}>Số: {getRequisitionCode(activeReqForPrint)}</p>
                     </div>
                     <div style={{ textAlign: 'center', width: '55%' }}>
                       <h4 style={{ margin: '0 0 0.2rem 0', fontWeight: 'bold', fontSize: '13px', textTransform: 'uppercase' }}>CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM</h4>
@@ -1890,12 +2560,27 @@ export default function Requisitions({ user }) {
                     </div>
                   </div>
 
-                  {/* Document Title */}
-                  <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
-                    <h2 style={{ margin: '0 0 0.3rem 0', fontWeight: 'bold', fontSize: '18px', textTransform: 'uppercase' }}>BIÊN BẢN GIAO NHẬN THUỐC & VẬT TƯ Y TẾ</h2>
-                    <p style={{ margin: 0, fontSize: '13px', fontStyle: 'italic' }}>
-                      (Cấp phát theo phiếu lĩnh thuốc số: REQ-{activeReqForPrint.requisitionID} - Loại: {activeReqForPrint.requisitionType === 'Regular' ? 'Thường quy' : activeReqForPrint.requisitionType === 'Urgent' ? 'Lĩnh khẩn (Khẩn cấp)' : 'Bù tủ trực'})
-                    </p>
+                  {/* Document Title & QR Code side-by-side */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', borderBottom: '1px double #000', paddingBottom: '0.75rem' }}>
+                    <div style={{ width: '80px', height: '80px', border: '1px solid #000', padding: '4px', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', background: '#fff' }}>
+                      <svg width="70" height="70" viewBox="0 0 29 29">
+                        <path d="M0 0h9v9H0zm1 1v7h7V1zm8 0h1v1H9zm0 2h2v1H9zm1-2h1v1h-1zm1 2h1v2h-1zm0 3h1v1h-1zm-2 1h1v1H9zm1 1v1h-1v-1zm1 0h1v1h-1zm2-8h9v9h-9zm1 1v7h7V1zm8 0h1v1h-1zm-5 8h1v1h-1zm2 0h1v1h-1zm0-3h1v1h-1zm1-1h1v1h-1zm-3-1h1v1h-1zm1 3v1h-1v-1zm4-6h1v1h-1zm0 2h1v1h-1zm-1 2h1v1h-1zm1 1h1v1h-1zm-9 8h9v9H0zm1 1v7h7V11zm9 3h1v1h-1zm1-2h1v1h-1zm-1 3v1h-1v-1zm3-3h1v1h-1zm1 2h1v1h-1zm-1 2h1v1h-1zm2-3h1v2h-1zm1 3h1v1h-1zm1-2h1v1h-1zm-2 3h1v1h-1zm2 1v1h-1v-1zm1 0h1v1h-1z" fill="#000" />
+                      </svg>
+                      <span style={{ fontSize: '7px', fontWeight: 'bold', marginTop: '2px' }}>VERIFIED QR</span>
+                    </div>
+                    <div style={{ flex: 1, textAlign: 'center', paddingRight: '40px' }}>
+                      <h2 style={{ margin: '0 0 0.3rem 0', fontWeight: 'bold', fontSize: '18px', textTransform: 'uppercase' }}>BIÊN BẢN BÀN GIAO & GIAO NHẬN THUỐC LÂM SÀNG</h2>
+                      <p style={{ margin: 0, fontSize: '13px', fontStyle: 'italic' }}>
+                        (Cấp phát theo phiếu lĩnh thuốc số: {getRequisitionCode(activeReqForPrint)} - Loại: {activeReqForPrint.requisitionType === 'Regular' ? 'Thường quy' : activeReqForPrint.requisitionType === 'Urgent' ? 'Lĩnh khẩn (Khẩn cấp)' : activeReqForPrint.requisitionType === 'DirectTransfer' ? 'Xuất chuyển chủ động' : 'Bù tủ trực'})
+                      </p>
+                      {activeReqForPrint.receiveDate && activeReqForPrint.deliveredAt && (
+                        <p style={{ margin: '0.25rem 0 0 0', fontSize: '12px', fontWeight: 'bold', color: activeReqForPrint.isSlaBreached ? '#ef4444' : '#10b981' }}>
+                          SLA: {activeReqForPrint.requisitionType === 'Regular' ? 'Thường quy (120 phút)' : activeReqForPrint.requisitionType === 'Urgent' ? 'Khẩn cấp (15 phút)' : 'Chủ động (Không đếm ngược)'} 
+                          {' | '} Vận chuyển: {Math.round((new Date(activeReqForPrint.receiveDate) - new Date(activeReqForPrint.deliveredAt)) / 60000)} phút 
+                          {' | '} Trạng thái: {activeReqForPrint.isSlaBreached ? '⚠️ TRỄ SLA (Cảnh báo)' : '✓ ĐẠT SLA'}
+                        </p>
+                      )}
+                    </div>
                   </div>
 
                   {/* Introduction */}
@@ -1907,12 +2592,19 @@ export default function Requisitions({ user }) {
                       <tbody>
                         <tr>
                           <td style={{ width: '50%', padding: '0.15rem 0' }}><strong>1. Bên giao (Kho Dược):</strong> Dược sĩ Nguyễn Văn Khoa</td>
-                          <td style={{ width: '50%', padding: '0.15rem 0' }}>Chức vụ: Thủ kho Dược chính</td>
+                          <td style={{ width: '50%', padding: '0.15rem 0' }}><strong>Người vận chuyển:</strong> {activeReqForPrint.deliveryBy || 'Thủ kho Dược chính'} {activeReqForPrint.deliveryPhone ? `(SĐT: ${activeReqForPrint.deliveryPhone})` : ''}</td>
                         </tr>
                         <tr>
-                          <td style={{ width: '50%', padding: '0.15rem 0' }}><strong>2. Bên nhận (Khoa lâm sàng):</strong> Đại diện Điều dưỡng Khoa</td>
-                          <td style={{ width: '50%', padding: '0.15rem 0' }}>Khoa/phòng nhận: {activeReqForPrint.department?.departmentName}</td>
+                          <td style={{ width: '50%', padding: '0.15rem 0' }}><strong>2. Bên nhận (Khoa lâm sàng):</strong> {activeReqForPrint.receiverName || 'Đại diện Điều dưỡng Khoa'}</td>
+                          <td style={{ width: '50%', padding: '0.15rem 0' }}><strong>Khoa/phòng nhận:</strong> {activeReqForPrint.department?.departmentName}</td>
                         </tr>
+                        {activeReqForPrint.status === 'PartiallyReceived' || activeReqForPrint.status === 'RejectedOnReceive' ? (
+                          <tr>
+                            <td style={{ width: '100%', padding: '0.15rem 0' }} colSpan={2}>
+                              <strong>Lưu ý giao nhận:</strong> Phiếu có chênh lệch/từ chối nhận bàn giao. Chi tiết lý do xem bảng bên dưới.
+                            </td>
+                          </tr>
+                        ) : null}
                       </tbody>
                     </table>
                     <p style={{ margin: '0.4rem 0 0.8rem 0', textIndent: '20px' }}>
@@ -1925,13 +2617,15 @@ export default function Requisitions({ user }) {
                     <thead>
                       <tr style={{ background: '#f2f2f2', fontWeight: 'bold' }}>
                         <th style={{ border: '1px solid #000000', padding: '0.4rem 0.2rem', textAlign: 'center', width: '5%' }}>STT</th>
-                        <th style={{ border: '1px solid #000000', padding: '0.4rem 0.3rem', textAlign: 'left', width: '35%' }}>Tên thuốc / Quy cách vật tư y tế</th>
-                        <th style={{ border: '1px solid #000000', padding: '0.4rem 0.2rem', textAlign: 'center', width: '8%' }}>ĐVT</th>
-                        <th style={{ border: '1px solid #000000', padding: '0.4rem 0.3rem', textAlign: 'center', width: '12%' }}>Số lô xuất</th>
-                        <th style={{ border: '1px solid #000000', padding: '0.4rem 0.3rem', textAlign: 'center', width: '12%' }}>Hạn dùng</th>
-                        <th style={{ border: '1px solid #000000', padding: '0.4rem 0.2rem', textAlign: 'center', width: '8%' }}>SL Yêu cầu</th>
-                        <th style={{ border: '1px solid #000000', padding: '0.4rem 0.2rem', textAlign: 'center', width: '8%' }}>SL Thực cấp</th>
-                        <th style={{ border: '1px solid #000000', padding: '0.4rem 0.3rem', textAlign: 'right', width: '12%' }}>Đơn giá thầu</th>
+                        <th style={{ border: '1px solid #000000', padding: '0.4rem 0.3rem', textAlign: 'left', width: '25%' }}>Tên thuốc / Quy cách vật tư y tế</th>
+                        <th style={{ border: '1px solid #000000', padding: '0.4rem 0.2rem', textAlign: 'center', width: '5%' }}>ĐVT</th>
+                        <th style={{ border: '1px solid #000000', padding: '0.4rem 0.3rem', textAlign: 'center', width: '10%' }}>Số lô xuất</th>
+                        <th style={{ border: '1px solid #000000', padding: '0.4rem 0.3rem', textAlign: 'center', width: '10%' }}>Hạn dùng</th>
+                        <th style={{ border: '1px solid #000000', padding: '0.4rem 0.2rem', textAlign: 'center', width: '8%' }}>SL Lĩnh</th>
+                        <th style={{ border: '1px solid #000000', padding: '0.4rem 0.2rem', textAlign: 'center', width: '8%' }}>SL Cấp</th>
+                        <th style={{ border: '1px solid #000000', padding: '0.4rem 0.2rem', textAlign: 'center', width: '8%' }}>SL Nhận</th>
+                        <th style={{ border: '1px solid #000000', padding: '0.4rem 0.2rem', textAlign: 'center', width: '8%' }}>SL Trả</th>
+                        <th style={{ border: '1px solid #000000', padding: '0.4rem 0.3rem', textAlign: 'left', width: '13%' }}>Lý do từ chối</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1939,6 +2633,8 @@ export default function Requisitions({ user }) {
                         associatedTransfer.details.map((d, index) => {
                           const reqDetail = activeReqForPrint.details.find(rd => rd.medicineID === d.batch?.medicineID);
                           const reqQty = reqDetail ? reqDetail.requestedQuantity : '-';
+                          const recQty = reqDetail && reqDetail.receivedQuantity !== null ? reqDetail.receivedQuantity : d.quantity;
+                          const rejQty = reqDetail && reqDetail.receivedQuantity !== null ? (d.quantity - reqDetail.receivedQuantity) : 0;
                           const expStr = d.batch?.expiryDate ? new Date(d.batch.expiryDate).toLocaleDateString('vi-VN') : 'N/A';
                           return (
                             <tr key={d.transferDetailID}>
@@ -1988,10 +2684,10 @@ export default function Requisitions({ user }) {
                       <p style={{ margin: '0 0 0.2rem 0', fontWeight: 'bold', textTransform: 'uppercase' }}>ĐIỀU DƯỠNG TIẾP NHẬN</p>
                       <p style={{ margin: '0 0 0.5rem 0', color: '#555', fontStyle: 'italic' }}>(Ký và ghi rõ họ tên)</p>
                       <div style={{ height: '70px', display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '0.5rem 0' }}>
-                        {activeReqForPrint.digitalSignature ? (
-                          <img src={activeReqForPrint.digitalSignature} alt="Chữ ký nhận" style={{ maxHeight: '100%', maxWidth: '100px', objectFit: 'contain' }} />
+                        {activeReqForPrint.receiverSignature ? (
+                          <img src={activeReqForPrint.receiverSignature} alt="Chữ ký nhận" style={{ maxHeight: '100%', maxWidth: '100px', objectFit: 'contain' }} />
                         ) : (
-                          <span style={{ color: '#888', fontStyle: 'italic', fontSize: '10px' }}>Ký số tự động</span>
+                          <span style={{ color: '#888', fontStyle: 'italic', fontSize: '10px' }}>Chờ ký nhận</span>
                         )}
                       </div>
                       <p style={{ margin: 0, fontWeight: 'bold' }}>Trần Thị Hồng</p>
@@ -2005,7 +2701,7 @@ export default function Requisitions({ user }) {
                         {activeReqForPrint.headSignature ? (
                           <img src={activeReqForPrint.headSignature} alt="Chữ ký Trưởng khoa" style={{ maxHeight: '100%', maxWidth: '100px', objectFit: 'contain' }} />
                         ) : (
-                          <span style={{ color: '#888', fontStyle: 'italic', fontSize: '10px' }}>Chờ ký duyệt</span>
+                          activeReqForPrint.status === 'Approved' || activeReqForPrint.status === 'Pending' ? SIG.chuong : <span style={{ color: '#888', fontStyle: 'italic', fontSize: '10px' }}>Chờ ký duyệt</span>
                         )}
                       </div>
                       <p style={{ margin: 0, fontWeight: 'bold' }}>{(() => {
@@ -2028,7 +2724,7 @@ export default function Requisitions({ user }) {
                         {activeReqForPrint.approverSignature ? (
                           <img src={activeReqForPrint.approverSignature} alt="Chữ ký giao" style={{ maxHeight: '100%', maxWidth: '100px', objectFit: 'contain' }} />
                         ) : (
-                          <span style={{ color: '#888', fontStyle: 'italic', fontSize: '11px' }}>Chờ ký duyệt</span>
+                          activeReqForPrint.status === 'Approved' ? SIG.khoa : <span style={{ color: '#888', fontStyle: 'italic', fontSize: '11px' }}>Chờ ký phát</span>
                         )}
                       </div>
                       <p style={{ margin: 0, fontWeight: 'bold' }}>Nguyễn Văn Khoa</p>
@@ -2038,10 +2734,17 @@ export default function Requisitions({ user }) {
                     <div>
                       <p style={{ margin: '0 0 0.2rem 0', fontWeight: 'bold', textTransform: 'uppercase' }}>TRƯỞNG KHOA DƯỢC / LÃNH ĐẠO</p>
                       <p style={{ margin: '0 0 0.5rem 0', color: '#555', fontStyle: 'italic' }}>(Ký duyệt điện tử, đóng dấu)</p>
-                      <div style={{ height: '70px', display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '0.5rem 0', fontSize: '11px', color: '#059669', border: '1px dashed #a7f3d0', borderRadius: '4px', background: '#f0fdf4' }}>
-                        <strong>ĐÃ DUYỆT ĐIỆN TỬ</strong>
-                        <br />
-                        Bởi Khoa Dược
+                      <div style={{ height: '70px', display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '0.5rem 0', position: 'relative' }}>
+                        {activeReqForPrint.status === 'Approved' ? (
+                          <>
+                            {SIG.duoc}
+                            <div style={{ position: 'absolute', zIndex: 2, top: '-10px', left: '50%', transform: 'translateX(-40%) translateY(-5px)', pointerEvents: 'none' }}>
+                              <RedStamp name="PGS.TS. L.M.DƯỢC" />
+                            </div>
+                          </>
+                        ) : (
+                          <span style={{ color: '#888', fontStyle: 'italic', fontSize: '11px' }}>Chờ phê duyệt</span>
+                        )}
                       </div>
                       <p style={{ margin: 0, fontWeight: 'bold' }}>PGS.TS. Lê Minh Dược</p>
                     </div>
@@ -2064,7 +2767,7 @@ export default function Requisitions({ user }) {
               {/* Toolbar */}
               <div style={{ background: '#f3f4f6', padding: '0.75rem 1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e5e7eb' }}>
                 <span style={{ fontSize: '0.88rem', fontWeight: '600', color: '#374151', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                  <Printer size={16} /> Xem trước bản in A4 (Biên bản xuất chuyển kho trực tiếp #PTX-{activeTransferForPrint.transferID})
+                  <Printer size={16} /> Xem trước bản in A4 (Biên bản xuất chuyển kho trực tiếp {getTransferCode(activeTransferForPrint)})
                 </span>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
                   <button 
@@ -2100,7 +2803,7 @@ export default function Requisitions({ user }) {
                       <h4 style={{ margin: '0 0 0.2rem 0', fontWeight: 'bold', fontSize: '13px', textTransform: 'uppercase' }}>BỆNH VIỆN TRUNG ƯƠNG</h4>
                       <h4 style={{ margin: '0 0 0.2rem 0', fontWeight: 'bold', fontSize: '13px', textTransform: 'uppercase' }}>KHOA DƯỢC</h4>
                       <div style={{ width: '60px', borderBottom: '1px solid #000000', margin: '0.3rem auto 0 auto' }}></div>
-                      <p style={{ margin: '0.4rem 0 0 0', fontSize: '12px', fontStyle: 'italic' }}>Số: PTX-{activeTransferForPrint.transferID}</p>
+                      <p style={{ margin: '0.4rem 0 0 0', fontSize: '12px', fontStyle: 'italic' }}>Số: {getTransferCode(activeTransferForPrint)}</p>
                     </div>
                     <div style={{ textAlign: 'center', width: '55%' }}>
                       <h4 style={{ margin: '0 0 0.2rem 0', fontWeight: 'bold', fontSize: '13px', textTransform: 'uppercase' }}>CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM</h4>
@@ -2111,9 +2814,9 @@ export default function Requisitions({ user }) {
 
                   {/* Document Title */}
                   <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
-                    <h2 style={{ margin: '0 0 0.3rem 0', fontWeight: 'bold', fontSize: '18px', textTransform: 'uppercase' }}>BIÊN BẢN XUẤT CHUYỂN KHO NỘI BỘ</h2>
+                    <h2 style={{ margin: '0 0 0.3rem 0', fontWeight: 'bold', fontSize: '18px', textTransform: 'uppercase' }}>BIÊN BẢN GIAO NHẬN & XUẤT CHUYỂN KHO NỘI BỘ</h2>
                     <p style={{ margin: 0, fontSize: '13px', fontStyle: 'italic' }}>
-                      (Chủ động cấp phát thuốc/vật tư xuống tủ trực - Số phiếu: PTX-{activeTransferForPrint.transferID})
+                      (Bàn giao cấp phát thuốc/vật tư y tế xuống tủ trực - Số phiếu: {getTransferCode(activeTransferForPrint)})
                     </p>
                   </div>
 
@@ -2176,13 +2879,13 @@ export default function Requisitions({ user }) {
                   </div>
 
                   {/* Signatures Section */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '3rem', textAlign: 'center', marginTop: '2.5rem', fontSize: '13.5px', pageBreakInside: 'avoid' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1.5rem', textAlign: 'center', marginTop: '2.5rem', fontSize: '13px', pageBreakInside: 'avoid' }}>
                     
                     {/* Receiver */}
                     <div>
                       <p style={{ margin: '0 0 0.2rem 0', fontWeight: 'bold', textTransform: 'uppercase' }}>ĐẠI DIỆN KHOA LÂM SÀNG NHẬN</p>
                       <p style={{ margin: '0 0 0.5rem 0', color: '#555', fontStyle: 'italic' }}>(Ký, ghi rõ họ tên khi nhận thuốc)</p>
-                      <div style={{ height: '75px', borderBottom: '1px dashed #888', width: '200px', margin: '0.5rem auto 2.5rem auto' }}></div>
+                      <div style={{ height: '75px', borderBottom: '1px dashed #888', width: '160px', margin: '0.5rem auto 2.5rem auto' }}></div>
                       <p style={{ margin: 0, color: '#888', fontStyle: 'italic' }}>(Tập thể điều dưỡng khoa)</p>
                     </div>
 
@@ -2194,10 +2897,23 @@ export default function Requisitions({ user }) {
                         {activeTransferForPrint.digitalSignature ? (
                           <img src={activeTransferForPrint.digitalSignature} alt="Chữ ký thủ kho" style={{ maxHeight: '100%', maxWidth: '120px', objectFit: 'contain' }} />
                         ) : (
-                          <span style={{ color: '#888', fontStyle: 'italic', fontSize: '11px' }}>Không có chữ ký số</span>
+                          SIG.khoa
                         )}
                       </div>
                       <p style={{ margin: 0, fontWeight: 'bold' }}>Nguyễn Văn Khoa</p>
+                    </div>
+
+                    {/* Chief Pharmacist */}
+                    <div>
+                      <p style={{ margin: '0 0 0.2rem 0', fontWeight: 'bold', textTransform: 'uppercase' }}>TRƯỞNG KHOA DƯỢC DUYỆT</p>
+                      <p style={{ margin: '0 0 0.5rem 0', color: '#555', fontStyle: 'italic' }}>(Ký đóng dấu đỏ)</p>
+                      <div style={{ height: '75px', display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '0.5rem auto', position: 'relative' }}>
+                        {SIG.duoc}
+                        <div style={{ position: 'absolute', zIndex: 2, top: '-15px', left: '50%', transform: 'translateX(-40%)', pointerEvents: 'none' }}>
+                          <RedStamp name="DS. H.L.Đ.PHÚ" />
+                        </div>
+                      </div>
+                      <p style={{ margin: 0, fontWeight: 'bold' }}>Dược sĩ Hà Lâm Đình Phú</p>
                     </div>
 
                   </div>

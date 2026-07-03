@@ -13,7 +13,48 @@ import {
   Trash,
   ChevronRight
 } from 'lucide-react';
+const SIG = {
+  duoc: (
+    <svg width="100" height="50" viewBox="0 0 120 60" style={{ display: 'block', margin: 'auto' }}>
+      <path d="M15,35 C30,15 45,5 55,25 C65,45 80,45 95,20 C105,5 110,15 115,25 M35,45 C50,35 70,25 90,40" fill="none" stroke="#0000ff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  khoa: (
+    <svg width="100" height="50" viewBox="0 0 120 60" style={{ display: 'block', margin: 'auto' }}>
+      <path d="M10,25 Q30,45 50,20 T90,30 T110,15 M20,15 C40,25 60,35 80,20" fill="none" stroke="#0000ff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  hong: (
+    <svg width="100" height="50" viewBox="0 0 120 60" style={{ display: 'block', margin: 'auto' }}>
+      <path d="M15,20 Q35,5 50,35 T85,25 T110,40 M40,45 C60,40 80,35 100,30" fill="none" stroke="#0000ff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  chuong: (
+    <svg width="100" height="50" viewBox="0 0 120 60" style={{ display: 'block', margin: 'auto' }}>
+      <path d="M12,30 C25,10 40,20 50,40 C60,15 75,5 90,25 C100,45 108,35 115,20 M25,45 Q55,30 85,45" fill="none" stroke="#0000ff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+};
 
+const RedStamp = ({ name }) => (
+  <svg width="85" height="85" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" style={{ opacity: 0.85 }}>
+    <circle cx="60" cy="60" r="52" fill="none" stroke="#dc2626" strokeWidth="3" />
+    <circle cx="60" cy="60" r="46" fill="none" stroke="#dc2626" strokeWidth="1.2" />
+    <circle cx="60" cy="60" r="46" fill="none" stroke="#dc2626" strokeWidth="1.2" />
+    <defs>
+      <path id="stampTextPathTop" d="M 18 60 A 42 42 0 0 1 102 60" fill="none" />
+      <path id="stampTextPathBottom" d="M 102 60 A 42 42 0 0 1 18 60" fill="none" />
+    </defs>
+    <text fill="#dc2626" fontSize="7.5" fontFamily="Arial, Helvetica, sans-serif" fontWeight="bold" letterSpacing="0.5">
+      <textPath href="#stampTextPathTop" startOffset="50%" textAnchor="middle">BỆNH VIỆN ĐA KHOA HIS PHARMACY</textPath>
+    </text>
+    <text fill="#dc2626" fontSize="8" fontFamily="Arial, Helvetica, sans-serif" fontWeight="bold" letterSpacing="1">
+      <textPath href="#stampTextPathBottom" startOffset="50%" textAnchor="middle">KHOA DƯỢC ★</textPath>
+    </text>
+    <text x="60" y="52" fill="#dc2626" fontSize="10" fontFamily="Times New Roman, serif" fontWeight="bold" textAnchor="middle">ĐÃ DUYỆT</text>
+    <text x="60" y="66" fill="#dc2626" fontSize="6.5" fontFamily="Arial, sans-serif" fontWeight="bold" textAnchor="middle">{name}</text>
+  </svg>
+);
 export default function RestockManagement({ user }) {
   const [activeTab, setActiveTab] = useState('alerts'); // 'alerts' or 'history'
   const [lowStockItems, setLowStockItems] = useState([]);
@@ -949,8 +990,8 @@ export default function RestockManagement({ user }) {
                       <img src={activeProposalForPrint.proposerSignature} alt="Proposer Signature" style={{ height: '75px', maxWidth: '180px', objectFit: 'contain' }} />
                     </div>
                   ) : (
-                    <div style={{ height: '80px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: '0.8rem', fontStyle: 'italic' }}>
-                      Chưa ký đề xuất
+                    <div style={{ height: '80px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.5rem 0' }}>
+                      {SIG.khoa}
                     </div>
                   )}
                   <p><strong>{activeProposalForPrint.createdBy}</strong></p>
@@ -959,7 +1000,7 @@ export default function RestockManagement({ user }) {
                   <p><strong>Trưởng khoa Dược / Giám đốc</strong></p>
                   <p style={{ fontSize: '0.8rem', color: '#555', margin: '0 0 1rem 0' }}>(Ký và đóng dấu đỏ trực tuyến)</p>
                   
-                  {activeProposalForPrint.status === 'Approved' && activeProposalForPrint.digitalSignature ? (
+                  {activeProposalForPrint.status === 'Approved' ? (
                     <div style={{ 
                       display: 'flex', 
                       flexDirection: 'column', 
@@ -970,45 +1011,32 @@ export default function RestockManagement({ user }) {
                       margin: '0.5rem 0'
                     }}>
                       {/* HANDWRITTEN DIGITAL SIGNATURE IMAGE */}
-                      <img 
-                        src={activeProposalForPrint.digitalSignature} 
-                        alt="Director Signature" 
-                        style={{ 
-                          height: '75px', 
-                          maxWidth: '180px',
-                          zIndex: 2,
-                          objectFit: 'contain'
-                        }}
-                      />
+                      {activeProposalForPrint.digitalSignature ? (
+                        <img 
+                          src={activeProposalForPrint.digitalSignature} 
+                          alt="Director Signature" 
+                          style={{ 
+                            height: '75px', 
+                            maxWidth: '180px',
+                            zIndex: 2,
+                            objectFit: 'contain'
+                          }}
+                        />
+                      ) : (
+                        <div style={{ zIndex: 2 }}>
+                          {SIG.duoc}
+                        </div>
+                      )}
 
                       {/* STYLISH RED MEDICAL OFFICIAL STAMP OVERLAY */}
                       <div style={{
                         position: 'absolute',
-                        top: '-10px',
+                        top: '-15px',
                         right: 'calc(50% - 65px)',
-                        border: '3px double #ef4444',
-                        color: '#ef4444',
-                        borderRadius: '50%',
-                        textTransform: 'uppercase',
-                        transform: 'rotate(-10deg)',
-                        width: '120px',
-                        height: '120px',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontFamily: "'Inter', sans-serif",
-                        lineHeight: '1.2',
-                        zIndex: 1,
-                        opacity: 0.75,
-                        pointerEvents: 'none',
-                        textAlign: 'center',
-                        boxSizing: 'border-box',
-                        padding: '5px'
+                        zIndex: 3,
+                        pointerEvents: 'none'
                       }}>
-                        <div style={{ fontSize: '0.5rem', fontWeight: '700' }}>BỆNH VIỆN TRUNG ƯƠNG</div>
-                        <div style={{ fontSize: '0.75rem', fontWeight: '800', borderTop: '1px solid #ef4444', borderBottom: '1px solid #ef4444', margin: '2px 0', padding: '1px 0' }}>ĐÃ DUYỆT</div>
-                        <div style={{ fontSize: '0.45rem', fontWeight: '700' }}>KHOA DƯỢC - HÓA CHẤT</div>
+                        <RedStamp name="PGS.TS. L.M.DƯỢC" />
                       </div>
                     </div>
                   ) : (

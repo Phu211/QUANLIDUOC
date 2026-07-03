@@ -40,6 +40,7 @@ public class RequisitionController : ControllerBase
     {
         var list = await _context.InternalTransfers
             .Include(t => t.ToDepartment)
+            .Include(t => t.Requisition)
             .Include(t => t.Details)!.ThenInclude(d => d.Batch)!.ThenInclude(b => b!.Medicine)
             .OrderByDescending(t => t.TransferDate)
             .ToListAsync();
@@ -167,30 +168,214 @@ public class RequisitionController : ControllerBase
     }
 
     [HttpPost("{id}/receive")]
-    public async Task<IActionResult> Receive(int id)
+    public async Task<IActionResult> Receive(int id, [FromBody] RequisitionReceivePayload? payload)
     {
         var userRole = Request.Headers["X-User-Role"].ToString();
+        var userFullName = System.Net.WebUtility.UrlDecode(Request.Headers["X-User-FullName"].ToString());
+        if (string.IsNullOrEmpty(userFullName)) userFullName = "Điều dưỡng nhận";
+
         if (userRole != "head_nurse" && userRole != "nurse" && userRole != "head")
             return BadRequest(new { Error = "Quyền truy cập bị từ chối. Chỉ nhân viên khoa lâm sàng mới có quyền xác nhận nhận thuốc." });
 
+        if (payload == null || string.IsNullOrWhiteSpace(payload.ReceiverSignature))
+            return BadRequest(new { Error = "Chữ ký nhận của điều dưỡng tiếp nhận không được để trống." });
+
+        using var transaction = await _context.Database.BeginTransactionAsync();
         try
         {
-            var req = await _context.MedicineRequisitions.FindAsync(id);
+            var req = await _context.MedicineRequisitions
+                .Include(r => r.Details)
+                .FirstOrDefaultAsync(r => r.RequisitionID == id);
+
             if (req == null) return NotFound();
-            if (req.Status != "Approved") return BadRequest("Phiếu chưa được cấp phát từ Kho Dược.");
+            if (req.Status != "InTransit") return BadRequest("Phiếu chưa ở trạng thái đang vận chuyển (InTransit).");
             if (req.ReceiveDate != null) return BadRequest("Phiếu đã được xác nhận nhận thuốc trước đó.");
 
+            // Load associated InternalTransfer to find dispensed batches & quantities
+            var transfer = await _context.InternalTransfers
+                .Include(t => t.Details)
+                .FirstOrDefaultAsync(t => t.RequisitionID == id);
+
+            if (transfer == null)
+                return BadRequest(new { Error = "Không tìm thấy dữ liệu vận chuyển liên kết với phiếu này." });
+
+            string oldStatus = req.Status;
+
+            foreach (var reqDetail in req.Details)
+            {
+                // Find received payload info for this detail
+                var receiveInfo = payload.Details?.FirstOrDefault(d => d.RequisitionDetailID == reqDetail.RequisitionDetailID);
+                
+                int receivedQty = reqDetail.DispensedQuantity ?? 0;
+                if (payload.DeliveryConfirmStatus == "Reject")
+                {
+                    receivedQty = 0;
+                }
+                else if (payload.DeliveryConfirmStatus == "PartialAccept" && receiveInfo != null)
+                {
+                    receivedQty = receiveInfo.ReceivedQuantity;
+                }
+
+                string? itemRejectReason = receiveInfo?.RejectReason;
+                reqDetail.ReceivedQuantity = receivedQty;
+
+                // Find transfer details for this medicine
+                var tDetails = transfer.Details.Where(td => _context.Batches.Any(b => b.BatchID == td.BatchID && b.MedicineID == reqDetail.MedicineID)).ToList();
+
+                int remainingToReceive = receivedQty;
+
+                foreach (var td in tDetails)
+                {
+                    var invStock = await _context.InventoryStocks.FirstOrDefaultAsync(s => s.BatchID == td.BatchID);
+                    int allocatedQty = td.Quantity;
+
+                    // How much is accepted for this batch
+                    int acceptedForBatch = Math.Min(allocatedQty, remainingToReceive);
+                    int rejectedForBatch = allocatedQty - acceptedForBatch;
+                    remainingToReceive -= acceptedForBatch;
+
+                    if (invStock != null)
+                    {
+                        // 1. Subtract from ReservedQuantity
+                        invStock.ReservedQuantity = Math.Max(0, invStock.ReservedQuantity - allocatedQty);
+
+                        // 2. If rejected portion > 0, move it to QuarantineStocks instead of rolling back immediately to available chẵn
+                        if (rejectedForBatch > 0)
+                        {
+                            _context.QuarantineStocks.Add(new QuarantineStock
+                            {
+                                BatchID = td.BatchID,
+                                MedicineID = reqDetail.MedicineID,
+                                LocationType = "MainStore",
+                                DepartmentID = null,
+                                Quantity = rejectedForBatch,
+                                Reason = itemRejectReason ?? "Từ chối nhận bàn giao lúc giao thuốc (sai số lượng/lỗi)",
+                                Status = "PendingInspection",
+                                ReportedBy = userFullName,
+                                CreatedAt = DateTime.Now
+                            });
+
+                            // Log movement as quarantine
+                            _context.InventoryMovements.Add(new InventoryMovement
+                            {
+                                MedicineID = reqDetail.MedicineID,
+                                BatchID = td.BatchID,
+                                LocationType = "MainStore",
+                                DepartmentID = null,
+                                BeforeQuantity = invStock.CurrentQuantity,
+                                ChangeQuantity = 0, // CurrentQuantity didn't change (still subtracted), but we moved from Reserve -> Quarantine
+                                AfterQuantity = invStock.CurrentQuantity,
+                                SourceType = "Requisition",
+                                SourceID = id,
+                                Action = "MOVE_TO_QUARANTINE",
+                                ByUser = userFullName,
+                                CreatedAt = DateTime.Now
+                            });
+                        }
+
+                        // 3. If accepted portion > 0, add to Department Cabinet stock
+                        if (acceptedForBatch > 0)
+                        {
+                            var deptStock = await _context.DepartmentStocks
+                                .FirstOrDefaultAsync(ds => ds.DepartmentID == req.DepartmentID && ds.BatchID == td.BatchID);
+
+                            int deptBefore = deptStock?.CurrentQuantity ?? 0;
+
+                            if (deptStock != null)
+                            {
+                                deptStock.CurrentQuantity += acceptedForBatch;
+                            }
+                            else
+                            {
+                                deptStock = new DepartmentStock
+                                {
+                                    DepartmentID = req.DepartmentID,
+                                    BatchID = td.BatchID,
+                                    CurrentQuantity = acceptedForBatch
+                                };
+                                _context.DepartmentStocks.Add(deptStock);
+                            }
+
+                            // Log movement for Cabinet (ADD)
+                            _context.InventoryMovements.Add(new InventoryMovement
+                            {
+                                MedicineID = reqDetail.MedicineID,
+                                BatchID = td.BatchID,
+                                LocationType = "Cabinet",
+                                DepartmentID = req.DepartmentID,
+                                BeforeQuantity = deptBefore,
+                                ChangeQuantity = acceptedForBatch,
+                                AfterQuantity = deptBefore + acceptedForBatch,
+                                SourceType = "Requisition",
+                                SourceID = id,
+                                Action = "ADD",
+                                ByUser = userFullName,
+                                CreatedAt = DateTime.Now
+                            });
+                        }
+                    }
+                }
+            }
+
+            // Set final Requisition Status
+            if (payload.DeliveryConfirmStatus == "Reject")
+            {
+                req.Status = "RejectedOnReceive";
+                req.RejectReason = payload.WitnessName != null ? $"Chứng kiến: {payload.WitnessName}. Lý do: {payload.Details?.FirstOrDefault()?.RejectReason}" : "Từ chối nhận bàn giao toàn bộ";
+            }
+            else if (payload.DeliveryConfirmStatus == "PartialAccept")
+            {
+                req.Status = "PartiallyReceived";
+                req.RejectReason = $"Nhận một phần. Lý do: {payload.Details?.FirstOrDefault(x => !string.IsNullOrEmpty(x.RejectReason))?.RejectReason}";
+            }
+            else
+            {
+                req.Status = "Received";
+            }
+
+            req.ReceiverSignature = payload.ReceiverSignature;
+            req.ReceiverName = payload.ReceiverName ?? userFullName;
             req.ReceiveDate = DateTime.Now;
+
+            // Check SLA Breach
+            if (req.DeliveredAt != null)
+            {
+                var durationMinutes = (req.ReceiveDate.Value - req.DeliveredAt.Value).TotalMinutes;
+                if (durationMinutes > req.SlaMinutes)
+                {
+                    req.IsSlaBreached = true;
+                }
+            }
+
+            // Log User Action to AuditLogs
+            _context.AuditLogs.Add(new AuditLog
+            {
+                Username = userFullName,
+                UserRole = userRole,
+                Action = $"CONFIRM_RECEIPT_{payload.DeliveryConfirmStatus.ToUpper()}",
+                EntityName = "MedicineRequisition",
+                EntityID = id,
+                BeforeData = $"Status: {oldStatus}",
+                AfterData = $"Status: {req.Status}, Temp: {payload.Temp}°C, Witness: {payload.WitnessName}",
+                IPAddress = "127.0.0.1",
+                Device = "Web Browser (Clinical)",
+                CreatedAt = DateTime.Now
+            });
+
             await _context.SaveChangesAsync();
+            await transaction.CommitAsync();
 
             // Broadcast real-time updates
             await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Requisitions");
+            await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Cabinets");
+            await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Inventory");
             await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Dashboard");
 
-            return Ok(new { Message = "Xác nhận nhận thuốc thành công!" });
+            return Ok(new { Message = $"Xác nhận nhận thuốc thành công! Trạng thái: {req.Status}." });
         }
         catch (Exception ex)
         {
+            await transaction.RollbackAsync();
             return BadRequest(new { Error = ex.Message });
         }
     }
@@ -203,9 +388,22 @@ public class RequisitionController : ControllerBase
             return BadRequest(new { Error = "Quyền truy cập bị từ chối. Chỉ Thủ kho Dược mới có quyền duyệt phiếu dự trù." });
         try
         {
+            var req = await _context.MedicineRequisitions.FindAsync(id);
+            if (req == null) return NotFound();
+
+            // Check lock MainStore
+            var isMainStoreLocked = await _context.InventoryAudits.AnyAsync(a => a.LocationType == "MainStore" && (a.Status == "Nháp" || a.Status == "Chờ xác nhận" || a.Status == "Có chênh lệch"));
+            if (isMainStoreLocked)
+                return BadRequest(new { Error = "Kho chẵn chính đang tiến hành kiểm kê và bị khóa giao dịch xuất kho." });
+
+            // Check lock Cabinet
+            var isCabinetLocked = await _context.InventoryAudits.AnyAsync(a => a.LocationType == "Cabinet" && a.DepartmentID == req.DepartmentID && (a.Status == "Nháp" || a.Status == "Chờ xác nhận" || a.Status == "Có chênh lệch"));
+            if (isCabinetLocked)
+                return BadRequest(new { Error = "Tủ trực của khoa tiếp nhận đang tiến hành kiểm kê và bị khóa giao dịch nhập xuất." });
+
             var signature = payload?.ApproverSignature;
             var details = payload?.Details;
-            await _stockService.ApproveRequisitionAsync(id, signature, details);
+            await _stockService.ApproveRequisitionAsync(id, signature, details, payload?.DeliveryBy, payload?.DeliveryPhone);
 
             // Broadcast real-time updates
             await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Requisitions");
@@ -213,7 +411,7 @@ public class RequisitionController : ControllerBase
             await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Inventory");
             await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Dashboard");
 
-            return Ok(new { Message = "Phê duyệt phiếu dự trù thành công theo nguyên tắc FEFO." });
+            return Ok(new { Message = "Phê duyệt phiếu dự trù thành công theo nguyên tắc FEFO, thuốc đang được vận chuyển." });
         }
         catch (Exception ex)
         {
@@ -286,6 +484,16 @@ public class RequisitionController : ControllerBase
         if (request == null || request.DepartmentID <= 0 || request.Quantity <= 0 || request.BatchID <= 0)
             return BadRequest(new { Error = "Thông tin cấp phát không hợp lệ." });
 
+        // Check lock MainStore
+        var isMainStoreLocked = await _context.InventoryAudits.AnyAsync(a => a.LocationType == "MainStore" && (a.Status == "Nháp" || a.Status == "Chờ xác nhận" || a.Status == "Có chênh lệch"));
+        if (isMainStoreLocked)
+            return BadRequest(new { Error = "Kho chẵn chính đang tiến hành kiểm kê và bị khóa giao dịch xuất kho trực tiếp." });
+
+        // Check lock Cabinet
+        var isCabinetLocked = await _context.InventoryAudits.AnyAsync(a => a.LocationType == "Cabinet" && a.DepartmentID == request.DepartmentID && (a.Status == "Nháp" || a.Status == "Chờ xác nhận" || a.Status == "Có chênh lệch"));
+        if (isCabinetLocked)
+            return BadRequest(new { Error = "Tủ trực của khoa tiếp nhận đang tiến hành kiểm kê và bị khóa giao dịch nhập xuất." });
+
         using var transaction = await _context.Database.BeginTransactionAsync();
         try
         {
@@ -300,34 +508,45 @@ public class RequisitionController : ControllerBase
             if (invStock.Batch != null && invStock.Batch.Status != "Bình thường")
                 return BadRequest(new { Error = $"Lô thuốc này đang ở trạng thái [{invStock.Batch.Status}], không được phép thực hiện cấp phát." });
 
-            // 2. Subtract from main store
+            // 2. Subtract from main store and add to ReservedQuantity
             invStock.CurrentQuantity -= request.Quantity;
+            invStock.ReservedQuantity += request.Quantity;
 
-            // 3. Add to department cabinet stock
-            var deptStock = await _context.DepartmentStocks
-                .FirstOrDefaultAsync(ds => ds.DepartmentID == request.DepartmentID && ds.BatchID == request.BatchID);
-
-            if (deptStock != null)
+            // 3. Create a preceding MedicineRequisition under the hood
+            var requisition = new MedicineRequisition
             {
-                deptStock.CurrentQuantity += request.Quantity;
-            }
-            else
-            {
-                _context.DepartmentStocks.Add(new DepartmentStock
-                {
-                    DepartmentID = request.DepartmentID,
-                    BatchID = request.BatchID,
-                    CurrentQuantity = request.Quantity
-                });
-            }
+                DepartmentID = request.DepartmentID,
+                RequisitionDate = DateTime.Now,
+                RequisitionType = "DirectTransfer",
+                Status = "InTransit",
+                ApproverSignature = request.DigitalSignature,
+                DeliveredAt = DateTime.Now,
+                DeliveryBy = "Thủ kho Dược",
+                DeliveryPhone = "0909123456",
+                SlaMinutes = 120,
+                IsSlaBreached = false
+            };
+            _context.MedicineRequisitions.Add(requisition);
+            await _context.SaveChangesAsync(); // Generates RequisitionID
 
-            // 4. Record InternalTransfer log
+            // 4. Create MedicineRequisitionDetail
+            var reqDetail = new MedicineRequisitionDetail
+            {
+                RequisitionID = requisition.RequisitionID,
+                MedicineID = invStock.Batch?.MedicineID ?? 0,
+                RequestedQuantity = request.Quantity,
+                DispensedQuantity = request.Quantity
+            };
+            _context.MedicineRequisitionDetails.Add(reqDetail);
+
+            // 5. Record InternalTransfer log linked to the Requisition
             var transfer = new InternalTransfer
             {
                 FromDepartmentID = null,
                 ToDepartmentID = request.DepartmentID,
                 TransferDate = DateTime.Now,
-                DigitalSignature = request.DigitalSignature
+                DigitalSignature = request.DigitalSignature,
+                RequisitionID = requisition.RequisitionID
             };
             _context.InternalTransfers.Add(transfer);
             await _context.SaveChangesAsync(); // Generates TransferID
@@ -369,11 +588,31 @@ public class RequisitionApprovalPayload
 {
     public string? ApproverSignature { get; set; }
     public List<RequisitionDetailApprovalDto>? Details { get; set; }
+    public string? DeliveryBy { get; set; }
+    public string? DeliveryPhone { get; set; }
 }
 
 public class RequisitionRejectPayload
 {
     public string? RejectReason { get; set; }
     public string? ApproverSignature { get; set; }
+}
+
+public class RequisitionReceivePayload
+{
+    public string? ReceiverSignature { get; set; }
+    public string? ReceiverName { get; set; }
+    public string? WitnessName { get; set; }
+    public string? WitnessSignature { get; set; }
+    public double? Temp { get; set; }
+    public string? DeliveryConfirmStatus { get; set; } // 'Accept', 'PartialAccept', 'Reject'
+    public List<RequisitionDetailReceiveDto>? Details { get; set; }
+}
+
+public class RequisitionDetailReceiveDto
+{
+    public int RequisitionDetailID { get; set; }
+    public int ReceivedQuantity { get; set; }
+    public string? RejectReason { get; set; }
 }
 

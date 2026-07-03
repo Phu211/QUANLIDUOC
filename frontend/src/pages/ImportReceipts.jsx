@@ -7,6 +7,49 @@ import {
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
+const SIG = {
+  duoc: (
+    <svg width="100" height="50" viewBox="0 0 120 60" style={{ display: 'block', margin: 'auto' }}>
+      <path d="M15,35 C30,15 45,5 55,25 C65,45 80,45 95,20 C105,5 110,15 115,25 M35,45 C50,35 70,25 90,40" fill="none" stroke="#0000ff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  khoa: (
+    <svg width="100" height="50" viewBox="0 0 120 60" style={{ display: 'block', margin: 'auto' }}>
+      <path d="M10,25 Q30,45 50,20 T90,30 T110,15 M20,15 C40,25 60,35 80,20" fill="none" stroke="#0000ff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  hong: (
+    <svg width="100" height="50" viewBox="0 0 120 60" style={{ display: 'block', margin: 'auto' }}>
+      <path d="M15,20 Q35,5 50,35 T85,25 T110,40 M40,45 C60,40 80,35 100,30" fill="none" stroke="#0000ff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  chuong: (
+    <svg width="100" height="50" viewBox="0 0 120 60" style={{ display: 'block', margin: 'auto' }}>
+      <path d="M12,30 C25,10 40,20 50,40 C60,15 75,5 90,25 C100,45 108,35 115,20 M25,45 Q55,30 85,45" fill="none" stroke="#0000ff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+};
+
+const RedStamp = ({ name }) => (
+  <svg width="85" height="85" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" style={{ opacity: 0.85 }}>
+    <circle cx="60" cy="60" r="52" fill="none" stroke="#dc2626" strokeWidth="3" />
+    <circle cx="60" cy="60" r="46" fill="none" stroke="#dc2626" strokeWidth="1.2" />
+    <circle cx="60" cy="60" r="46" fill="none" stroke="#dc2626" strokeWidth="1.2" />
+    <defs>
+      <path id="stampTextPathTop" d="M 18 60 A 42 42 0 0 1 102 60" fill="none" />
+      <path id="stampTextPathBottom" d="M 102 60 A 42 42 0 0 1 18 60" fill="none" />
+    </defs>
+    <text fill="#dc2626" fontSize="7.5" fontFamily="Arial, Helvetica, sans-serif" fontWeight="bold" letterSpacing="0.5">
+      <textPath href="#stampTextPathTop" startOffset="50%" textAnchor="middle">BỆNH VIỆN ĐA KHOA HIS PHARMACY</textPath>
+    </text>
+    <text fill="#dc2626" fontSize="8" fontFamily="Arial, Helvetica, sans-serif" fontWeight="bold" letterSpacing="1">
+      <textPath href="#stampTextPathBottom" startOffset="50%" textAnchor="middle">KHOA DƯỢC ★</textPath>
+    </text>
+    <text x="60" y="52" fill="#dc2626" fontSize="10" fontFamily="Times New Roman, serif" fontWeight="bold" textAnchor="middle">ĐÃ DUYỆT</text>
+    <text x="60" y="66" fill="#dc2626" fontSize="6.5" fontFamily="Arial, sans-serif" fontWeight="bold" textAnchor="middle">{name}</text>
+  </svg>
+);
+
 export default function ImportReceipts({ user }) {
   const [imports, setImports] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
@@ -103,45 +146,33 @@ export default function ImportReceipts({ user }) {
   // 1. Tải file mẫu nhập kho Excel nâng cấp
   const handleDownloadTemplate = () => {
     const headers = [
-      ["Số hợp đồng", "Số hóa đơn", "Nhà cung cấp", "Trạng thái", "Người kiểm nhập", "Ghi chú", "Mã thuốc", "Tên thuốc (Để tham khảo)", "Số lô", "Ngày sản xuất (DD/MM/YYYY)", "Hạn dùng (DD/MM/YYYY)", "Đơn giá nhập (VND)", "Số lượng"]
+      ["Mã thuốc (*)", "Tên thuốc (Tham khảo)", "Số lô (*)", "Ngày sản xuất (DD/MM/YYYY)", "Hạn sử dụng (DD/MM/YYYY) (*)", "Đơn giá nhập (VND) (*)", "Số lượng (*)"]
     ];
 
     const sampleRows = [];
-    const defaultSupplier = suppliers[0]?.supplierName || "Công ty Dược phẩm Trung ương 1";
-    const defaultInvoice = "00012345";
-    const defaultContract = "HĐ-025/2026";
-    const defaultStatus = "Đạt kiểm nhập";
-    const defaultUser = user?.fullName || "Dược sĩ Nguyễn Văn Khoa";
-    const defaultNotes = "Nhập kho đầy đủ chất lượng cảm quan tốt";
-
     if (medicines.length > 0) {
       medicines.slice(0, 5).forEach((m, idx) => {
+        // Seed some rows with different priorities to make testing easy
+        let sampleBatch = `LO-EXP0${idx + 1}`;
+        let samplePrice = (15000 + idx * 5000).toString();
+        let sampleQty = "100";
+        if (m.priorityLevel === 'Critical') {
+          samplePrice = "250000"; // Trigger >100M VND limit or psychotropic status
+        }
         sampleRows.push([
-          defaultContract,
-          defaultInvoice,
-          defaultSupplier,
-          defaultStatus,
-          defaultUser,
-          defaultNotes,
           m.medicineCode,
           m.medicineName,
-          `LO-HIENAI0${idx + 1}`,
+          sampleBatch,
           new Date().toLocaleDateString('vi-VN'), // Today
           new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toLocaleDateString('vi-VN'), // 1 year from now
-          (10000 + idx * 5000).toString(),
-          "100"
+          samplePrice,
+          sampleQty
         ]);
       });
     } else {
       sampleRows.push([
-        defaultContract,
-        defaultInvoice,
-        defaultSupplier,
-        defaultStatus,
-        defaultUser,
-        defaultNotes,
-        "MED-SAMPLE",
-        "Tên thuốc mẫu (Hãy thêm thuốc trong Danh mục trước)",
+        "THUOC-0001",
+        "Paracetamol 500mg",
         "LO-SAMPLE01",
         "24/06/2026",
         "31/12/2027",
@@ -155,12 +186,6 @@ export default function ImportReceipts({ user }) {
     const ws = XLSX.utils.aoa_to_sheet(wsData);
 
     ws['!cols'] = [
-      { wch: 15 }, // Số hợp đồng
-      { wch: 15 }, // Số hóa đơn
-      { wch: 30 }, // Nhà cung cấp
-      { wch: 15 }, // Trạng thái
-      { wch: 25 }, // Người kiểm nhập
-      { wch: 30 }, // Ghi chú
       { wch: 15 }, // Mã thuốc
       { wch: 40 }, // Tên thuốc
       { wch: 15 }, // Số lô
@@ -171,7 +196,7 @@ export default function ImportReceipts({ user }) {
     ];
 
     XLSX.utils.book_append_sheet(wb, ws, "Mau_Nhap_Kho");
-    XLSX.writeFile(wb, "Mau_Nhap_Kho_Nang_Cap_HIS.xlsx");
+    XLSX.writeFile(wb, "Mau_Nhap_Kho_Excel.xlsx");
   };
 
   // 2. Xử lý tải lên và phân tích file Excel
@@ -195,36 +220,45 @@ export default function ImportReceipts({ user }) {
 
         const parsedItems = [];
         const errors = [];
-        let extInvoiceNumber = '';
-        let extContractNumber = '';
-        let extSupplierName = '';
-        let extStatus = '';
-        let extNotes = '';
 
         jsonData.forEach((row, index) => {
           const rowNum = index + 2;
 
-          const getValue = (keys) => {
-            const foundKey = Object.keys(row).find(k =>
-              keys.some(key => k.toLowerCase().replace(/\s+/g, '').replace(/[^\w\s]/gi, '').includes(key))
-            );
-            return foundKey ? row[foundKey] : '';
+          const removeAccents = (str) => {
+            if (!str) return '';
+            return str.toString()
+              .normalize('NFD')
+              .replace(/[\u0300-\u036f]/g, '')
+              .replace(/đ/g, 'd')
+              .replace(/Đ/g, 'D');
           };
 
-          if (index === 0) {
-            extInvoiceNumber = getValue(['sohoadon', 'invoicenumber', 'invoice', 'sochungtu']);
-            extContractNumber = getValue(['sohopdong', 'contractnumber', 'contract', 'hopdong']);
-            extSupplierName = getValue(['nhacungcap', 'suppliername', 'supplier', 'tennhacungcap']);
-            extStatus = getValue(['trangthai', 'status', 'kiemnhap']);
-            extNotes = getValue(['ghichu', 'notes', 'note']);
-          }
+          const normalizeString = (str) => {
+            if (!str) return '';
+            return removeAccents(str.toString())
+              .toLowerCase()
+              .replace(/\s+/g, '') // remove spaces
+              .replace(/[\(\)\*\-\+\/\.\,\?\:\_\t\r\n]/g, '') // remove brackets, asterisks, punctuation
+              .trim();
+          };
+
+          const getValue = (keys) => {
+            const foundKey = Object.keys(row).find(k => {
+              const normKey = normalizeString(k);
+              return keys.some(key => {
+                const normSearch = normalizeString(key);
+                return normKey.includes(normSearch) || normSearch.includes(normKey);
+              });
+            });
+            return foundKey ? row[foundKey] : '';
+          };
 
           const medCode = getValue(['mathuoc', 'medicinecode', 'code']);
           const medName = getValue(['tenthuoc', 'medicinename', 'name']);
           const batchNumber = getValue(['solo', 'batchnumber', 'lot', 'batch']);
           const prodDateRaw = getValue(['ngaysanxuat', 'productiondate', 'mfgdate', 'nsx']);
-          const expiryDateRaw = getValue(['handung', 'expirydate', 'expiry', 'han']);
-          const importPriceRaw = getValue(['dongianhap', 'importprice', 'price', 'dongia']);
+          const expiryDateRaw = getValue(['hansudung', 'handung', 'expirydate', 'expiry']);
+          const importPriceRaw = getValue(['dongianhap', 'importprice', 'price', 'dongia', 'gianhap']);
           const quantityRaw = getValue(['soluong', 'quantity', 'qty']);
 
           if (!medCode && !medName) {
@@ -330,26 +364,7 @@ export default function ImportReceipts({ user }) {
 
         if (parsedItems.length > 0) {
           setItems(parsedItems);
-
-          if (extInvoiceNumber) setInvoiceNumber(extInvoiceNumber.toString().trim());
-
-          if (extNotes) setNotes(extNotes.toString().trim());
-
-          if (extSupplierName) {
-            const matchedSupplier = suppliers.find(s =>
-              s.supplierName.toLowerCase().replace(/\s+/g, '').includes(extSupplierName.toString().toLowerCase().replace(/\s+/g, ''))
-            );
-            if (matchedSupplier) {
-              setSelectedSupplier(matchedSupplier.supplierID.toString());
-              setContractNumber(matchedSupplier.contractNumber || 'Chưa cấu hình hợp đồng');
-            } else {
-              setSelectedSupplier('');
-              setContractNumber('');
-              alert(`Cảnh báo: Nhà cung cấp "${extSupplierName}" trong file Excel không khớp hoàn toàn với danh mục hệ thống. Vui lòng tự chọn ở Form.`);
-            }
-          }
-
-          alert(`Đọc thành công ${parsedItems.length} dòng dữ liệu từ Excel!`);
+          alert(`Đọc thành công ${parsedItems.length} dòng dữ liệu thuốc từ file Excel!`);
         }
       } catch (err) {
         console.error(err);
@@ -627,6 +642,14 @@ export default function ImportReceipts({ user }) {
 
   const handleItemChange = (index, field, value) => {
     const newItems = [...items];
+    if (field === 'importPrice') {
+      const val = parseFloat(value);
+      if (val < 0) value = '0';
+    }
+    if (field === 'quantity') {
+      const val = parseInt(value, 10);
+      if (val < 1) value = '1';
+    }
     newItems[index][field] = value;
     setItems(newItems);
   };
@@ -1172,8 +1195,26 @@ export default function ImportReceipts({ user }) {
       const isImported = imp.status === 'Đã nhập kho' || imp.status === 'Đã kiểm' || imp.status === 'Approved' || imp.status === 'Shortage';
       const isRejected = imp.status === 'Từ chối';
 
+      // Check if this receipt is a special import (narcotics/psychotropics or > 100M VND)
+      const hasSpecialMedicine = imp.details?.some(d => 
+        d.batch?.medicine?.priorityLevel === 'High' || 
+        d.batch?.medicine?.priorityLevel === 'Critical'
+      );
+      const totalValue = imp.details?.reduce((sum, d) => 
+        sum + (d.quantity * (d.batch?.importPrice || 0)), 0
+      ) || 0;
+      const isSpecialImport = hasSpecialMedicine || totalValue > 100000000;
+
       if (filterStatus === 'pending_approval') {
-        return isPassedInspection && imp.status !== 'Từ chối';
+        if (!isPassedInspection || imp.status === 'Từ chối') return false;
+        
+        if (user?.role === 'director') {
+          // Director only sees Special Imports awaiting approval
+          return isSpecialImport;
+        } else if (user?.role === 'pharmacist') {
+          // Chief Pharmacist only sees Normal Imports awaiting approval
+          return !isSpecialImport;
+        }
       }
       if (filterStatus === 'awaiting_inspection') {
         return isAwaitingInspection;
@@ -1823,12 +1864,13 @@ export default function ImportReceipts({ user }) {
                                 style={{ height: '33px', fontSize: '0.78rem', padding: '0 0.5rem' }}
                               />
                             </div>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
                               <label style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: '600', margin: 0 }}>Đơn giá nhập</label>
                               <input
                                 type="number"
                                 className="form-input"
                                 placeholder="Đơn giá"
+                                min="0"
                                 value={item.importPrice}
                                 onChange={e => handleItemChange(idx, 'importPrice', e.target.value)}
                                 style={{ height: '33px', fontSize: '0.78rem', padding: '0 0.5rem' }}
@@ -1840,6 +1882,7 @@ export default function ImportReceipts({ user }) {
                                 type="number"
                                 className="form-input"
                                 placeholder="SL"
+                                min="1"
                                 value={item.quantity}
                                 onChange={e => handleItemChange(idx, 'quantity', e.target.value)}
                                 style={{ height: '33px', fontSize: '0.78rem', padding: '0 0.5rem' }}
@@ -2275,10 +2318,34 @@ export default function ImportReceipts({ user }) {
               }}
               onClick={() => setFilterStatus('pending_approval')}
             >
-              Cần duyệt ({imports.filter(imp => (imp.status === 'Đạt kiểm nhập' || imp.status === 'Thiếu hàng' || imp.status === 'Chờ kiểm nghiệm')).length})
-              {imports.filter(imp => (imp.status === 'Đạt kiểm nhập' || imp.status === 'Thiếu hàng' || imp.status === 'Chờ kiểm nghiệm')).length > 0 && (
-                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#ef4444', display: 'inline-block', boxShadow: '0 0 6px #ef4444' }} />
-              )}
+              {(() => {
+                const pendingCount = imports.filter(imp => {
+                  const isPassedInspection = imp.status === 'Đạt kiểm nhập' || imp.status === 'Thiếu hàng' || imp.status === 'Chờ kiểm nghiệm';
+                  if (!isPassedInspection) return false;
+
+                  const hasSpecialMedicine = imp.details?.some(d => 
+                    d.batch?.medicine?.priorityLevel === 'High' || 
+                    d.batch?.medicine?.priorityLevel === 'Critical'
+                  );
+                  const totalValue = imp.details?.reduce((sum, d) => 
+                    sum + (d.quantity * (d.batch?.importPrice || 0)), 0
+                  ) || 0;
+                  const isSpecialImport = hasSpecialMedicine || totalValue > 100000000;
+
+                  if (user?.role === 'director') return isSpecialImport;
+                  if (user?.role === 'pharmacist') return !isSpecialImport;
+                  return true;
+                }).length;
+
+                return (
+                  <>
+                    Cần duyệt ({pendingCount})
+                    {pendingCount > 0 && (
+                      <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#ef4444', display: 'inline-block', boxShadow: '0 0 6px #ef4444' }} />
+                    )}
+                  </>
+                );
+              })()}
             </button>
             {user?.role === 'pharmacist' && (
               <button
@@ -2417,6 +2484,58 @@ export default function ImportReceipts({ user }) {
                       </span>
                     </div>
 
+                    {/* Phân loại phiếu nhập */}
+                    {(() => {
+                      const hasSpecialMedicine = imp.details?.some(d => 
+                        d.batch?.medicine?.priorityLevel === 'High' || 
+                        d.batch?.medicine?.priorityLevel === 'Critical'
+                      );
+                      const specialMedsList = imp.details?.filter(d => 
+                        d.batch?.medicine?.priorityLevel === 'High' || 
+                        d.batch?.medicine?.priorityLevel === 'Critical'
+                      ).map(d => d.batch?.medicine?.medicineName).filter((v, i, self) => self.indexOf(v) === i) || [];
+
+                      const totalValue = imp.details?.reduce((sum, d) => sum + ((d.batch?.importPrice || 0) * d.quantity), 0) || 0;
+                      const isHighValue = totalValue > 100000000;
+                      const isSpecialImport = hasSpecialMedicine || isHighValue;
+
+                      return (
+                        <div style={{ 
+                          margin: '0.2rem 0', 
+                          padding: '0.4rem 0.6rem', 
+                          borderRadius: '6px', 
+                          fontSize: '0.72rem',
+                          background: isSpecialImport ? 'rgba(239, 68, 68, 0.05)' : 'rgba(16, 185, 129, 0.05)',
+                          border: isSpecialImport ? '1px dashed rgba(239, 68, 68, 0.2)' : '1px dashed rgba(16, 185, 129, 0.2)',
+                          color: isSpecialImport ? '#ef4444' : '#10b981',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '0.15rem'
+                        }}>
+                          <div style={{ fontWeight: '700', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                            {isSpecialImport ? (
+                              <>
+                                <ShieldAlert size={12} />
+                                <span>NHẬP ĐẶC BIỆT (YÊU CẦU BAN GIÁM ĐỐC DUYỆT)</span>
+                              </>
+                            ) : (
+                              <>
+                                <Check size={12} style={{ color: '#10b981' }} />
+                                <span>NHẬP THƯỜNG (DƯỢC SĨ TRƯỞNG DUYỆT)</span>
+                              </>
+                            )}
+                          </div>
+                          {isSpecialImport && (
+                            <div style={{ color: 'var(--text-muted)', fontSize: '0.68rem' }}>
+                              Lý do: {hasSpecialMedicine && `Có thuốc đặc biệt (${specialMedsList.join(', ')})`}
+                              {hasSpecialMedicine && isHighValue && ' & '}
+                              {isHighValue && `Giá trị hóa đơn lớn (${totalValue.toLocaleString('vi-VN')} đ > 100M)`}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+
                     {/* Visual GSP timeline */}
                     {renderCardTimeline(imp.status)}
 
@@ -2498,20 +2617,62 @@ export default function ImportReceipts({ user }) {
                             <FileEdit size={12} /> Điều chỉnh
                           </button>
                         )}
-                        {isPassedInspection && imp.status !== 'Từ chối' && user?.role === 'director' && (
+                        {/* Render Duyệt thực nhập button */}
+                        {isPassedInspection && imp.status !== 'Từ chối' && (
+                          user?.role === 'director' ||
+                          (user?.role === 'pharmacist' && !(() => {
+                            const hasSpecialMedicine = imp.details?.some(d => 
+                              d.batch?.medicine?.priorityLevel === 'High' || 
+                              d.batch?.medicine?.priorityLevel === 'Critical'
+                            );
+                            const totalValue = imp.details?.reduce((sum, d) => 
+                              sum + (d.quantity * (d.batch?.importPrice || 0)), 0
+                            ) || 0;
+                            return hasSpecialMedicine || totalValue > 100000000;
+                          })())
+                        ) && (
                           <button
                             type="button"
                             className="btn-premium"
                             style={{ padding: '0.2rem 0.5rem', fontSize: '0.72rem', height: '26px', background: '#10b981', display: 'flex', alignItems: 'center', gap: '0.2rem', fontWeight: '600' }}
                             onClick={() => handleApproveImport(imp.importID)}
-                            title="Phê duyệt thực nhập kho chẵn và cộng tồn kho hệ thống"
+                            title={(() => {
+                              const hasSpecialMedicine = imp.details?.some(d => 
+                                d.batch?.medicine?.priorityLevel === 'High' || 
+                                d.batch?.medicine?.priorityLevel === 'Critical'
+                              );
+                              const totalValue = imp.details?.reduce((sum, d) => 
+                                sum + (d.quantity * (d.batch?.importPrice || 0)), 0
+                              ) || 0;
+                              return (hasSpecialMedicine || totalValue > 100000000) ? "Phê duyệt thực nhập kho đặc biệt" : "Phê duyệt thực nhập kho và cộng tồn kho";
+                            })()}
                           >
-                            <Check size={12} /> Duyệt thực nhập
+                            <Check size={12} /> {(() => {
+                              const hasSpecialMedicine = imp.details?.some(d => 
+                                d.batch?.medicine?.priorityLevel === 'High' || 
+                                d.batch?.medicine?.priorityLevel === 'Critical'
+                              );
+                              const totalValue = imp.details?.reduce((sum, d) => 
+                                sum + (d.quantity * (d.batch?.importPrice || 0)), 0
+                              ) || 0;
+                              return (hasSpecialMedicine || totalValue > 100000000) ? "Duyệt nhập đặc biệt" : "Duyệt thực nhập";
+                            })()}
                           </button>
                         )}
-                        {isPassedInspection && imp.status !== 'Từ chối' && user?.role === 'pharmacist' && (
-                          <div style={{ fontSize: '0.72rem', color: '#f59e0b', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '0.2rem', padding: '0.2rem 0.5rem', border: '1px dashed rgba(245, 158, 11, 0.3)', borderRadius: '4px', background: 'rgba(245, 158, 11, 0.03)', height: '26px' }}>
-                            <RefreshCw size={12} className="spin" /> Chờ Ban lãnh đạo duyệt
+
+                        {/* Render status Chờ Ban lãnh đạo duyệt if special import and user is pharmacist */}
+                        {isPassedInspection && imp.status !== 'Từ chối' && user?.role === 'pharmacist' && (() => {
+                          const hasSpecialMedicine = imp.details?.some(d => 
+                            d.batch?.medicine?.priorityLevel === 'High' || 
+                            d.batch?.medicine?.priorityLevel === 'Critical'
+                          );
+                          const totalValue = imp.details?.reduce((sum, d) => 
+                            sum + (d.quantity * (d.batch?.importPrice || 0)), 0
+                          ) || 0;
+                          return hasSpecialMedicine || totalValue > 100000000;
+                        })() && (
+                          <div style={{ fontSize: '0.72rem', color: '#f43f5e', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '0.2rem', padding: '0.2rem 0.5rem', border: '1px dashed rgba(244, 63, 94, 0.3)', borderRadius: '4px', background: 'rgba(244, 63, 94, 0.03)', height: '26px' }} title="Phiếu nhập chứa thuốc hướng thần/gây nghiện hoặc giá trị > 100 triệu, cần Ban Giám Đốc duyệt">
+                            <ShieldAlert size={12} /> Chờ BGĐ duyệt (Nhập đặc biệt)
                           </div>
                         )}
                         <button
@@ -2654,73 +2815,114 @@ export default function ImportReceipts({ user }) {
                 </tbody>
               </table>
 
-              {/* Signatures block (4-column complete legal sign-off) */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', textAlign: 'center', fontSize: '0.8rem', marginTop: '1.5rem', lineHeight: '1.35' }}>
-                <div>
-                  <p style={{ margin: 0 }}><strong>Đại diện bên giao hàng</strong></p>
-                  <p style={{ margin: '0.1rem 0 0 0', color: '#555', fontStyle: 'italic' }}>(Ký tay trên hệ thống)</p>
-                  {activeReceiptForPrint.deliveryPersonSignature ? (
-                    <div style={{ height: '55px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0' }}>
-                      <img src={activeReceiptForPrint.deliveryPersonSignature} alt="Chữ ký Người giao" style={{ maxHeight: '100%', maxWidth: '100px', objectFit: 'contain' }} />
+              {/* Signatures block (4-column complete legal sign-off or 3-column normal import sign-off) */}
+              {(() => {
+                const hasSpecialMedicine = activeReceiptForPrint.details?.some(d => 
+                  d.batch?.medicine?.priorityLevel === 'High' || 
+                  d.batch?.medicine?.priorityLevel === 'Critical'
+                );
+                const totalValue = activeReceiptForPrint.details?.reduce((sum, d) => sum + ((d.batch?.importPrice || 0) * d.quantity), 0) || 0;
+                const isSpecialImport = hasSpecialMedicine || (totalValue > 100000000);
+
+                return (
+                  <div style={{ display: 'grid', gridTemplateColumns: isSpecialImport ? '1fr 1fr 1fr 1fr' : '1fr 1fr 1fr', textAlign: 'center', fontSize: '0.8rem', marginTop: '1.5rem', lineHeight: '1.35' }}>
+                    <div>
+                      <p style={{ margin: 0 }}><strong>Đại diện bên giao hàng</strong></p>
+                      <p style={{ margin: '0.1rem 0 0 0', color: '#555', fontStyle: 'italic' }}>(Ký tay trên hệ thống)</p>
+                      {activeReceiptForPrint.deliveryPersonSignature ? (
+                        <div style={{ height: '55px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0' }}>
+                          <img src={activeReceiptForPrint.deliveryPersonSignature} alt="Chữ ký Người giao" style={{ maxHeight: '100%', maxWidth: '100px', objectFit: 'contain' }} />
+                        </div>
+                      ) : (
+                        <div style={{ height: '55px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0', color: '#888', fontSize: '0.7rem' }}>- Chưa ký -</div>
+                      )}
+                      <p style={{ fontWeight: 'bold' }}>Người giao hàng</p>
                     </div>
-                  ) : (
-                    <div style={{ height: '55px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0', color: '#888', fontSize: '0.7rem' }}>- Chưa ký -</div>
-                  )}
-                  <p style={{ fontWeight: 'bold' }}>Người giao hàng</p>
-                </div>
-                <div>
-                  <p style={{ margin: 0 }}><strong>Cán bộ kiểm nhận (Thủ kho)</strong></p>
-                  <p style={{ margin: '0.1rem 0 0 0', color: '#555', fontStyle: 'italic' }}>(Ký tay trên hệ thống)</p>
-                  {activeReceiptForPrint.digitalSignature ? (
-                    <div style={{ height: '55px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0' }}>
-                      <img src={activeReceiptForPrint.digitalSignature} alt="Chữ ký Thủ kho" style={{ maxHeight: '100%', maxWidth: '100px', objectFit: 'contain' }} />
+                    <div>
+                      <p style={{ margin: 0 }}><strong>Cán bộ kiểm nhận (Thủ kho)</strong></p>
+                      <p style={{ margin: '0.1rem 0 0 0', color: '#555', fontStyle: 'italic' }}>(Ký tay trên hệ thống)</p>
+                      {activeReceiptForPrint.digitalSignature ? (
+                        <div style={{ height: '55px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0' }}>
+                          <img src={activeReceiptForPrint.digitalSignature} alt="Chữ ký Thủ kho" style={{ maxHeight: '100%', maxWidth: '100px', objectFit: 'contain' }} />
+                        </div>
+                      ) : (
+                        <div style={{ height: '55px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0' }}>
+                          {SIG.khoa}
+                        </div>
+                      )}
+                      <p style={{ fontWeight: 'bold' }}>{activeReceiptForPrint.createdBy}</p>
                     </div>
-                  ) : (
-                    <div style={{ height: '55px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0', color: '#888', fontSize: '0.7rem' }}>- Chưa ký -</div>
-                  )}
-                  <p style={{ fontWeight: 'bold' }}>{activeReceiptForPrint.createdBy}</p>
-                </div>
-                <div>
-                  <p style={{ margin: 0 }}><strong>Dược sĩ cùng kiểm</strong></p>
-                  <p style={{ margin: '0.1rem 0 0 0', color: '#555', fontStyle: 'italic' }}>(Ký tay trên hệ thống)</p>
-                  {activeReceiptForPrint.secondInspectorSignature ? (
-                    <div style={{ height: '55px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0' }}>
-                      <img src={activeReceiptForPrint.secondInspectorSignature} alt="Chữ ký Dược sĩ 2" style={{ maxHeight: '100%', maxWidth: '100px', objectFit: 'contain' }} />
+                    <div>
+                      <p style={{ margin: 0 }}><strong>Dược sĩ trưởng (Người duyệt)</strong></p>
+                      <p style={{ margin: '0.1rem 0 0 0', color: '#555', fontStyle: 'italic' }}>(Ký tay trên hệ thống)</p>
+                      {!isSpecialImport && activeReceiptForPrint.approverSignature ? (
+                        <div style={{ height: '55px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0', position: 'relative' }}>
+                          <img src={activeReceiptForPrint.approverSignature} alt="Chữ ký Dược sĩ trưởng" style={{ maxHeight: '100%', maxWidth: '100px', objectFit: 'contain', position: 'absolute', zIndex: 1 }} />
+                          <div style={{ position: 'absolute', zIndex: 2, top: '-15px', left: '50%', transform: 'translateX(-40%)', pointerEvents: 'none' }}>
+                            <RedStamp name="DS. H.L.Đ.PHÚ" />
+                          </div>
+                        </div>
+                      ) : activeReceiptForPrint.secondInspectorSignature ? (
+                        <div style={{ height: '55px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0' }}>
+                          <img src={activeReceiptForPrint.secondInspectorSignature} alt="Chữ ký Dược sĩ 2" style={{ maxHeight: '100%', maxWidth: '100px', objectFit: 'contain' }} />
+                        </div>
+                      ) : (!isSpecialImport && activeReceiptForPrint.status === 'Đã nhập kho') ? (
+                        <div style={{ height: '55px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0', position: 'relative' }}>
+                          <div style={{ position: 'absolute', zIndex: 1 }}>{SIG.chuong}</div>
+                          <div style={{ position: 'absolute', zIndex: 2, top: '-15px', left: '50%', transform: 'translateX(-40%)', pointerEvents: 'none' }}>
+                            <RedStamp name="DS. H.L.Đ.PHÚ" />
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ height: '55px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0' }}>
+                          {SIG.chuong}
+                        </div>
+                      )}
+                      <p style={{ fontWeight: 'bold' }}>
+                        {isSpecialImport 
+                          ? (activeReceiptForPrint.secondInspector || 'Dược sĩ cùng kiểm') 
+                          : 'Dược sĩ Hà Lâm Đình Phú'}
+                      </p>
                     </div>
-                  ) : (
-                    <div style={{ height: '55px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0', color: '#888', fontSize: '0.7rem' }}>- Chưa ký -</div>
-                  )}
-                  <p style={{ fontWeight: 'bold' }}>{activeReceiptForPrint.secondInspector || 'N/A'}</p>
-                </div>
-                <div>
-                  <p style={{ margin: 0 }}><strong>Đại diện ban lãnh đạo</strong></p>
-                  <p style={{ margin: '0.1rem 0 0 0', color: '#555', fontStyle: 'italic' }}>(Ký tay trên hệ thống)</p>
-                  {activeReceiptForPrint.approverSignature ? (
-                    <div style={{ height: '55px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0' }}>
-                      <img src={activeReceiptForPrint.approverSignature} alt="Chữ ký Ban lãnh đạo" style={{ maxHeight: '100%', maxWidth: '100px', objectFit: 'contain' }} />
-                    </div>
-                  ) : activeReceiptForPrint.status === 'Đã nhập kho' ? (
-                    <div style={{ height: '55px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0' }}>
-                      <span style={{ border: '2px solid #10b981', color: '#10b981', padding: '0.15rem 0.4rem', borderRadius: '4px', fontSize: '0.68rem', fontWeight: 'bold', textTransform: 'uppercase', transform: 'rotate(-5deg)' }}>ĐÃ DUYỆT NHẬP</span>
-                    </div>
-                  ) : activeReceiptForPrint.status === 'Từ chối' ? (
-                    <div style={{ height: '55px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0' }}>
-                      <span style={{ border: '2px solid #ef4444', color: '#ef4444', padding: '0.15rem 0.4rem', borderRadius: '4px', fontSize: '0.68rem', fontWeight: 'bold', textTransform: 'uppercase', transform: 'rotate(-5deg)' }}>TỪ CHỐI LÔ</span>
-                    </div>
-                  ) : (
-                    <div style={{ height: '55px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0' }}>
-                      <span style={{ border: '1px dashed #94a3b8', color: '#94a3b8', padding: '0.15rem 0.4rem', borderRadius: '4px', fontSize: '0.66rem' }}>CHỜ DUYỆT</span>
-                    </div>
-                  )}
-                  <p style={{ fontWeight: 'bold' }}>
-                    {activeReceiptForPrint.status === 'Đã nhập kho' || activeReceiptForPrint.status === 'Đã kiểm' || activeReceiptForPrint.status === 'Approved'
-                      ? 'PGS.TS. Lê Minh Dược'
-                      : activeReceiptForPrint.status === 'Từ chối'
-                        ? 'PGS.TS. Lê Minh Dược'
-                        : 'Ban Giám Đốc'}
-                  </p>
-                </div>
-              </div>
+                    {isSpecialImport && (
+                      <div>
+                        <p style={{ margin: 0 }}><strong>Đại diện ban lãnh đạo</strong></p>
+                        <p style={{ margin: '0.1rem 0 0 0', color: '#555', fontStyle: 'italic' }}>(Ký tay trên hệ thống)</p>
+                        {activeReceiptForPrint.approverSignature ? (
+                          <div style={{ height: '55px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0', position: 'relative' }}>
+                            <img src={activeReceiptForPrint.approverSignature} alt="Chữ ký Ban lãnh đạo" style={{ maxHeight: '100%', maxWidth: '100px', objectFit: 'contain', position: 'absolute', zIndex: 1 }} />
+                            <div style={{ position: 'absolute', zIndex: 2, top: '-15px', left: '50%', transform: 'translateX(-40%)', pointerEvents: 'none' }}>
+                              <RedStamp name="PGS.TS. L.M.TRÍ" />
+                            </div>
+                          </div>
+                        ) : activeReceiptForPrint.status === 'Đã nhập kho' ? (
+                          <div style={{ height: '55px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0', position: 'relative' }}>
+                            <div style={{ position: 'absolute', zIndex: 1 }}>{SIG.duoc}</div>
+                            <div style={{ position: 'absolute', zIndex: 2, top: '-15px', left: '50%', transform: 'translateX(-40%)', pointerEvents: 'none' }}>
+                              <RedStamp name="PGS.TS. L.M.TRÍ" />
+                            </div>
+                          </div>
+                        ) : activeReceiptForPrint.status === 'Từ chối' ? (
+                          <div style={{ height: '55px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0' }}>
+                            <span style={{ border: '2px solid #ef4444', color: '#ef4444', padding: '0.15rem 0.4rem', borderRadius: '4px', fontSize: '0.68rem', fontWeight: 'bold', textTransform: 'uppercase', transform: 'rotate(-5deg)' }}>TỪ CHỐI LÔ</span>
+                          </div>
+                        ) : (
+                          <div style={{ height: '55px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0' }}>
+                            <span style={{ border: '1px dashed #94a3b8', color: '#94a3b8', padding: '0.15rem 0.4rem', borderRadius: '4px', fontSize: '0.66rem' }}>CHỜ DUYỆT</span>
+                          </div>
+                        )}
+                        <p style={{ fontWeight: 'bold' }}>
+                          {activeReceiptForPrint.status === 'Đã nhập kho' || activeReceiptForPrint.status === 'Đã kiểm' || activeReceiptForPrint.status === 'Approved'
+                            ? 'PGS.TS. Lê Minh Trí'
+                            : activeReceiptForPrint.status === 'Từ chối'
+                              ? 'PGS.TS. Lê Minh Trí'
+                              : 'Ban Giám Đốc'}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Printable Attachments / Sensory Images Section */}
               {(() => {

@@ -1,6 +1,49 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { AlertOctagon, FileText, Check, Trash2, Printer, RefreshCw, Layers, PenTool, Eraser, ThumbsUp, X } from 'lucide-react';
 
+const SIG = {
+  duoc: (
+    <svg width="100" height="50" viewBox="0 0 120 60" style={{ display: 'block', margin: 'auto' }}>
+      <path d="M15,35 C30,15 45,5 55,25 C65,45 80,45 95,20 C105,5 110,15 115,25 M35,45 C50,35 70,25 90,40" fill="none" stroke="#0000ff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  khoa: (
+    <svg width="100" height="50" viewBox="0 0 120 60" style={{ display: 'block', margin: 'auto' }}>
+      <path d="M10,25 Q30,45 50,20 T90,30 T110,15 M20,15 C40,25 60,35 80,20" fill="none" stroke="#0000ff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  hong: (
+    <svg width="100" height="50" viewBox="0 0 120 60" style={{ display: 'block', margin: 'auto' }}>
+      <path d="M15,20 Q35,5 50,35 T85,25 T110,40 M40,45 C60,40 80,35 100,30" fill="none" stroke="#0000ff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+  chuong: (
+    <svg width="100" height="50" viewBox="0 0 120 60" style={{ display: 'block', margin: 'auto' }}>
+      <path d="M12,30 C25,10 40,20 50,40 C60,15 75,5 90,25 C100,45 108,35 115,20 M25,45 Q55,30 85,45" fill="none" stroke="#0000ff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+};
+
+const RedStamp = ({ name }) => (
+  <svg width="85" height="85" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" style={{ opacity: 0.85 }}>
+    <circle cx="60" cy="60" r="52" fill="none" stroke="#dc2626" strokeWidth="3" />
+    <circle cx="60" cy="60" r="46" fill="none" stroke="#dc2626" strokeWidth="1.2" />
+    <circle cx="60" cy="60" r="46" fill="none" stroke="#dc2626" strokeWidth="1.2" />
+    <defs>
+      <path id="stampTextPathTop" d="M 18 60 A 42 42 0 0 1 102 60" fill="none" />
+      <path id="stampTextPathBottom" d="M 102 60 A 42 42 0 0 1 18 60" fill="none" />
+    </defs>
+    <text fill="#dc2626" fontSize="7.5" fontFamily="Arial, Helvetica, sans-serif" fontWeight="bold" letterSpacing="0.5">
+      <textPath href="#stampTextPathTop" startOffset="50%" textAnchor="middle">BỆNH VIỆN ĐA KHOA HIS PHARMACY</textPath>
+    </text>
+    <text fill="#dc2626" fontSize="8" fontFamily="Arial, Helvetica, sans-serif" fontWeight="bold" letterSpacing="1">
+      <textPath href="#stampTextPathBottom" startOffset="50%" textAnchor="middle">KHOA DƯỢC ★</textPath>
+    </text>
+    <text x="60" y="52" fill="#dc2626" fontSize="10" fontFamily="Times New Roman, serif" fontWeight="bold" textAnchor="middle">ĐÃ DUYỆT</text>
+    <text x="60" y="66" fill="#dc2626" fontSize="6.5" fontFamily="Arial, sans-serif" fontWeight="bold" textAnchor="middle">{name}</text>
+  </svg>
+);
+
 export default function Liquidation({ user }) {
   const [liquidations, setLiquidations] = useState([]);
   const [expiredItems, setExpiredItems] = useState([]);
@@ -762,22 +805,36 @@ export default function Liquidation({ user }) {
                       <img src={activeLiquidationForPrint.proposerSignature} alt="Chữ ký Người lập" style={{ maxHeight: '100%', maxWidth: '120px', objectFit: 'contain' }} />
                     </div>
                   ) : (
-                    <div style={{ height: '55px' }} />
+                    <div style={{ height: '55px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0' }}>
+                      {SIG.khoa}
+                    </div>
                   )}
                   <p style={{ fontWeight: 'bold' }}>{activeLiquidationForPrint.createdBy || 'Thủ kho Dược'}</p>
                 </div>
                 <div>
                   <p style={{ margin: 0 }}><strong>Ban kiểm kê Dược</strong></p>
                   <p style={{ margin: '0.1rem 0 0 0', color: '#555', fontStyle: 'italic' }}>(Xác nhận đối chiếu)</p>
-                  <div style={{ height: '55px' }} />
+                  <div style={{ height: '55px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0' }}>
+                    {SIG.chuong}
+                  </div>
                   <p style={{ fontWeight: 'bold' }}>Thành viên Hội đồng</p>
                 </div>
                 <div>
                   <p style={{ margin: 0 }}><strong>Giám đốc bệnh viện</strong></p>
                   <p style={{ margin: '0.1rem 0 0 0', color: '#555', fontStyle: 'italic' }}>(Ký duyệt tiêu hủy)</p>
                   {activeLiquidationForPrint.approverSignature ? (
-                    <div style={{ height: '55px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0' }}>
-                      <img src={activeLiquidationForPrint.approverSignature} alt="Chữ ký Giám đốc" style={{ maxHeight: '100%', maxWidth: '120px', objectFit: 'contain' }} />
+                    <div style={{ height: '55px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0', position: 'relative' }}>
+                      <img src={activeLiquidationForPrint.approverSignature} alt="Chữ ký Giám đốc" style={{ maxHeight: '100%', maxWidth: '120px', objectFit: 'contain', position: 'absolute', zIndex: 1 }} />
+                      <div style={{ position: 'absolute', zIndex: 2, top: '-15px', left: '50%', transform: 'translateX(-40%)', pointerEvents: 'none' }}>
+                        <RedStamp name="PGS.TS. L.M.DƯỢC" />
+                      </div>
+                    </div>
+                  ) : activeLiquidationForPrint.status === 'Đã duyệt' ? (
+                    <div style={{ height: '55px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0', position: 'relative' }}>
+                      <div style={{ position: 'absolute', zIndex: 1 }}>{SIG.duoc}</div>
+                      <div style={{ position: 'absolute', zIndex: 2, top: '-15px', left: '50%', transform: 'translateX(-40%)', pointerEvents: 'none' }}>
+                        <RedStamp name="PGS.TS. L.M.DƯỢC" />
+                      </div>
                     </div>
                   ) : (
                     <div style={{ height: '55px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0', color: '#eab308', fontWeight: 'bold', fontSize: '0.74rem' }}>

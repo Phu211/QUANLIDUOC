@@ -23,6 +23,7 @@ export default function MedicineManagement({ user }) {
   const [unit, setUnit] = useState('');
   const [minInventory, setMinInventory] = useState(10);
   const [medicineGroup, setMedicineGroup] = useState('Dược phẩm khác');
+  const [priorityLevel, setPriorityLevel] = useState('Low');
 
   // Hàm tự động sinh mã số tiếp theo cho Thuốc / Vật tư
   const generateNextCode = (type, currentMedicines = medicines) => {
@@ -106,12 +107,25 @@ export default function MedicineManagement({ user }) {
           const unit = getVal(['đơn vị tính', 'donvitinh', 'unit', 'đvt', 'đơn vị']);
           const minInvVal = getVal(['định mức tối thiểu', 'dinhmuctoithieu', 'mininventory', 'tồn tối thiểu', 'min']);
           const group = getVal(['nhóm thuốc', 'nhomthuoc', 'medicinegroup', 'group', 'nhóm', 'nhóm vật tư', 'nhomvattu']);
+          const priority = getVal(['mức độ ưu tiên', 'prioritylevel', 'ưu tiên', 'priority', 'phân nhóm']);
 
           const type = forcedType; // 'medicine' or 'supply'
 
           let code = getVal(['mã thuốc', 'mathuoc', 'medicinecode', 'code', 'mã', 'mã vật tư', 'mavattu']);
           if (!code || !String(code).trim()) {
             code = generateNextCode(type, tempMedicines);
+          }
+
+          let mappedPriority = 'Low';
+          if (priority) {
+            const lowerPrio = String(priority).toLowerCase().trim();
+            if (lowerPrio.includes('gây nghiện') || lowerPrio.includes('critical')) {
+              mappedPriority = 'Critical';
+            } else if (lowerPrio.includes('hướng thần') || lowerPrio.includes('high')) {
+              mappedPriority = 'High';
+            } else if (lowerPrio.includes('kháng sinh') || lowerPrio.includes('medium')) {
+              mappedPriority = 'Medium';
+            }
           }
 
           const newMed = {
@@ -122,7 +136,8 @@ export default function MedicineManagement({ user }) {
             manufacturer: mfg ? String(mfg).trim() : null,
             unit: unit ? String(unit).trim() : '',
             minInventory: minInvVal ? parseInt(minInvVal) || 10 : 10,
-            medicineGroup: group ? String(group).trim() : (type === 'supply' ? 'Vật tư tiêu hao' : 'Dược phẩm khác')
+            medicineGroup: group ? String(group).trim() : (type === 'supply' ? 'Vật tư tiêu hao' : 'Dược phẩm khác'),
+            priorityLevel: mappedPriority
           };
 
           tempMedicines.push(newMed);
@@ -189,7 +204,8 @@ export default function MedicineManagement({ user }) {
           "Đơn Vị Tính (Bắt buộc)": "Gói",
           "Nhà Sản Xuất": "Bông Bạch Tuyết",
           "Tồn Tối Thiểu": 20,
-          "Nhóm Vật Tư": "Vật tư tiêu hao"
+          "Nhóm Vật Tư": "Vật tư tiêu hao",
+          "Mức Độ Ưu Tiên (Low/Medium/High/Critical)": "Low"
         },
         {
           "Tên Vật Tư (Bắt buộc)": "Bơm tiêm 5ml dùng 1 lần",
@@ -197,7 +213,8 @@ export default function MedicineManagement({ user }) {
           "Đơn Vị Tính (Bắt buộc)": "Cái",
           "Nhà Sản Xuất": "Vinahankook",
           "Tồn Tối Thiểu": 50,
-          "Nhóm Vật Tư": "Vật tư can thiệp"
+          "Nhóm Vật Tư": "Vật tư can thiệp",
+          "Mức Độ Ưu Tiên (Low/Medium/High/Critical)": "Low"
         }
       ];
       filename = "mau_nhap_danh_muc_vat_tu.xlsx";
@@ -210,7 +227,8 @@ export default function MedicineManagement({ user }) {
           "Đơn Vị Tính (Bắt buộc)": "Viên",
           "Nhà Sản Xuất": "Dược Hậu Giang (DHG)",
           "Tồn Tối Thiểu": 100,
-          "Nhóm Thuốc": "Thuốc giảm đau, hạ sốt"
+          "Nhóm Thuốc": "Thuốc giảm đau, hạ sốt",
+          "Mức Độ Ưu Tiên (Low/Medium/High/Critical)": "Low"
         },
         {
           "Tên Thuốc (Bắt buộc)": "Cefixim 200mg",
@@ -219,7 +237,18 @@ export default function MedicineManagement({ user }) {
           "Đơn Vị Tính (Bắt buộc)": "Viên",
           "Nhà Sản Xuất": "DHG Pharma",
           "Tồn Tối Thiểu": 40,
-          "Nhóm Thuốc": "Kháng sinh"
+          "Nhóm Thuốc": "Kháng sinh",
+          "Mức Độ Ưu Tiên (Low/Medium/High/Critical)": "Medium"
+        },
+        {
+          "Tên Thuốc (Bắt buộc)": "Morphin HCL 10mg/ml",
+          "Hoạt Chất": "Morphin",
+          "Quy Cách": "Ống 1ml",
+          "Đơn Vị Tính (Bắt buộc)": "Ống",
+          "Nhà Sản Xuất": "Dược Trung Ương",
+          "Tồn Tối Thiểu": 50,
+          "Nhóm Thuốc": "Thuốc giảm đau",
+          "Mức Độ Ưu Tiên (Low/Medium/High/Critical)": "Critical"
         }
       ];
       filename = "mau_nhap_danh_muc_thuoc.xlsx";
@@ -260,6 +289,7 @@ export default function MedicineManagement({ user }) {
     setUnit('');
     setMinInventory(10);
     setMedicineGroup('Dược phẩm khác');
+    setPriorityLevel('Low');
     setShowModal(true);
   };
 
@@ -279,6 +309,7 @@ export default function MedicineManagement({ user }) {
     setUnit(med.unit);
     setMinInventory(med.minInventory);
     setMedicineGroup(med.medicineGroup || 'Dược phẩm khác');
+    setPriorityLevel(med.priorityLevel || 'Low');
     setShowModal(true);
   };
 
@@ -319,7 +350,8 @@ export default function MedicineManagement({ user }) {
       manufacturer: manufacturer.trim() || null,
       unit: unit.trim(),
       minInventory: parseInt(minInventory) || 0,
-      medicineGroup: medicineGroup
+      medicineGroup: medicineGroup,
+      priorityLevel: priorityLevel
     };
 
     const url = modalMode === 'add' ? '/api/medicine' : `/api/medicine/${currentId}`;
@@ -581,7 +613,23 @@ export default function MedicineManagement({ user }) {
                   <tr key={med.medicineID}>
                     <td><strong>{med.medicineCode}</strong></td>
                     <td>
-                      <div><strong>{med.medicineName}</strong></div>
+                      <div>
+                        <strong>{med.medicineName}</strong>
+                        {med.priorityLevel && med.priorityLevel !== 'Low' && (
+                          <span style={{ 
+                            marginLeft: '0.5rem',
+                            fontSize: '0.7rem',
+                            padding: '0.15rem 0.35rem',
+                            borderRadius: '4px',
+                            fontWeight: '600',
+                            background: med.priorityLevel === 'Critical' ? '#ffe4e6' : med.priorityLevel === 'High' ? '#f3e8ff' : '#dbeafe',
+                            color: med.priorityLevel === 'Critical' ? '#f43f5e' : med.priorityLevel === 'High' ? '#a855f7' : '#3b82f6',
+                            border: '1px solid ' + (med.priorityLevel === 'Critical' ? '#fda4af' : med.priorityLevel === 'High' ? '#d8b4fe' : '#bfdbfe')
+                          }}>
+                            {med.priorityLevel === 'Critical' ? 'Gây nghiện' : med.priorityLevel === 'High' ? 'Hướng thần' : 'Kháng sinh'}
+                          </span>
+                        )}
+                      </div>
                       {med.genericName && (
                         <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{med.genericName}</div>
                       )}
@@ -620,7 +668,7 @@ export default function MedicineManagement({ user }) {
       {/* CRUD MODAL FOR ADD/EDIT */}
       {showModal && (
         <div className="modal-overlay">
-          <div className="modal-content">
+          <div className="modal-content" style={{ maxWidth: '850px', width: '95%', padding: '1.75rem' }}>
             <button 
               style={{ position: 'absolute', top: '1.5rem', right: '1.5rem', border: 'none', background: 'none', cursor: 'pointer', color: '#888' }}
               onClick={() => setShowModal(false)}
@@ -634,7 +682,7 @@ export default function MedicineManagement({ user }) {
 
             <form onSubmit={handleSubmit}>
               {/* Phân loại và Tự động sinh mã */}
-              <div className="form-group" style={{ marginBottom: '1.25rem' }}>
+              <div className="form-group" style={{ marginBottom: '1rem' }}>
                 <label className="form-label" style={{ fontWeight: '600', marginBottom: '0.4rem' }}>Phân loại đối tượng (*)</label>
                 <div style={{ display: 'flex', gap: '2rem', marginTop: '0.25rem' }}>
                   <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: modalMode === 'edit' ? 'not-allowed' : 'pointer', fontSize: '0.88rem', color: 'var(--text-main)' }}>
@@ -664,7 +712,7 @@ export default function MedicineManagement({ user }) {
                 </div>
               </div>
 
-              <div className="form-row">
+              <div className="form-row" style={{ marginBottom: '0.75rem' }}>
                 <div className="form-group">
                   <label className="form-label">Mã Thuốc / Vật Tư (Tự động sinh)</label>
                   <input 
@@ -696,46 +744,64 @@ export default function MedicineManagement({ user }) {
                 </div>
               </div>
 
-              <div className="form-group">
-                <label className="form-label">Tên Thuốc / Hóa Chất / Vật Tư (*)</label>
-                <input 
-                  type="text" 
-                  className="form-input" 
-                  placeholder="VD: Vitamin B1 250mg" 
-                  value={medicineName} 
-                  onChange={e => setMedicineName(e.target.value)}
-                  required
-                />
+              <div className="form-row" style={{ marginBottom: '0.75rem' }}>
+                <div className="form-group">
+                  <label className="form-label">Tên Thuốc / Hóa Chất / Vật Tư (*)</label>
+                  <input 
+                    type="text" 
+                    className="form-input" 
+                    placeholder="VD: Vitamin B1 250mg" 
+                    value={medicineName} 
+                    onChange={e => setMedicineName(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Tên gốc / Hoạt chất chính</label>
+                  <input 
+                    type="text" 
+                    className="form-input" 
+                    placeholder="VD: Thiamine" 
+                    value={genericName} 
+                    onChange={e => setGenericName(e.target.value)}
+                  />
+                </div>
               </div>
 
-              <div className="form-group">
-                <label className="form-label">Tên gốc / Hoạt chất chính</label>
-                <input 
-                  type="text" 
-                  className="form-input" 
-                  placeholder="VD: Thiamine" 
-                  value={genericName} 
-                  onChange={e => setGenericName(e.target.value)}
-                />
+              <div className="form-row" style={{ marginBottom: '0.75rem' }}>
+                <div className="form-group">
+                  <label className="form-label">Nhóm phân loại thuốc (*)</label>
+                  <select 
+                    className="form-input"
+                    value={medicineGroup}
+                    onChange={e => setMedicineGroup(e.target.value)}
+                    required
+                    style={{ height: '38px', fontSize: '0.85rem' }}
+                  >
+                    <option value="Kháng sinh">Kháng sinh</option>
+                    <option value="Giảm đau & Hạ sốt">Giảm đau & Hạ sốt</option>
+                    <option value="Vitamin & Bổ trợ">Vitamin & Bổ trợ</option>
+                    <option value="Dược phẩm khác">Dược phẩm khác</option>
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Mức độ ưu tiên / Quản lý đặc biệt (*)</label>
+                  <select 
+                    className="form-input"
+                    value={priorityLevel}
+                    onChange={e => setPriorityLevel(e.target.value)}
+                    required
+                    style={{ height: '38px', fontSize: '0.85rem' }}
+                  >
+                    <option value="Low">Low (Thông thường)</option>
+                    <option value="Medium">Medium (Kháng sinh)</option>
+                    <option value="High">High (Thuốc hướng thần - BGĐ duyệt)</option>
+                    <option value="Critical">Critical (Thuốc gây nghiện - BGĐ duyệt)</option>
+                  </select>
+                </div>
               </div>
 
-              <div className="form-group" style={{ marginBottom: '1rem' }}>
-                <label className="form-label">Nhóm phân loại thuốc (*)</label>
-                <select 
-                  className="form-input"
-                  value={medicineGroup}
-                  onChange={e => setMedicineGroup(e.target.value)}
-                  required
-                  style={{ height: '38px', fontSize: '0.85rem' }}
-                >
-                  <option value="Kháng sinh">Kháng sinh</option>
-                  <option value="Giảm đau & Hạ sốt">Giảm đau & Hạ sốt</option>
-                  <option value="Vitamin & Bổ trợ">Vitamin & Bổ trợ</option>
-                  <option value="Dược phẩm khác">Dược phẩm khác</option>
-                </select>
-              </div>
-
-              <div className="form-row">
+              <div className="form-row" style={{ marginBottom: '0.75rem' }}>
                 <div className="form-group">
                   <label className="form-label">Quy cách đóng gói</label>
                   <input 
@@ -758,7 +824,7 @@ export default function MedicineManagement({ user }) {
                 </div>
               </div>
 
-              <div className="form-group">
+              <div className="form-group" style={{ marginBottom: '1rem' }}>
                 <label className="form-label">Mức cảnh báo tồn tối thiểu (Min inventory)</label>
                 <input 
                   type="number" 
@@ -767,10 +833,9 @@ export default function MedicineManagement({ user }) {
                   value={minInventory} 
                   onChange={e => setMinInventory(e.target.value)}
                 />
-                <p style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginTop: '0.25rem' }}>Hệ thống sẽ hiện cảnh báo khi tổng tồn kho chẵn + lẻ rơi xuống dưới mức này.</p>
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '1.5rem', borderTop: '1px solid var(--border-color)', paddingTop: '1rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '1.25rem', borderTop: '1px solid var(--border-color)', paddingTop: '1rem' }}>
                 <button type="button" className="btn-secondary" onClick={() => setShowModal(false)}>Hủy bỏ</button>
                 <button type="submit" className="btn-premium">
                   {modalMode === 'add' ? 'Khai báo mới' : 'Lưu cập nhật'}

@@ -56,6 +56,11 @@ public class CabinetController : ControllerBase
 
         try
         {
+            // Check lock Cabinet
+            var isCabinetLocked = await _context.InventoryAudits.AnyAsync(a => a.LocationType == "Cabinet" && a.DepartmentID == request.DepartmentID && (a.Status == "Nháp" || a.Status == "Chờ xác nhận" || a.Status == "Có chênh lệch"));
+            if (isCabinetLocked)
+                return BadRequest(new { Error = "Tủ trực của khoa đang tiến hành kiểm kê và bị khóa mọi giao dịch xuất tủ." });
+
             var tx = await _cabinetService.ExportFromCabinetAsync(
                 request.DepartmentID, 
                 request.BatchID, 

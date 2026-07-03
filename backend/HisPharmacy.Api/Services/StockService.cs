@@ -16,7 +16,9 @@ public class StockService
     public async Task ApproveRequisitionAsync(
         int requisitionID, 
         string? approverSignature, 
-        List<RequisitionDetailApprovalDto>? customQuantities = null)
+        List<RequisitionDetailApprovalDto>? customQuantities = null,
+        string? deliveryBy = null,
+        string? deliveryPhone = null)
     {
         using var transaction = await _context.Database.BeginTransactionAsync();
         try
@@ -31,8 +33,12 @@ public class StockService
             if (req.Status != "Pending")
                 throw new InvalidOperationException("Phiếu dự trù đã được phê duyệt hoặc từ chối trước đó.");
 
-            // Save approver signature
+            // Save approver and delivery details
             req.ApproverSignature = approverSignature;
+            req.DeliveryBy = deliveryBy;
+            req.DeliveryPhone = deliveryPhone;
+            req.DeliveredAt = DateTime.Now;
+            req.SlaMinutes = req.RequisitionType == "Urgent" ? 15 : 120;
 
             // Create Internal Transfer record
             var transfer = new InternalTransfer
@@ -69,6 +75,7 @@ public class StockService
                 int remainingToAllocate = dispensedQty;
 
                 // Find active batches in main store, sort by ExpiryDate ascending (FEFO)
+                // Filter out Locked batches (Status must be "Bình thường")
                 var availableStocks = await _context.InventoryStocks
                     .Include(s => s.Batch)
                     .Where(s => s.Batch!.MedicineID == detail.MedicineID && 
@@ -86,7 +93,7 @@ public class StockService
                         .Select(m => m.MedicineName)
                         .FirstOrDefaultAsync();
                     throw new InvalidOperationException(
-                        $"Kho chính không đủ tồn kho để cấp phát [{medName ?? "ID: " + detail.MedicineID}]. Yêu cầu cấp: {dispensedQty}, Hiện có: {totalAvailable}");
+                        $"Kho chính không đủ tồn kho khả dụng để cấp phát [{medName ?? "ID: " + detail.MedicineID}]. Yêu cầu cấp: {dispensedQty}, Hiện có: {totalAvailable}");
                 }
 
                 foreach (var stock in availableStocks)
@@ -94,7 +101,11 @@ public class StockService
                     if (remainingToAllocate <= 0) break;
 
                     int take = Math.Min(stock.CurrentQuantity, remainingToAllocate);
+                    
+                    // Reserved Stock: Deduct CurrentQuantity and Add to ReservedQuantity
+                    int qtyBefore = stock.CurrentQuantity;
                     stock.CurrentQuantity -= take;
+                    stock.ReservedQuantity += take;
                     remainingToAllocate -= take;
 
                     // Log in Transfer details
@@ -104,28 +115,43 @@ public class StockService
                         Quantity = take
                     });
 
-                    // Add/update to Department Cabinet stock
-                    var deptStock = await _context.DepartmentStocks
-                        .FirstOrDefaultAsync(ds => ds.DepartmentID == req.DepartmentID && ds.BatchID == stock.BatchID);
-
-                    if (deptStock != null)
+                    // Write to InventoryMovements audit trail
+                    _context.InventoryMovements.Add(new InventoryMovement
                     {
-                        deptStock.CurrentQuantity += take;
-                    }
-                    else
-                    {
-                        _context.DepartmentStocks.Add(new DepartmentStock
-                        {
-                            DepartmentID = req.DepartmentID,
-                            BatchID = stock.BatchID,
-                            CurrentQuantity = take
-                        });
-                    }
+                        MedicineID = detail.MedicineID,
+                        BatchID = stock.BatchID,
+                        LocationType = "MainStore",
+                        DepartmentID = null,
+                        BeforeQuantity = qtyBefore,
+                        ChangeQuantity = -take,
+                        AfterQuantity = stock.CurrentQuantity,
+                        SourceType = "Requisition",
+                        SourceID = requisitionID,
+                        Action = "SUBTRACT_RESERVE",
+                        ByUser = "Thủ kho Dược",
+                        CreatedAt = DateTime.Now
+                    });
                 }
             }
 
-            req.Status = "Approved";
+            req.Status = "InTransit"; // Đang vận chuyển
             req.DispenseDate = DateTime.Now;
+
+            // Log User Action to AuditLogs
+            _context.AuditLogs.Add(new AuditLog
+            {
+                Username = "pharmacist",
+                UserRole = "pharmacist",
+                Action = "APPROVE_REQUISITION",
+                EntityName = "MedicineRequisition",
+                EntityID = requisitionID,
+                BeforeData = "Status: Pending",
+                AfterData = $"Status: InTransit, DeliveryBy: {deliveryBy}",
+                IPAddress = "127.0.0.1",
+                Device = "System Backend",
+                CreatedAt = DateTime.Now
+            });
+
             await _context.SaveChangesAsync();
             await transaction.CommitAsync();
         }
@@ -291,6 +317,15 @@ public class StockService
 
             foreach (var item in items)
             {
+                if (item.ImportPrice < 0)
+                {
+                    throw new ArgumentException("Đơn giá nhập không được là số âm.");
+                }
+                if (item.Quantity <= 0)
+                {
+                    throw new ArgumentException("Số lượng nhập phải lớn hơn 0.");
+                }
+
                 // Create a new batch entry for this medicine shipment
                 var batch = new Batch
                 {

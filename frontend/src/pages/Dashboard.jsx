@@ -13,10 +13,57 @@ import {
 export default function Dashboard({ setPage, user }) {
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [timeUnit, setTimeUnit] = useState('month');
 
-  const fetchSummary = () => {
+  const getRequisitionCode = (req) => {
+    if (!req) return '';
+    const date = new Date(req.requisitionDate || new Date());
+    const yyyy = date.getFullYear();
+    const mm = String(date.getMonth() + 1).padStart(2, '0');
+    const dd = String(date.getDate()).padStart(2, '0');
+    const idStr = String(req.requisitionID).padStart(4, '0');
+    return `PL-${yyyy}${mm}${dd}-${idStr}`;
+  };
+
+  const getStatusText = (status, receiveDate) => {
+    switch (status) {
+      case 'PendingHead': return 'Chờ Trưởng khoa duyệt';
+      case 'Pending': return 'Chờ Dược duyệt';
+      case 'InTransit': return 'Đang vận chuyển';
+      case 'Received': return 'Đã nhận đủ';
+      case 'PartiallyReceived': return 'Nhận một phần';
+      case 'Rejected': return 'Đã từ chối';
+      case 'RejectedByHead': return 'Trưởng khoa từ chối';
+      case 'RejectedByPharmacy': return 'Kho Dược từ chối';
+      case 'RejectedOnReceive': return 'Khoa từ chối nhận';
+      case 'Cancelled': return 'Đã hủy phiếu';
+      case 'Approved': return receiveDate ? 'Đã nhận đủ' : 'Đang vận chuyển';
+      default: return status || 'Chờ duyệt';
+    }
+  };
+
+  const getStatusClass = (status, receiveDate) => {
+    switch (status) {
+      case 'PendingHead': return 'pendinghead';
+      case 'Pending': return 'pending';
+      case 'InTransit': return 'warning';
+      case 'Received': return 'approved';
+      case 'PartiallyReceived': return 'partiallyreceived';
+      case 'Rejected': return 'rejected';
+      case 'RejectedByHead': return 'rejected';
+      case 'RejectedByPharmacy': return 'rejected';
+      case 'RejectedOnReceive': return 'rejectedonreceive';
+      case 'Cancelled': return 'cancelled';
+      case 'Approved': return receiveDate ? 'approved' : 'warning';
+      default: return 'pending';
+    }
+  };
+
+  const fetchSummary = (currentUnit = timeUnit) => {
     setLoading(true);
-    const url = user?.departmentID ? `/api/dashboard/summary?departmentId=${user.departmentID}` : '/api/dashboard/summary';
+    const url = user?.departmentID 
+      ? `/api/dashboard/summary?departmentId=${user.departmentID}&timeUnit=${currentUnit}` 
+      : `/api/dashboard/summary?timeUnit=${currentUnit}`;
     fetch(url)
       .then(res => res.json())
       .then(data => {
@@ -30,25 +77,60 @@ export default function Dashboard({ setPage, user }) {
   };
 
   useEffect(() => {
-    fetchSummary();
+    fetchSummary(timeUnit);
 
     const handleUpdate = (e) => {
       if (e.detail === 'Dashboard' || e.detail === 'Inventory' || e.detail === 'Requisitions') {
-        fetchSummary();
+        fetchSummary(timeUnit);
       }
     };
     window.addEventListener('pharmacy-update', handleUpdate);
     return () => window.removeEventListener('pharmacy-update', handleUpdate);
-  }, [user]);
+  }, [user, timeUnit]);
 
   const renderLineChart = () => {
     const data = summary?.importCosts || [];
+    
+    const renderHeader = () => (
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', width: '100%' }}>
+        <h4 style={{ margin: 0, fontSize: '0.88rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+          <TrendingUp size={14} color="var(--color-secondary)" /> {user?.departmentID ? 'Số lượng thuốc tiêu hao tại khoa' : 'Chi phí mua thuốc nhập kho (Triệu VND)'}
+        </h4>
+        <div style={{ display: 'flex', background: 'rgba(255,255,255,0.05)', borderRadius: '6px', padding: '2px', border: '1px solid var(--border-glass)' }}>
+          {['week', 'month', 'year'].map(unit => (
+            <button
+              key={unit}
+              type="button"
+              style={{
+                background: timeUnit === unit ? 'var(--color-secondary)' : 'none',
+                color: timeUnit === unit ? '#fff' : 'var(--text-dim)',
+                border: 'none',
+                outline: 'none',
+                cursor: 'pointer',
+                padding: '0.2rem 0.5rem',
+                borderRadius: '4px',
+                fontSize: '0.68rem',
+                fontWeight: '600',
+                textTransform: 'capitalize',
+                transition: 'all 0.15s ease'
+              }}
+              onClick={() => setTimeUnit(unit)}
+            >
+              {unit === 'week' ? 'Tuần' : unit === 'month' ? 'Tháng' : 'Năm'}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+
     if (data.length === 0) {
       return (
-        <div className="glass-card" style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', height: '260px', justifyContent: 'center', alignItems: 'center', textAlign: 'center' }}>
-          <TrendingUp size={36} color="var(--text-dim)" style={{ marginBottom: '0.75rem', opacity: 0.5 }} />
-          <h4 style={{ margin: '0 0 0.25rem 0', fontSize: '0.9rem', color: 'var(--text-muted)' }}>{user?.departmentID ? 'Số lượng thuốc tiêu hao' : 'Chi phí mua thuốc nhập kho'}</h4>
-          <p style={{ color: 'var(--text-dim)', fontSize: '0.78rem', margin: 0, maxWidth: '240px' }}>{user?.departmentID ? 'Chưa có dữ liệu tiêu hao thuốc tại khoa để vẽ biểu đồ.' : 'Chưa có dữ liệu. Vui lòng thực hiện nhập kho chẵn để vẽ biểu đồ.'}</p>
+        <div className="glass-card" style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', height: '260px' }}>
+          {renderHeader()}
+          <div style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', textAlign: 'center' }}>
+            <TrendingUp size={36} color="var(--text-dim)" style={{ marginBottom: '0.75rem', opacity: 0.5 }} />
+            <p style={{ color: 'var(--text-dim)', fontSize: '0.78rem', margin: 0, maxWidth: '240px' }}>{user?.departmentID ? 'Chưa có dữ liệu tiêu hao thuốc tại khoa cho khoảng thời gian này.' : 'Chưa có dữ liệu nhập kho chẵn cho khoảng thời gian này.'}</p>
+          </div>
         </div>
       );
     }
@@ -87,9 +169,7 @@ export default function Dashboard({ setPage, user }) {
 
     return (
       <div className="glass-card" style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', height: '260px' }}>
-        <h4 style={{ margin: '0 0 1rem 0', fontSize: '0.88rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-          <TrendingUp size={14} color="var(--color-secondary)" /> {user?.departmentID ? 'Số lượng thuốc tiêu hao tại khoa (đvt)' : 'Chi phí mua thuốc nhập kho (Triệu VND)'}
-        </h4>
+        {renderHeader()}
         <div style={{ flexGrow: 1, position: 'relative', height: '100%' }}>
           <svg width="100%" height="100%" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="xMidYMid meet">
             <defs>
@@ -378,6 +458,58 @@ export default function Dashboard({ setPage, user }) {
             <AlertTriangle size={24} />
           </div>
         </div>
+
+        {/* Card 7: In Transit */}
+        <div className="glass-card metric-card">
+          <div className="metric-info">
+            <h4>Đang vận chuyển</h4>
+            <div className="value" style={{ color: summary?.inTransitCount > 0 ? 'var(--color-secondary)' : 'inherit' }}>
+              {summary?.inTransitCount || 0}
+            </div>
+          </div>
+          <div className="metric-icon-wrapper blue" style={{ background: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6' }}>
+            <TrendingUp size={24} />
+          </div>
+        </div>
+
+        {/* Card 8: SLA Breached */}
+        <div className="glass-card metric-card">
+          <div className="metric-info">
+            <h4>Vi phạm SLA</h4>
+            <div className="value" style={{ color: summary?.slaBreachedCount > 0 ? 'var(--color-danger)' : 'inherit' }}>
+              {summary?.slaBreachedCount || 0}
+            </div>
+          </div>
+          <div className="metric-icon-wrapper red" style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444' }}>
+            <AlertTriangle size={24} />
+          </div>
+        </div>
+
+        {/* Card 9: Rejected on Receive */}
+        <div className="glass-card metric-card">
+          <div className="metric-info">
+            <h4>Từ chối giao nhận</h4>
+            <div className="value" style={{ color: summary?.rejectedOnReceiveCount > 0 ? 'var(--color-danger)' : 'inherit' }}>
+              {summary?.rejectedOnReceiveCount || 0}
+            </div>
+          </div>
+          <div className="metric-icon-wrapper orange" style={{ background: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b' }}>
+            <AlertTriangle size={24} />
+          </div>
+        </div>
+
+        {/* Card 10: Avg Transit Time */}
+        <div className="glass-card metric-card">
+          <div className="metric-info">
+            <h4>TG Vận chuyển TB</h4>
+            <div className="value">
+              {summary?.averageTransitMinutes ? `${summary.averageTransitMinutes.toFixed(1)}m` : '0.0m'}
+            </div>
+          </div>
+          <div className="metric-icon-wrapper green" style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#10b981' }}>
+            <TrendingUp size={24} />
+          </div>
+        </div>
       </div>
 
       {/* Visual Charts Grid (Real-time updates) */}
@@ -421,17 +553,17 @@ export default function Dashboard({ setPage, user }) {
                 <tbody>
                   {summary?.recentRequisitions?.map(req => (
                     <tr key={req.requisitionID} style={{ cursor: 'pointer' }} onClick={() => setPage('requisitions')}>
-                      <td><strong>#REQ-{req.requisitionID}</strong></td>
+                      <td><strong>{getRequisitionCode(req)}</strong></td>
                       <td>{req.departmentName}</td>
                       <td>
-                        <span className={`badge-status ${req.requisitionType === 'Regular' ? 'regular' : req.requisitionType === 'Urgent' ? 'urgent' : 'refill'}`}>
-                          {req.requisitionType === 'Regular' ? 'Lĩnh thường quy' : req.requisitionType === 'Urgent' ? '🚨 Lĩnh khẩn' : 'Bù tủ trực'}
+                        <span className={`badge-status ${req.requisitionType === 'Regular' ? 'regular' : req.requisitionType === 'Urgent' ? 'urgent' : req.requisitionType === 'DirectTransfer' ? 'approved' : 'refill'}`}>
+                          {req.requisitionType === 'Regular' ? 'Lĩnh thường quy' : req.requisitionType === 'Urgent' ? '🚨 Lĩnh khẩn' : req.requisitionType === 'DirectTransfer' ? 'Xuất chuyển chủ động' : 'Bù tủ trực'}
                         </span>
                       </td>
                       <td>{new Date(req.requisitionDate).toLocaleString('vi-VN')}</td>
                       <td>
-                        <span className={`badge-status ${req.status.toLowerCase()}`}>
-                          {req.status === 'Pending' ? 'Chờ duyệt' : req.status === 'Approved' ? 'Đã duyệt' : 'Từ chối'}
+                        <span className={`badge-status ${getStatusClass(req.status, req.receiveDate)}`}>
+                          {getStatusText(req.status, req.receiveDate)}
                         </span>
                       </td>
                     </tr>

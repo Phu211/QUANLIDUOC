@@ -27,6 +27,12 @@ public class HisDbContext : DbContext
     public DbSet<PurchaseProposal> PurchaseProposals => Set<PurchaseProposal>();
     public DbSet<PurchaseProposalDetail> PurchaseProposalDetails => Set<PurchaseProposalDetail>();
     public DbSet<RecallLog> RecallLogs => Set<RecallLog>();
+    public DbSet<InventoryAudit> InventoryAudits => Set<InventoryAudit>();
+    public DbSet<InventoryAuditDetail> InventoryAuditDetails => Set<InventoryAuditDetail>();
+    public DbSet<StockAdjustmentLog> StockAdjustmentLogs => Set<StockAdjustmentLog>();
+    public DbSet<InventoryMovement> InventoryMovements => Set<InventoryMovement>();
+    public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+    public DbSet<QuarantineStock> QuarantineStocks => Set<QuarantineStock>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -146,6 +152,48 @@ public class HisDbContext : DbContext
             .HasOne(d => d.Medicine)
             .WithMany()
             .HasForeignKey(d => d.MedicineID);
+
+        // Inventory Audit Configuration
+        modelBuilder.Entity<InventoryAudit>().HasKey(e => e.AuditID);
+        modelBuilder.Entity<InventoryAudit>().Property(e => e.AuditID).ValueGeneratedOnAdd();
+        modelBuilder.Entity<InventoryAuditDetail>().HasKey(e => e.AuditDetailID);
+        modelBuilder.Entity<InventoryAuditDetail>().Property(e => e.AuditDetailID).ValueGeneratedOnAdd();
+        modelBuilder.Entity<StockAdjustmentLog>().HasKey(e => e.LogID);
+        modelBuilder.Entity<StockAdjustmentLog>().Property(e => e.LogID).ValueGeneratedOnAdd();
+
+        modelBuilder.Entity<InventoryAuditDetail>()
+            .HasOne<InventoryAudit>()
+            .WithMany(r => r.Details)
+            .HasForeignKey(d => d.AuditID)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<InventoryAuditDetail>()
+            .HasOne(d => d.Batch)
+            .WithMany()
+            .HasForeignKey(d => d.BatchID);
+
+        modelBuilder.Entity<StockAdjustmentLog>()
+            .HasOne(d => d.Batch)
+            .WithMany()
+            .HasForeignKey(d => d.BatchID);
+
+        // New entities configuration mapping
+        modelBuilder.Entity<InventoryMovement>().HasKey(e => e.MovementID);
+        modelBuilder.Entity<InventoryMovement>().Property(e => e.MovementID).ValueGeneratedOnAdd();
+        modelBuilder.Entity<InventoryMovement>()
+            .HasOne(d => d.Batch)
+            .WithMany()
+            .HasForeignKey(d => d.BatchID);
+
+        modelBuilder.Entity<AuditLog>().HasKey(e => e.LogID);
+        modelBuilder.Entity<AuditLog>().Property(e => e.LogID).ValueGeneratedOnAdd();
+
+        modelBuilder.Entity<QuarantineStock>().HasKey(e => e.QuarantineID);
+        modelBuilder.Entity<QuarantineStock>().Property(e => e.QuarantineID).ValueGeneratedOnAdd();
+        modelBuilder.Entity<QuarantineStock>()
+            .HasOne(d => d.Batch)
+            .WithMany()
+            .HasForeignKey(d => d.BatchID);
     }
 }
 
@@ -170,6 +218,7 @@ public class Medicine
     public string Unit { get; set; } = string.Empty;
     public int MinInventory { get; set; } = 10;
     public string MedicineGroup { get; set; } = "Dược phẩm khác";
+    public string PriorityLevel { get; set; } = "Low"; // 'Low', 'Medium', 'High', 'Critical'
 }
 
 public class Department
@@ -198,6 +247,7 @@ public class InventoryStock
     public int StockID { get; set; }
     public int BatchID { get; set; }
     public int CurrentQuantity { get; set; }
+    public int ReservedQuantity { get; set; } = 0;
 
     // Navigation
     public Batch? Batch { get; set; }
@@ -225,6 +275,7 @@ public class MedicineRequisition
     public string? DigitalSignature { get; set; } // Base64 signature of proposer (nurse)
     public string? HeadSignature { get; set; } // Base64 signature of department head (Trưởng khoa)
     public string? ApproverSignature { get; set; } // Base64 signature of approver (pharmacist)
+    public string? ReceiverSignature { get; set; } // Base64 signature of receiver (nurse/head_nurse)
     public string? RejectReason { get; set; } // Reason for rejection
     
     public DateTime? HeadApproveDate { get; set; }
@@ -233,6 +284,13 @@ public class MedicineRequisition
     public string? DelegatedBy { get; set; }
     public string? DelegatedTo { get; set; }
     public DateTime? DelegationActivatedAt { get; set; }
+
+    public string? DeliveryBy { get; set; }
+    public string? DeliveryPhone { get; set; }
+    public DateTime? DeliveredAt { get; set; }
+    public string? ReceiverName { get; set; }
+    public int SlaMinutes { get; set; } = 120;
+    public bool IsSlaBreached { get; set; } = false;
 
     // Navigation
     public Department? Department { get; set; }
@@ -246,6 +304,7 @@ public class MedicineRequisitionDetail
     public int MedicineID { get; set; }
     public int RequestedQuantity { get; set; }
     public int? DispensedQuantity { get; set; } // Actual quantity dispensed by pharmacist
+    public int? ReceivedQuantity { get; set; }
 
     // Navigation
     public Medicine? Medicine { get; set; }
@@ -439,8 +498,120 @@ public class RecallLog
     public DateTime RecallDate { get; set; } = DateTime.Now;
     public string? Reason { get; set; }
     public string ActionType { get; set; } = "Cách ly"; // 'Cách ly', 'Trả NCC', 'Tiêu hủy'
+    public string? RecallLevel { get; set; } // 'Internal', 'Manufacturer', 'MOH'
     public string? CreatedBy { get; set; }
     public string? DigitalSignature { get; set; }
+
+    // Navigation
+    public Batch? Batch { get; set; }
+}
+
+public class InventoryAudit
+{
+    public int AuditID { get; set; }
+    public string AuditCode { get; set; } = string.Empty;
+    public string LocationType { get; set; } = "MainStore"; // 'MainStore' or 'Cabinet'
+    public int? DepartmentID { get; set; }
+    public DateTime AuditDate { get; set; } = DateTime.Now;
+    public string CreatedBy { get; set; } = string.Empty;
+    public string AuditType { get; set; } = "Định kỳ"; // 'Định kỳ', 'Đột xuất', 'Cuối năm', 'Sau thu hồi'
+    public string Status { get; set; } = "Nháp"; // 'Nháp', 'Chờ xác nhận', 'Có chênh lệch', 'Đã xác nhận', 'Đã điều chỉnh', 'Đã hủy'
+    public string? Notes { get; set; }
+    public string? CreatorSignature { get; set; } // Base64 signature of creator (Thủ kho)
+    public string? CheckerSignature { get; set; } // Base64 signature of checker (Dược sĩ trưởng / Trưởng khoa)
+    public string? DirectorSignature { get; set; } // Base64 signature of director (Giám đốc)
+    public string? CheckerSignedBy { get; set; }
+    public DateTime? CheckerSignedAt { get; set; }
+    public string? DirectorSignedBy { get; set; }
+    public DateTime? DirectorSignedAt { get; set; }
+    public bool DiscrepancyThresholdExceeded { get; set; } = false;
+    public string? TimelineJson { get; set; } // JSON list of activities
+
+    // Navigation
+    public Department? Department { get; set; }
+    public List<InventoryAuditDetail> Details { get; set; } = new();
+}
+
+public class InventoryAuditDetail
+{
+    public int AuditDetailID { get; set; }
+    public int AuditID { get; set; }
+    public int BatchID { get; set; }
+    public int SystemQuantity { get; set; }
+    public int ActualQuantity { get; set; }
+    public int Discrepancy { get; set; }
+    public string? Reason { get; set; }
+
+    // Navigation
+    public Batch? Batch { get; set; }
+}
+
+public class StockAdjustmentLog
+{
+    public int LogID { get; set; }
+    public int? AuditID { get; set; }
+    public int BatchID { get; set; }
+    public string LocationType { get; set; } = string.Empty; // 'MainStore' or 'Cabinet'
+    public int? DepartmentID { get; set; }
+    public int OldQuantity { get; set; }
+    public int NewQuantity { get; set; }
+    public int Discrepancy { get; set; }
+    public string AdjustedBy { get; set; } = string.Empty;
+    public DateTime AdjustmentDate { get; set; } = DateTime.Now;
+    public string? Reason { get; set; }
+
+    // Navigation
+    public Batch? Batch { get; set; }
+}
+
+public class InventoryMovement
+{
+    public int MovementID { get; set; }
+    public int MedicineID { get; set; }
+    public int BatchID { get; set; }
+    public string LocationType { get; set; } = string.Empty; // 'MainStore', 'Cabinet'
+    public int? DepartmentID { get; set; } // NULL for MainStore
+    public int BeforeQuantity { get; set; }
+    public int ChangeQuantity { get; set; }
+    public int AfterQuantity { get; set; }
+    public string SourceType { get; set; } = string.Empty; // 'Import', 'Requisition', 'DirectTransfer', 'Return', 'Liquidation', 'Recall'
+    public int SourceID { get; set; }
+    public string Action { get; set; } = string.Empty; // 'ADD', 'SUBTRACT', 'ROLLBACK'
+    public string ByUser { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; } = DateTime.Now;
+
+    // Navigation
+    public Batch? Batch { get; set; }
+}
+
+public class AuditLog
+{
+    public int LogID { get; set; }
+    public string Username { get; set; } = string.Empty;
+    public string UserRole { get; set; } = string.Empty;
+    public string Action { get; set; } = string.Empty;
+    public string EntityName { get; set; } = string.Empty;
+    public int? EntityID { get; set; }
+    public string? BeforeData { get; set; }
+    public string? AfterData { get; set; }
+    public string? IPAddress { get; set; }
+    public string? Device { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.Now;
+}
+
+public class QuarantineStock
+{
+    public int QuarantineID { get; set; }
+    public int BatchID { get; set; }
+    public int MedicineID { get; set; }
+    public string LocationType { get; set; } = string.Empty; // 'MainStore' or 'Cabinet'
+    public int? DepartmentID { get; set; }
+    public int Quantity { get; set; }
+    public string? Reason { get; set; }
+    public string Status { get; set; } = "PendingInspection"; // 'PendingInspection', 'AwaitingVendor', 'AwaitingDestroy', 'Released'
+    public string ReportedBy { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; } = DateTime.Now;
+    public DateTime? ResolvedAt { get; set; }
 
     // Navigation
     public Batch? Batch { get; set; }

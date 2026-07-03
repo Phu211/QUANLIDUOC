@@ -299,11 +299,43 @@ public class ImportController : ControllerBase
     public async Task<IActionResult> ApproveImport(int id, [FromBody] ApproveImportRequest? request)
     {
         var userRole = Request.Headers["X-User-Role"].ToString();
-        if (userRole != "director")
-            return BadRequest(new { Error = "Quyền truy cập bị từ chối. Chỉ Ban lãnh đạo mới có quyền duyệt nhập kho." });
+        if (userRole != "director" && userRole != "pharmacist")
+            return BadRequest(new { Error = "Quyền truy cập bị từ chối. Chỉ Dược sĩ trưởng hoặc Ban giám đốc mới có quyền duyệt nhập kho." });
 
         try
         {
+            // Lấy chi tiết phiếu nhập để kiểm tra loại nhập thường hay nhập đặc biệt
+            var import = await _context.ImportReceipts
+                .Include(i => i.Details)
+                    .ThenInclude(d => d.Batch)
+                        .ThenInclude(b => b!.Medicine)
+                .FirstOrDefaultAsync(i => i.ImportID == id);
+
+            if (import == null) 
+                return NotFound(new { Error = "Không tìm thấy phiếu nhập kho." });
+
+            // Kiểm tra xem có chứa thuốc hướng thần/gây nghiện (High/Critical) hay không
+            bool isSpecialMedicine = import.Details.Any(d => 
+                d.Batch?.Medicine?.PriorityLevel == "High" || 
+                d.Batch?.Medicine?.PriorityLevel == "Critical"
+            );
+
+            // Kiểm tra xem giá trị hóa đơn có lớn hay không (> 100,000,000đ)
+            double totalValue = import.Details.Sum(d => 
+                (double)(d.Quantity * (d.Batch?.ImportPrice ?? 0))
+            );
+            bool isHighValue = totalValue > 100000000;
+
+            bool isSpecialImport = isSpecialMedicine || isHighValue;
+
+            if (isSpecialImport && userRole != "director")
+            {
+                string reason = isSpecialMedicine 
+                    ? "Phiếu nhập có chứa thuốc đặc biệt (hướng thần/gây nghiện)." 
+                    : $"Phiếu nhập có giá trị lớn ({totalValue:N0}đ > 100.000.000đ).";
+                return BadRequest(new { Error = $"Quyền truy cập bị từ chối. {reason} Chỉ Ban Giám Đốc mới được quyền phê duyệt phiếu nhập đặc biệt này." });
+            }
+
             await _stockService.ApproveImportReceiptAsync(id, request?.ApproverSignature);
 
             // Broadcast real-time updates
@@ -311,7 +343,9 @@ public class ImportController : ControllerBase
             await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Inventory");
             await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Dashboard");
 
-            return Ok(new { Message = "Phê duyệt phiếu nhập kho thành công, đã cộng tồn kho." });
+            return Ok(new { Message = isSpecialImport 
+                ? "Ban Giám Đốc phê duyệt phiếu nhập kho đặc biệt thành công, đã cộng tồn kho." 
+                : "Phê duyệt phiếu nhập kho thành công, đã cộng tồn kho." });
         }
         catch (Exception ex)
         {

@@ -16,7 +16,7 @@ public class DashboardController : ControllerBase
     }
 
     [HttpGet("summary")]
-    public async Task<IActionResult> GetSummary([FromQuery] int? departmentId = null)
+    public async Task<IActionResult> GetSummary([FromQuery] int? departmentId = null, [FromQuery] string timeUnit = "month")
     {
         var today = DateTime.Today;
         var thresholdDate = today.AddDays(90);
@@ -123,25 +123,58 @@ public class DashboardController : ControllerBase
                 .Take(5)
                 .ToListAsync();
 
-            // 8.2 Monthly Consumed Quantities in this department (Line Chart)
+            // 8.2 Cabinet Consumed Quantities by timeUnit (Line Chart)
             var dbTransactions = await _context.CabinetTransactions
                 .Where(t => t.DepartmentID == deptId)
                 .Select(t => new { t.TransactionDate, t.Quantity })
                 .ToListAsync();
 
-            var importCostData = dbTransactions
-                .GroupBy(t => new { t.TransactionDate.Year, t.TransactionDate.Month })
-                .Select(g => new {
-                    Year = g.Key.Year,
-                    Month = g.Key.Month,
-                    Qty = g.Sum(t => t.Quantity)
-                })
-                .OrderBy(c => c.Year).ThenBy(c => c.Month)
-                .Select(c => new {
-                    Name = $"Thg {c.Month}",
-                    Value = (double)c.Qty
-                })
-                .ToList();
+            List<object> importCostData;
+            if (timeUnit == "week")
+            {
+                var cal = System.Globalization.CultureInfo.InvariantCulture.Calendar;
+                importCostData = dbTransactions
+                    .GroupBy(t => {
+                        int week = cal.GetWeekOfYear(t.TransactionDate, System.Globalization.CultureInfo.InvariantCulture.DateTimeFormat.CalendarWeekRule, System.Globalization.CultureInfo.InvariantCulture.DateTimeFormat.FirstDayOfWeek);
+                        return new { t.TransactionDate.Year, Week = week };
+                    })
+                    .OrderBy(g => g.Key.Year).ThenBy(g => g.Key.Week)
+                    .Select(g => new {
+                        Name = $"T.{g.Key.Week}",
+                        Value = (double)g.Sum(t => t.Quantity)
+                    })
+                    .Cast<object>()
+                    .ToList();
+            }
+            else if (timeUnit == "year")
+            {
+                importCostData = dbTransactions
+                    .GroupBy(t => t.TransactionDate.Year)
+                    .OrderBy(g => g.Key)
+                    .Select(g => new {
+                        Name = $"Năm {g.Key}",
+                        Value = (double)g.Sum(t => t.Quantity)
+                    })
+                    .Cast<object>()
+                    .ToList();
+            }
+            else // Default to month
+            {
+                importCostData = dbTransactions
+                    .GroupBy(t => new { t.TransactionDate.Year, t.TransactionDate.Month })
+                    .Select(g => new {
+                        Year = g.Key.Year,
+                        Month = g.Key.Month,
+                        Qty = g.Sum(t => t.Quantity)
+                    })
+                    .OrderBy(c => c.Year).ThenBy(c => c.Month)
+                    .Select(c => new {
+                        Name = $"Thg {c.Month}",
+                        Value = (double)c.Qty
+                    })
+                    .Cast<object>()
+                    .ToList();
+            }
 
             // 8.3 Medicine Group Distribution in this department (Donut Chart)
             var deptGroups = deptStocks
@@ -166,6 +199,24 @@ public class DashboardController : ControllerBase
                 new { Name = "Khác", Value = khac }
             };
 
+            var inTransitCount = await _context.MedicineRequisitions
+                .CountAsync(r => r.DepartmentID == deptId && r.Status == "InTransit");
+
+            var slaBreachedCount = await _context.MedicineRequisitions
+                .CountAsync(r => r.DepartmentID == deptId && r.IsSlaBreached);
+
+            var rejectedOnReceiveCount = await _context.MedicineRequisitions
+                .CountAsync(r => r.DepartmentID == deptId && r.Status == "RejectedOnReceive");
+
+            var transitTimes = await _context.MedicineRequisitions
+                .Where(r => r.DepartmentID == deptId && r.DeliveredAt != null && r.ReceiveDate != null)
+                .Select(r => new { DeliveredAt = r.DeliveredAt!.Value, ReceiveDate = r.ReceiveDate!.Value })
+                .ToListAsync();
+
+            double avgTransit = transitTimes.Any() 
+                ? transitTimes.Average(r => (r.ReceiveDate - r.DeliveredAt).TotalMinutes) 
+                : 0.0;
+
             return Ok(new
             {
                 TotalMedicines = totalMedicines,
@@ -177,7 +228,11 @@ public class DashboardController : ControllerBase
                 ExpiringAlerts = expiringAlerts,
                 DeptConsumption = consumptionData,
                 ImportCosts = importCostData,
-                GroupDistribution = groupDistribution
+                GroupDistribution = groupDistribution,
+                InTransitCount = inTransitCount,
+                SlaBreachedCount = slaBreachedCount,
+                RejectedOnReceiveCount = rejectedOnReceiveCount,
+                AverageTransitMinutes = avgTransit
             });
         }
         else
@@ -272,7 +327,7 @@ public class DashboardController : ControllerBase
                 consumptionData.Add(new { Name = dept.DepartmentName, Value = qty });
             }
 
-            // 8.2 Import Costs over Months (Line Chart)
+            // 8.2 Import Costs over timeUnit (Line Chart)
             var dbImportReceipts = await _context.ImportReceipts
                 .Select(r => new {
                     r.ImportDate,
@@ -283,19 +338,52 @@ public class DashboardController : ControllerBase
                 })
                 .ToListAsync();
 
-            var importCostData = dbImportReceipts
-                .GroupBy(r => new { r.ImportDate.Year, r.ImportDate.Month })
-                .Select(g => new {
-                    Year = g.Key.Year,
-                    Month = g.Key.Month,
-                    Cost = g.Sum(r => r.Details.Sum(d => d.Quantity * d.ImportPrice))
-                })
-                .OrderBy(c => c.Year).ThenBy(c => c.Month)
-                .Select(c => new {
-                    Name = $"Thg {c.Month}",
-                    Value = (double)c.Cost / 1000000.0
-                })
-                .ToList();
+            List<object> importCostData;
+            if (timeUnit == "week")
+            {
+                var cal = System.Globalization.CultureInfo.InvariantCulture.Calendar;
+                importCostData = dbImportReceipts
+                    .GroupBy(r => {
+                        int week = cal.GetWeekOfYear(r.ImportDate, System.Globalization.CultureInfo.InvariantCulture.DateTimeFormat.CalendarWeekRule, System.Globalization.CultureInfo.InvariantCulture.DateTimeFormat.FirstDayOfWeek);
+                        return new { r.ImportDate.Year, Week = week };
+                    })
+                    .OrderBy(g => g.Key.Year).ThenBy(g => g.Key.Week)
+                    .Select(g => new {
+                        Name = $"T.{g.Key.Week}",
+                        Value = (double)g.Sum(r => r.Details.Sum(d => d.Quantity * d.ImportPrice)) / 1000000.0
+                    })
+                    .Cast<object>()
+                    .ToList();
+            }
+            else if (timeUnit == "year")
+            {
+                importCostData = dbImportReceipts
+                    .GroupBy(r => r.ImportDate.Year)
+                    .OrderBy(g => g.Key)
+                    .Select(g => new {
+                        Name = $"Năm {g.Key}",
+                        Value = (double)g.Sum(r => r.Details.Sum(d => d.Quantity * d.ImportPrice)) / 1000000.0
+                    })
+                    .Cast<object>()
+                    .ToList();
+            }
+            else // Default to month
+            {
+                importCostData = dbImportReceipts
+                    .GroupBy(r => new { r.ImportDate.Year, r.ImportDate.Month })
+                    .Select(g => new {
+                        Year = g.Key.Year,
+                        Month = g.Key.Month,
+                        Cost = g.Sum(r => r.Details.Sum(d => d.Quantity * d.ImportPrice))
+                    })
+                    .OrderBy(c => c.Year).ThenBy(c => c.Month)
+                    .Select(c => new {
+                        Name = $"Thg {c.Month}",
+                        Value = (double)c.Cost / 1000000.0
+                    })
+                    .Cast<object>()
+                    .ToList();
+            }
 
             // 8.3 Medicine Group Distribution (Donut Chart)
             var allMedicines = await _context.Medicines.ToListAsync();
@@ -317,6 +405,24 @@ public class DashboardController : ControllerBase
                 new { Name = "Khác", Value = khac }
             };
 
+            var inTransitCount = await _context.MedicineRequisitions
+                .CountAsync(r => r.Status == "InTransit");
+
+            var slaBreachedCount = await _context.MedicineRequisitions
+                .CountAsync(r => r.IsSlaBreached);
+
+            var rejectedOnReceiveCount = await _context.MedicineRequisitions
+                .CountAsync(r => r.Status == "RejectedOnReceive");
+
+            var transitTimesGlobal = await _context.MedicineRequisitions
+                .Where(r => r.DeliveredAt != null && r.ReceiveDate != null)
+                .Select(r => new { DeliveredAt = r.DeliveredAt!.Value, ReceiveDate = r.ReceiveDate!.Value })
+                .ToListAsync();
+
+            double avgTransitGlobal = transitTimesGlobal.Any() 
+                ? transitTimesGlobal.Average(r => (r.ReceiveDate - r.DeliveredAt).TotalMinutes) 
+                : 0.0;
+
             return Ok(new
             {
                 TotalMedicines = totalMedicines,
@@ -329,7 +435,11 @@ public class DashboardController : ControllerBase
                 ExpiringAlerts = expiringAlerts,
                 DeptConsumption = consumptionData,
                 ImportCosts = importCostData,
-                GroupDistribution = groupDistribution
+                GroupDistribution = groupDistribution,
+                InTransitCount = inTransitCount,
+                SlaBreachedCount = slaBreachedCount,
+                RejectedOnReceiveCount = rejectedOnReceiveCount,
+                AverageTransitMinutes = avgTransitGlobal
             });
         }
     }

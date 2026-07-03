@@ -25,6 +25,7 @@ import Returns from './pages/Returns';
 import Liquidation from './pages/Liquidation';
 import Recall from './pages/Recall';
 import InventoryTracking from './pages/InventoryTracking';
+import InventoryAudit from './pages/InventoryAudit';
 import MedicineManagement from './pages/MedicineManagement';
 import Login from './pages/Login';
 import RestockManagement from './pages/RestockManagement';
@@ -120,6 +121,8 @@ export default function App() {
         return <Recall user={user} />;
       case 'tracking':
         return <InventoryTracking user={user} />;
+      case 'audit':
+        return <InventoryAudit user={user} />;
       case 'restock':
         return <RestockManagement user={user} />;
       default:
@@ -133,11 +136,7 @@ export default function App() {
         onLoginSuccess={(u) => {
           setUser(u);
           localStorage.setItem('his-pharmacy-user', JSON.stringify(u));
-          if (u.role === 'nurse' || u.role === 'head_nurse' || u.role === 'head') {
-            setPage('cabinet');
-          } else {
-            setPage('dashboard');
-          }
+          setPage('dashboard');
         }} 
       />
     );
@@ -223,6 +222,13 @@ export default function App() {
                 <ShieldAlert className="nav-icon" />
                 <span>Thu hồi & cách ly</span>
               </a>
+              <a 
+                className={`nav-item ${page === 'audit' ? 'active' : ''}`}
+                onClick={() => setPage('audit')}
+              >
+                <ClipboardList className="nav-icon" />
+                <span>Kiểm kê kho</span>
+              </a>
             </>
           )}
 
@@ -230,6 +236,13 @@ export default function App() {
           {(user.role === 'nurse' || user.role === 'head_nurse' || user.role === 'head') && (
             <>
               <div className="nav-section-title">Tủ trực khoa lâm sàng</div>
+              <a 
+                className={`nav-item ${page === 'dashboard' ? 'active' : ''}`}
+                onClick={() => setPage('dashboard')}
+              >
+                <LayoutDashboard className="nav-icon" />
+                <span>Tổng quan</span>
+              </a>
               <a 
                 className={`nav-item ${page === 'cabinet' ? 'active' : ''}`}
                 onClick={() => setPage('cabinet')}
@@ -250,6 +263,13 @@ export default function App() {
               >
                 <RotateCcw className="nav-icon" />
                 <span>Hoàn trả thuốc thừa</span>
+              </a>
+              <a 
+                className={`nav-item ${page === 'audit' ? 'active' : ''}`}
+                onClick={() => setPage('audit')}
+              >
+                <ClipboardList className="nav-icon" />
+                <span>Kiểm kê tủ trực</span>
               </a>
             </>
           )}
@@ -285,6 +305,13 @@ export default function App() {
               >
                 <ClipboardList className="nav-icon" />
                 <span>Duyệt đề xuất mua</span>
+              </a>
+              <a 
+                className={`nav-item ${page === 'audit' ? 'active' : ''}`}
+                onClick={() => setPage('audit')}
+              >
+                <ClipboardList className="nav-icon" />
+                <span>Duyệt kiểm kê kho</span>
               </a>
             </>
           )}

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Layers, User, PlusCircle, RefreshCw, Send, CheckSquare, X, PenTool, Eraser, ThumbsUp } from 'lucide-react';
+import { Layers, User, PlusCircle, RefreshCw, Send, CheckSquare, X, PenTool, Eraser, ThumbsUp, ShieldAlert } from 'lucide-react';
 
 export default function CabinetManagement({ user }) {
   const [departments, setDepartments] = useState([]);
@@ -512,8 +512,13 @@ export default function CabinetManagement({ user }) {
                 </div>
               )}
 
-              <button type="submit" className="btn-premium" style={{ width: '100%', justifyContent: 'center', marginTop: '1rem' }} disabled={cabinetStocks.length === 0}>
-                <Send size={16} /> Xác nhận cấp xuất từ tủ trực
+              <div style={{ margin: '0.75rem 0', fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem', fontStyle: 'italic' }}>
+                <ShieldAlert size={14} color="var(--color-secondary)" />
+                <span>Điều dưỡng lâm sàng thực hiện cấp phát tủ trực theo y lệnh của Bác sĩ điều trị.</span>
+              </div>
+
+              <button type="submit" className="btn-premium" style={{ width: '100%', justifyContent: 'center', marginTop: '0.5rem' }} disabled={cabinetStocks.length === 0}>
+                <Send size={16} /> Xác nhận cấp xuất từ tủ trực (Theo Y lệnh)
               </button>
             </form>
           </div>
