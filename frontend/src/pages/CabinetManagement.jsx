@@ -280,7 +280,8 @@ export default function CabinetManagement({ user }) {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
-        'X-User-Role': user?.role || '' 
+        'X-User-Role': user?.role || '',
+        'X-User-FullName': encodeURIComponent(user?.fullName || '')
       },
       body: JSON.stringify({ 
         digitalSignature: signatureBase64,

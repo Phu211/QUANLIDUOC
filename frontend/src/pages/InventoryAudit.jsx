@@ -90,12 +90,16 @@ export default function InventoryAudit({ user }) {
 
   const fetchData = async () => {
     setLoading(true);
+    const headers = {
+      'X-User-Role': user?.role || '',
+      'X-User-DepartmentID': user?.departmentID?.toString() || ''
+    };
     try {
-      const resAudits = await fetch('/api/audit');
+      const resAudits = await fetch('/api/audit', { headers });
       const dataAudits = await resAudits.json();
       setAudits(dataAudits);
 
-      const resLogs = await fetch('/api/audit/logs');
+      const resLogs = await fetch('/api/audit/logs', { headers });
       const dataLogs = await resLogs.json();
       setLogs(dataLogs);
     } catch (e) {
@@ -195,7 +199,11 @@ export default function InventoryAudit({ user }) {
     try {
       const res = await fetch('/api/audit/create', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-User-Role': user?.role || '',
+          'X-User-DepartmentID': user?.departmentID?.toString() || ''
+        },
         body: JSON.stringify({
           LocationType: locationType,
           DepartmentId: locationType === 'MainStore' ? null : parseInt(departmentId),
@@ -247,7 +255,11 @@ export default function InventoryAudit({ user }) {
     try {
       const res = await fetch(`/api/audit/${activeAudit.auditID}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-User-Role': user?.role || '',
+          'X-User-DepartmentID': user?.departmentID?.toString() || ''
+        },
         body: JSON.stringify({
           AuditType: activeAudit.auditType,
           Notes: activeAudit.notes,
@@ -317,7 +329,11 @@ export default function InventoryAudit({ user }) {
 
       const res = await fetch(endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-User-Role': user?.role || '',
+          'X-User-DepartmentID': user?.departmentID?.toString() || ''
+        },
         body: JSON.stringify({
           Signature: signatureBase64,
           SignedBy: user?.fullName || 'Người ký'
@@ -349,7 +365,11 @@ export default function InventoryAudit({ user }) {
     try {
       const res = await fetch(`/api/audit/${activeAudit.auditID}/cancel`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-User-Role': user?.role || '',
+          'X-User-DepartmentID': user?.departmentID?.toString() || ''
+        },
         body: JSON.stringify({
           Reason: cancelReason,
           CancelledBy: user?.fullName || 'Người hủy'
@@ -378,7 +398,11 @@ export default function InventoryAudit({ user }) {
     try {
       const res = await fetch(`/api/audit/${activeAudit.auditID}/adjust`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-User-Role': user?.role || '',
+          'X-User-DepartmentID': user?.departmentID?.toString() || ''
+        },
         body: JSON.stringify({
           AdjustedBy: user?.fullName || 'Thủ kho Dược'
         })

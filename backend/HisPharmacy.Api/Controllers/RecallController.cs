@@ -49,23 +49,12 @@ public class RecallController : ControllerBase
             if (batch == null)
                 return NotFound(new { Error = "Không tìm thấy lô thuốc này." });
 
-            batch.Status = request.ActionType; // 'Cách ly', 'Trả NCC', 'Tiêu hủy'
+            // Luôn đặt trạng thái lô thuốc thành "Cách ly" khẩn cấp để đảm bảo an toàn sử dụng toàn viện lập tức
+            batch.Status = "Cách ly";
 
-            // If action is Trả NCC or Tiêu hủy, reduce stock quantities of this batch to 0
-            if (request.ActionType == "Trả NCC" || request.ActionType == "Tiêu hủy")
-            {
-                var invStocks = await _context.InventoryStocks.Where(s => s.BatchID == request.BatchID).ToListAsync();
-                foreach (var stock in invStocks)
-                {
-                    stock.CurrentQuantity = 0;
-                }
-
-                var deptStocks = await _context.DepartmentStocks.Where(s => s.BatchID == request.BatchID).ToListAsync();
-                foreach (var stock in deptStocks)
-                {
-                    stock.CurrentQuantity = 0;
-                }
-            }
+            // Nếu người tạo là Giám đốc (Director), phê duyệt trực tiếp luôn!
+            var isDirector = userRole == "director";
+            var status = isDirector ? "Approved" : "Pending";
 
             var log = new RecallLog
             {
@@ -74,10 +63,190 @@ public class RecallController : ControllerBase
                 Reason = request.Reason,
                 ActionType = request.ActionType,
                 CreatedBy = userFullName,
-                DigitalSignature = request.DigitalSignature
+                DigitalSignature = request.DigitalSignature,
+                Status = status,
+                ApprovedBy = isDirector ? userFullName : null,
+                ApproverSignature = isDirector ? request.DigitalSignature : null
             };
 
             _context.RecallLogs.Add(log);
+            await _context.SaveChangesAsync();
+
+            // Nếu Lãnh đạo duyệt trực tiếp và hình thức là Trả NCC/Tiêu hủy, thực hiện
+            if (isDirector)
+            {
+                if (request.ActionType == "Tiêu hủy")
+                {
+                    batch.Status = "Cách ly"; // Giữ trạng thái cách ly chờ tiêu hủy
+                    
+                    var totalInvQty = await _context.InventoryStocks.Where(s => s.BatchID == request.BatchID).SumAsync(s => s.CurrentQuantity);
+                    var totalDeptQty = await _context.DepartmentStocks.Where(s => s.BatchID == request.BatchID).SumAsync(s => s.CurrentQuantity);
+                    var totalQty = totalInvQty + totalDeptQty;
+
+                    if (totalQty > 0)
+                    {
+                        var liquidation = new LiquidationReceipt
+                        {
+                            Reason = $"Tiêu hủy thuốc tự động từ Quyết định thu hồi #RCL-{log.RecallID}. Lý do: {request.Reason}",
+                            Type = "Tiêu hủy",
+                            LiquidationDate = DateTime.Now,
+                            CreatedBy = "Hệ thống tự động",
+                            Status = "Chờ duyệt",
+                            DigitalSignature = request.DigitalSignature
+                        };
+                        _context.LiquidationReceipts.Add(liquidation);
+                        await _context.SaveChangesAsync();
+
+                        _context.LiquidationReceiptDetails.Add(new LiquidationReceiptDetail
+                        {
+                            LiquidationID = liquidation.LiquidationID,
+                            BatchID = request.BatchID,
+                            Quantity = totalQty
+                        });
+                    }
+                }
+                else if (request.ActionType == "Trả NCC")
+                {
+                    batch.Status = "Trả NCC";
+                    var invStocks = await _context.InventoryStocks.Where(s => s.BatchID == request.BatchID).ToListAsync();
+                    foreach (var stock in invStocks) stock.CurrentQuantity = 0;
+
+                    var deptStocks = await _context.DepartmentStocks.Where(s => s.BatchID == request.BatchID).ToListAsync();
+                    foreach (var stock in deptStocks) stock.CurrentQuantity = 0;
+                }
+            }
+
+            await transaction.CommitAsync();
+
+            // Broadcast real-time updates
+            await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Recalls");
+            await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Inventory");
+            await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Dashboard");
+
+            return Ok(log);
+        }
+        catch (Exception ex)
+        {
+            await transaction.RollbackAsync();
+            return BadRequest(new { Error = ex.Message });
+        }
+    }
+
+    [HttpPost("{id}/approve")]
+    public async Task<IActionResult> ApproveRecall(int id, [FromBody] ApproveRecallRequest request)
+    {
+        var userRole = Request.Headers["X-User-Role"].ToString();
+        var userFullName = System.Net.WebUtility.UrlDecode(Request.Headers["X-User-FullName"].ToString());
+        if (string.IsNullOrEmpty(userFullName)) userFullName = "Lãnh đạo bệnh viện";
+
+        if (userRole != "director")
+            return BadRequest(new { Error = "Quyền truy cập bị từ chối. Chỉ Trưởng khoa / Giám đốc mới có quyền duyệt lệnh thu hồi." });
+
+        if (request == null || string.IsNullOrEmpty(request.DigitalSignature))
+            return BadRequest(new { Error = "Vui lòng ký nhận để phê duyệt lệnh thu hồi." });
+
+        var log = await _context.RecallLogs.FindAsync(id);
+        if (log == null) return NotFound();
+
+        if (log.Status != "Pending")
+            return BadRequest(new { Error = "Lệnh thu hồi này đã được xử lý từ trước." });
+
+        using var transaction = await _context.Database.BeginTransactionAsync();
+        try
+        {
+            var batch = await _context.Batches.FindAsync(log.BatchID);
+            if (batch == null) return NotFound(new { Error = "Không tìm thấy lô thuốc liên quan." });
+
+            log.Status = "Approved";
+            log.ApprovedBy = string.IsNullOrEmpty(request.ApprovedBy) ? userFullName : request.ApprovedBy;
+            log.ApproverSignature = request.DigitalSignature;
+
+            // Thực thi hành động thu hồi chính thức
+            if (log.ActionType == "Tiêu hủy")
+            {
+                batch.Status = "Cách ly"; // Giữ trạng thái cách ly chờ tiêu hủy
+
+                var totalInvQty = await _context.InventoryStocks.Where(s => s.BatchID == log.BatchID).SumAsync(s => s.CurrentQuantity);
+                var totalDeptQty = await _context.DepartmentStocks.Where(s => s.BatchID == log.BatchID).SumAsync(s => s.CurrentQuantity);
+                var totalQty = totalInvQty + totalDeptQty;
+
+                if (totalQty > 0)
+                {
+                    var liquidation = new LiquidationReceipt
+                    {
+                        Reason = $"Tiêu hủy thuốc tự động từ Quyết định thu hồi #RCL-{log.RecallID}. Lý do: {log.Reason}",
+                        Type = "Tiêu hủy",
+                        LiquidationDate = DateTime.Now,
+                        CreatedBy = "Hệ thống tự động",
+                        Status = "Chờ duyệt",
+                        DigitalSignature = request.DigitalSignature
+                    };
+                    _context.LiquidationReceipts.Add(liquidation);
+                    await _context.SaveChangesAsync();
+
+                    _context.LiquidationReceiptDetails.Add(new LiquidationReceiptDetail
+                    {
+                        LiquidationID = liquidation.LiquidationID,
+                        BatchID = log.BatchID,
+                        Quantity = totalQty
+                    });
+                }
+            }
+            else if (log.ActionType == "Trả NCC")
+            {
+                batch.Status = "Trả NCC";
+                var invStocks = await _context.InventoryStocks.Where(s => s.BatchID == log.BatchID).ToListAsync();
+                foreach (var stock in invStocks) stock.CurrentQuantity = 0;
+
+                var deptStocks = await _context.DepartmentStocks.Where(s => s.BatchID == log.BatchID).ToListAsync();
+                foreach (var stock in deptStocks) stock.CurrentQuantity = 0;
+            }
+            else
+            {
+                batch.Status = log.ActionType; // "Cách ly"
+            }
+
+            await _context.SaveChangesAsync();
+            await transaction.CommitAsync();
+
+            // Broadcast real-time updates
+            await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Recalls");
+            await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Inventory");
+            await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Dashboard");
+
+            return Ok(log);
+        }
+        catch (Exception ex)
+        {
+            await transaction.RollbackAsync();
+            return BadRequest(new { Error = ex.Message });
+        }
+    }
+
+    [HttpPost("{id}/reject")]
+    public async Task<IActionResult> RejectRecall(int id)
+    {
+        var userRole = Request.Headers["X-User-Role"].ToString();
+        if (userRole != "director")
+            return BadRequest(new { Error = "Quyền truy cập bị từ chối. Chỉ Trưởng khoa / Giám đốc mới có quyền từ chối lệnh thu hồi." });
+
+        var log = await _context.RecallLogs.FindAsync(id);
+        if (log == null) return NotFound();
+
+        if (log.Status != "Pending")
+            return BadRequest(new { Error = "Lệnh thu hồi này đã được xử lý từ trước." });
+
+        using var transaction = await _context.Database.BeginTransactionAsync();
+        try
+        {
+            var batch = await _context.Batches.FindAsync(log.BatchID);
+            if (batch != null)
+            {
+                batch.Status = "Bình thường"; // Restore normal status
+            }
+
+            log.Status = "Rejected";
+
             await _context.SaveChangesAsync();
             await transaction.CommitAsync();
 
@@ -209,6 +378,12 @@ public class CreateRecallRequest
     public string Reason { get; set; } = string.Empty;
     public string ActionType { get; set; } = "Cách ly"; // 'Cách ly', 'Trả NCC', 'Tiêu hủy'
     public string? DigitalSignature { get; set; }
+}
+
+public class ApproveRecallRequest
+{
+    public string ApprovedBy { get; set; } = string.Empty;
+    public string DigitalSignature { get; set; } = string.Empty;
 }
 
 public class ReturnRecallRequest

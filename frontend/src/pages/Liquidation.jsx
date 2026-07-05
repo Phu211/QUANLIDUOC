@@ -64,6 +64,17 @@ export default function Liquidation({ user }) {
   const [activeLiquidationForPrint, setActiveLiquidationForPrint] = useState(null);
   const [signatureTarget, setSignatureTarget] = useState(null); // { action, id }
 
+  const getLiquidationCode = (liq) => {
+    if (!liq) return '';
+    const date = new Date(liq.liquidationDate);
+    const yyyy = date.getFullYear();
+    const mm = String(date.getMonth() + 1).padStart(2, '0');
+    const dd = String(date.getDate()).padStart(2, '0');
+    const seq = String(liq.liquidationID).padStart(4, '0');
+    const prefix = liq.type === 'Thanh lý' ? 'BBTL' : 'BBTH';
+    return `${prefix}-${yyyy}${mm}${dd}-${seq}`;
+  };
+
   const fetchData = () => {
     setLoading(true);
     Promise.all([
@@ -604,7 +615,7 @@ export default function Liquidation({ user }) {
                   gap: '0.5rem'
                 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontWeight: '700' }}>Biên bản #LIQ-{liq.liquidationID}</span>
+                    <span style={{ fontWeight: '700' }}>Biên bản {getLiquidationCode(liq)}</span>
                     <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                       <button 
                         className="btn-secondary" 
@@ -719,7 +730,7 @@ export default function Liquidation({ user }) {
                     ? 'BIÊN BẢN HAO HỤT VÀ TIÊU HỦY DƯỢC PHẨM HỎNG VỠ' 
                     : 'BIÊN BẢN TIÊU HỦY DƯỢC PHẨM HẾT HẠN / HƯ HỎNG'}
                 </h2>
-                <p style={{ margin: '0.3rem 0 0 0', fontSize: '0.85rem', color: '#333', fontWeight: '600' }}>Mã biên bản: LIQ-{activeLiquidationForPrint.liquidationID}</p>
+                <p style={{ margin: '0.3rem 0 0 0', fontSize: '0.85rem', color: '#333', fontWeight: '600' }}>Mã biên bản: {getLiquidationCode(activeLiquidationForPrint)}</p>
                 <p style={{ margin: '0.1rem 0 0 0', fontSize: '0.75rem', color: '#666' }}>
                   Trạng thái: <strong>
                     {activeLiquidationForPrint.status === 'Chờ duyệt' && 'Yêu cầu (Chờ duyệt)'}

@@ -66,7 +66,9 @@ public class CabinetService
     public async Task<MedicineRequisition?> CreateRefillRequisitionAsync(
         int departmentID, 
         string? digitalSignature = null, 
-        List<int>? selectedMedicineIds = null)
+        List<int>? selectedMedicineIds = null,
+        string? userRole = null,
+        string? proposerName = null)
     {
         using var transaction = await _context.Database.BeginTransactionAsync();
         try
@@ -104,8 +106,11 @@ public class CabinetService
                 DepartmentID = departmentID,
                 RequisitionDate = DateTime.Now,
                 RequisitionType = "CabinetRefill",
-                Status = "Pending",
-                DigitalSignature = digitalSignature
+                Status = userRole == "head" ? "Pending" : "PendingHead",
+                DigitalSignature = digitalSignature,
+                HeadSignature = userRole == "head" ? digitalSignature : null,
+                HeadApproveDate = userRole == "head" ? DateTime.Now : null,
+                ProposerName = proposerName
             };
             _context.MedicineRequisitions.Add(requisition);
             await _context.SaveChangesAsync(); // Generates RequisitionID

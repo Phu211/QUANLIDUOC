@@ -100,6 +100,7 @@ public class ReturnController : ControllerBase
     public class ApproveReturnRequest
     {
         public string? DigitalSignature { get; set; }
+        public string? Destination { get; set; }
     }
 
     [HttpPost("{id}/approve")]
@@ -124,7 +125,7 @@ public class ReturnController : ControllerBase
             if (isCabinetLocked)
                 return BadRequest(new { Error = "Tủ trực của khoa hoàn trả đang tiến hành kiểm kê và bị khóa giao dịch nhập xuất." });
 
-            await _stockService.PharmacistApproveReturnAsync(id, request?.DigitalSignature);
+            await _stockService.PharmacistApproveReturnAsync(id, request?.DigitalSignature, request?.Destination);
 
             // Broadcast real-time updates
             await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Returns");

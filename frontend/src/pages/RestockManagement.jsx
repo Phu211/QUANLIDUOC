@@ -80,6 +80,16 @@ export default function RestockManagement({ user }) {
   // Printing state
   const [activeProposalForPrint, setActiveProposalForPrint] = useState(null);
 
+  const getProposalCode = (p) => {
+    if (!p) return '';
+    const date = new Date(p.proposalDate);
+    const yyyy = date.getFullYear();
+    const mm = String(date.getMonth() + 1).padStart(2, '0');
+    const dd = String(date.getDate()).padStart(2, '0');
+    const seq = String(p.proposalID).padStart(4, '0');
+    return `DXMH-${yyyy}${mm}${dd}-${seq}`;
+  };
+
   const fetchInitialData = () => {
     setLoading(true);
     const t = Date.now();
@@ -621,7 +631,7 @@ export default function RestockManagement({ user }) {
                 <tbody>
                   {proposals.map(p => (
                     <tr key={p.proposalID}>
-                      <td><strong>#PRP-{p.proposalID}</strong></td>
+                      <td><strong>{getProposalCode(p)}</strong></td>
                       <td><strong>{p.supplierName}</strong></td>
                       <td>{new Date(p.proposalDate).toLocaleString('vi-VN')}</td>
                       <td>{p.createdBy}</td>
@@ -691,10 +701,10 @@ export default function RestockManagement({ user }) {
 
       {/* CREATE PROPOSAL MODAL (FOR PHARMACIST) */}
       {showProposalModal && (
-        <div className="modal-overlay">
-          <div className="modal-content" style={{ maxWidth: '850px' }}>
+        <div className="modal-overlay" style={{ zIndex: 900 }}>
+          <div className="modal-content" style={{ maxWidth: '850px', maxHeight: '90vh', overflowY: 'auto', width: '90%' }}>
             <button 
-              style={{ position: 'absolute', top: '1.5rem', right: '1.5rem', border: 'none', background: 'none', cursor: 'pointer', color: '#888' }}
+              style={{ position: 'absolute', top: '1.5rem', right: '1.5rem', border: 'none', background: 'none', cursor: 'pointer', color: '#888', zIndex: 10 }}
               onClick={() => setShowProposalModal(false)}
             >
               <X size={24} />
@@ -915,10 +925,10 @@ export default function RestockManagement({ user }) {
 
       {/* PRINT PREVIEW MODAL */}
       {activeProposalForPrint && (
-        <div className="modal-overlay">
-          <div className="modal-content" style={{ maxWidth: '800px', background: '#fff', color: '#000', padding: '2.5rem' }}>
+        <div className="modal-overlay" style={{ zIndex: 900 }}>
+          <div className="modal-content" style={{ maxWidth: '850px', background: '#fff', color: '#000', padding: '2.5rem', maxHeight: '90vh', overflowY: 'auto', width: '90%' }}>
             <button 
-              style={{ position: 'absolute', top: '1.5rem', right: '1.5rem', border: 'none', background: 'none', cursor: 'pointer', color: '#888' }}
+              style={{ position: 'absolute', top: '1.5rem', right: '1.5rem', border: 'none', background: 'none', cursor: 'pointer', color: '#888', zIndex: 10 }}
               onClick={() => setActiveProposalForPrint(null)}
             >
               <X size={24} />
@@ -933,7 +943,7 @@ export default function RestockManagement({ user }) {
                 </div>
                 <div style={{ textAlign: 'right' }}>
                   <h4 style={{ margin: 0, fontSize: '1.1rem' }}>ĐỀ NGHỊ MUA THUỐC & VẬT TƯ</h4>
-                  <p style={{ margin: 0, fontSize: '0.85rem', color: '#666' }}>Số phiếu: #PRP-{activeProposalForPrint.proposalID}</p>
+                  <p style={{ margin: 0, fontSize: '0.85rem', color: '#666' }}>Số phiếu: {getProposalCode(activeProposalForPrint)}</p>
                 </div>
               </div>
 

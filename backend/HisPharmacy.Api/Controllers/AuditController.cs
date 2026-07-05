@@ -20,11 +20,29 @@ namespace HisPharmacy.Api.Controllers
         [HttpGet]
         public async Task<IActionResult> GetAll()
         {
-            var audits = await _context.InventoryAudits
+            var userRole = Request.Headers["X-User-Role"].ToString();
+            var deptIdStr = Request.Headers["X-User-DepartmentID"].ToString();
+
+            IQueryable<InventoryAudit> query = _context.InventoryAudits
                 .Include(a => a.Department)
                 .Include(a => a.Details)
                     .ThenInclude(d => d.Batch)
-                        .ThenInclude(b => b!.Medicine)
+                        .ThenInclude(b => b!.Medicine);
+
+            // Phân quyền truy cập: khoa nào chỉ xem được của khoa đó
+            if (userRole != "pharmacist" && userRole != "director")
+            {
+                if (int.TryParse(deptIdStr, out int deptId))
+                {
+                    query = query.Where(a => a.LocationType == "Cabinet" && a.DepartmentID == deptId);
+                }
+                else
+                {
+                    return Ok(new List<InventoryAudit>());
+                }
+            }
+
+            var audits = await query
                 .OrderByDescending(a => a.AuditDate)
                 .ToListAsync();
 
@@ -35,6 +53,9 @@ namespace HisPharmacy.Api.Controllers
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(int id)
         {
+            var userRole = Request.Headers["X-User-Role"].ToString();
+            var deptIdStr = Request.Headers["X-User-DepartmentID"].ToString();
+
             var audit = await _context.InventoryAudits
                 .Include(a => a.Department)
                 .Include(a => a.Details)
@@ -47,6 +68,15 @@ namespace HisPharmacy.Api.Controllers
                 return NotFound(new { message = "Không tìm thấy phiếu kiểm kê" });
             }
 
+            // Phân quyền truy cập chi tiết phiếu
+            if (userRole != "pharmacist" && userRole != "director")
+            {
+                if (!int.TryParse(deptIdStr, out int deptId) || audit.LocationType != "Cabinet" || audit.DepartmentID != deptId)
+                {
+                    return StatusCode(403, new { message = "Quyền truy cập bị từ chối. Bạn chỉ được xem phiếu kiểm kê thuộc khoa của mình." });
+                }
+            }
+
             return Ok(audit);
         }
 
@@ -54,9 +84,27 @@ namespace HisPharmacy.Api.Controllers
         [HttpGet("logs")]
         public async Task<IActionResult> GetAdjustmentLogs()
         {
-            var logs = await _context.StockAdjustmentLogs
+            var userRole = Request.Headers["X-User-Role"].ToString();
+            var deptIdStr = Request.Headers["X-User-DepartmentID"].ToString();
+
+            IQueryable<StockAdjustmentLog> query = _context.StockAdjustmentLogs
                 .Include(l => l.Batch)
-                    .ThenInclude(b => b!.Medicine)
+                    .ThenInclude(b => b!.Medicine);
+
+            // Phân quyền truy cập nhật ký điều chỉnh
+            if (userRole != "pharmacist" && userRole != "director")
+            {
+                if (int.TryParse(deptIdStr, out int deptId))
+                {
+                    query = query.Where(l => l.LocationType == "Cabinet" && l.DepartmentID == deptId);
+                }
+                else
+                {
+                    return Ok(new List<StockAdjustmentLog>());
+                }
+            }
+
+            var logs = await query
                 .OrderByDescending(l => l.AdjustmentDate)
                 .ToListAsync();
 
@@ -67,6 +115,17 @@ namespace HisPharmacy.Api.Controllers
         [HttpGet("check-lock")]
         public async Task<IActionResult> CheckLock([FromQuery] string locationType, [FromQuery] int? departmentId)
         {
+            var userRole = Request.Headers["X-User-Role"].ToString();
+            var deptIdStr = Request.Headers["X-User-DepartmentID"].ToString();
+
+            if (userRole != "pharmacist" && userRole != "director")
+            {
+                if (locationType != "Cabinet" || !int.TryParse(deptIdStr, out int deptId) || departmentId != deptId)
+                {
+                    return StatusCode(403, new { message = "Quyền truy cập bị từ chối. Bạn chỉ có quyền kiểm tra trạng thái khóa tủ trực thuộc khoa của mình." });
+                }
+            }
+
             var activeAudit = await _context.InventoryAudits
                 .Where(a => a.LocationType == locationType &&
                             (locationType == "MainStore" || a.DepartmentID == departmentId) &&
@@ -87,10 +146,20 @@ namespace HisPharmacy.Api.Controllers
             return Ok(new { isLocked = false });
         }
 
-        // 5. Khởi tạo phiếu kiểm kê (Snapshot tồn kho)
         [HttpPost("create")]
         public async Task<IActionResult> Create([FromBody] CreateAuditRequest request)
         {
+            var userRole = Request.Headers["X-User-Role"].ToString();
+            var deptIdStr = Request.Headers["X-User-DepartmentID"].ToString();
+
+            if (userRole != "pharmacist" && userRole != "director")
+            {
+                if (!int.TryParse(deptIdStr, out int deptId) || request.LocationType != "Cabinet" || request.DepartmentId != deptId)
+                {
+                    return StatusCode(403, new { message = "Quyền truy cập bị từ chối. Bạn không có quyền khởi tạo phiếu kiểm kê cho khoa phòng khác." });
+                }
+            }
+
             // Kiểm tra xem kho có đang bị khóa bởi phiếu khác không
             var isLocked = await _context.InventoryAudits
                 .AnyAsync(a => a.LocationType == request.LocationType &&
@@ -190,6 +259,9 @@ namespace HisPharmacy.Api.Controllers
         [HttpPut("{id}")]
         public async Task<IActionResult> Update(int id, [FromBody] UpdateAuditRequest request)
         {
+            var userRole = Request.Headers["X-User-Role"].ToString();
+            var deptIdStr = Request.Headers["X-User-DepartmentID"].ToString();
+
             var audit = await _context.InventoryAudits
                 .Include(a => a.Details)
                 .FirstOrDefaultAsync(a => a.AuditID == id);
@@ -197,6 +269,14 @@ namespace HisPharmacy.Api.Controllers
             if (audit == null)
             {
                 return NotFound(new { message = "Không tìm thấy phiếu kiểm kê" });
+            }
+
+            if (userRole != "pharmacist" && userRole != "director")
+            {
+                if (!int.TryParse(deptIdStr, out int deptId) || audit.LocationType != "Cabinet" || audit.DepartmentID != deptId)
+                {
+                    return StatusCode(403, new { message = "Quyền truy cập bị từ chối. Bạn chỉ có quyền cập nhật dữ liệu kiểm kê thuộc khoa của mình." });
+                }
             }
 
             if (audit.Status != "Nháp")
@@ -237,6 +317,9 @@ namespace HisPharmacy.Api.Controllers
         [HttpPost("{id}/confirm")]
         public async Task<IActionResult> Confirm(int id, [FromBody] SignatureRequest request)
         {
+            var userRole = Request.Headers["X-User-Role"].ToString();
+            var deptIdStr = Request.Headers["X-User-DepartmentID"].ToString();
+
             var audit = await _context.InventoryAudits
                 .Include(a => a.Details)
                     .ThenInclude(d => d.Batch)
@@ -246,6 +329,14 @@ namespace HisPharmacy.Api.Controllers
             if (audit == null)
             {
                 return NotFound(new { message = "Không tìm thấy phiếu kiểm kê" });
+            }
+
+            if (userRole != "pharmacist" && userRole != "director")
+            {
+                if (!int.TryParse(deptIdStr, out int deptId) || audit.LocationType != "Cabinet" || audit.DepartmentID != deptId)
+                {
+                    return StatusCode(403, new { message = "Quyền truy cập bị từ chối. Bạn chỉ có quyền ký xác nhận đối chiếu thuộc khoa của mình." });
+                }
             }
 
             if (audit.Status != "Nháp")
@@ -349,12 +440,23 @@ namespace HisPharmacy.Api.Controllers
         [HttpPost("{id}/cancel")]
         public async Task<IActionResult> Cancel(int id, [FromBody] CancelRequest request)
         {
+            var userRole = Request.Headers["X-User-Role"].ToString();
+            var deptIdStr = Request.Headers["X-User-DepartmentID"].ToString();
+
             var audit = await _context.InventoryAudits
                 .FirstOrDefaultAsync(a => a.AuditID == id);
 
             if (audit == null)
             {
                 return NotFound(new { message = "Không tìm thấy phiếu kiểm kê" });
+            }
+
+            if (userRole != "pharmacist" && userRole != "director")
+            {
+                if (!int.TryParse(deptIdStr, out int deptId) || audit.LocationType != "Cabinet" || audit.DepartmentID != deptId)
+                {
+                    return StatusCode(403, new { message = "Quyền truy cập bị từ chối. Bạn chỉ có quyền hủy phiếu kiểm kê thuộc khoa của mình." });
+                }
             }
 
             if (audit.Status == "Đã điều chỉnh" || audit.Status == "Đã hủy")
@@ -382,6 +484,9 @@ namespace HisPharmacy.Api.Controllers
         [HttpPost("{id}/adjust")]
         public async Task<IActionResult> Adjust(int id, [FromBody] AdjustRequest request)
         {
+            var userRole = Request.Headers["X-User-Role"].ToString();
+            var deptIdStr = Request.Headers["X-User-DepartmentID"].ToString();
+
             var audit = await _context.InventoryAudits
                 .Include(a => a.Details)
                     .ThenInclude(d => d.Batch)
@@ -391,6 +496,14 @@ namespace HisPharmacy.Api.Controllers
             if (audit == null)
             {
                 return NotFound(new { message = "Không tìm thấy phiếu kiểm kê" });
+            }
+
+            if (userRole != "pharmacist" && userRole != "director")
+            {
+                if (!int.TryParse(deptIdStr, out int deptId) || audit.LocationType != "Cabinet" || audit.DepartmentID != deptId)
+                {
+                    return StatusCode(403, new { message = "Quyền truy cập bị từ chối. Bạn chỉ có quyền thực hiện cân đối kho thuộc khoa của mình." });
+                }
             }
 
             if (audit.Status != "Đã xác nhận")

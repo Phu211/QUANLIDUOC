@@ -24,7 +24,7 @@ const SIG = {
   )
 };
 
-const RedStamp = ({ name }) => (
+const RedStamp = ({ name, subText = "KHOA DƯỢC ★" }) => (
   <svg width="85" height="85" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" style={{ opacity: 0.85 }}>
     <circle cx="60" cy="60" r="52" fill="none" stroke="#dc2626" strokeWidth="3" />
     <circle cx="60" cy="60" r="46" fill="none" stroke="#dc2626" strokeWidth="1.2" />
@@ -37,7 +37,7 @@ const RedStamp = ({ name }) => (
       <textPath href="#stampTextPathTop" startOffset="50%" textAnchor="middle">BỆNH VIỆN ĐA KHOA HIS PHARMACY</textPath>
     </text>
     <text fill="#dc2626" fontSize="8" fontFamily="Arial, Helvetica, sans-serif" fontWeight="bold" letterSpacing="1">
-      <textPath href="#stampTextPathBottom" startOffset="50%" textAnchor="middle">KHOA DƯỢC ★</textPath>
+      <textPath href="#stampTextPathBottom" startOffset="50%" textAnchor="middle">{subText}</textPath>
     </text>
     <text x="60" y="52" fill="#dc2626" fontSize="10" fontFamily="Times New Roman, serif" fontWeight="bold" textAnchor="middle">ĐÃ DUYỆT</text>
     <text x="60" y="66" fill="#dc2626" fontSize="6.5" fontFamily="Arial, sans-serif" fontWeight="bold" textAnchor="middle">{name}</text>
@@ -60,6 +60,7 @@ export default function Recall({ user }) {
 
   // Digital Signature States
   const [showSignatureModal, setShowSignatureModal] = useState(false);
+  const [signatureTarget, setSignatureTarget] = useState(null); // { action: 'create' } or { action: 'approve', id: 123 }
   const [isDrawing, setIsDrawing] = useState(false);
   const canvasRef = useRef(null);
 
@@ -150,8 +151,11 @@ export default function Recall({ user }) {
     const base64Signature = canvas.toDataURL('image/png');
     setShowSignatureModal(false);
     
-    // Call create with signature
-    handleCreateRecall(null, base64Signature);
+    if (signatureTarget?.action === 'create') {
+      handleCreateRecall(null, base64Signature);
+    } else if (signatureTarget?.action === 'approve') {
+      handleApproveRecall(signatureTarget.id, base64Signature);
+    }
   };
 
   useEffect(() => {
@@ -188,6 +192,7 @@ export default function Recall({ user }) {
     }
 
     if (!signatureData) {
+      setSignatureTarget({ action: 'create' });
       setShowSignatureModal(true);
       return;
     }
@@ -234,6 +239,54 @@ export default function Recall({ user }) {
     })
     .then(() => {
       alert("Lô thuốc đã được giải phóng cách ly thành công!");
+      fetchData();
+    })
+    .catch(err => alert("Lỗi: " + err.message));
+  };
+
+  const handleStartApproveRecall = (id) => {
+    setSignatureTarget({ action: 'approve', id: id });
+    setShowSignatureModal(true);
+  };
+
+  const handleApproveRecall = (id, signatureData) => {
+    fetch(`/api/recall/${id}/approve`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-User-Role': user?.role || '',
+        'X-User-FullName': encodeURIComponent(user?.fullName || '')
+      },
+      body: JSON.stringify({
+        ApprovedBy: user?.fullName || 'PGS.TS. Lê Minh Trí',
+        DigitalSignature: signatureData
+      })
+    })
+    .then(res => {
+      if (!res.ok) return res.json().then(data => { throw new Error(data.error || "Lỗi duyệt phiếu."); });
+      return res.json();
+    })
+    .then(() => {
+      alert("Lãnh đạo đã duyệt và ký tên quyết định thu hồi thuốc thành công!");
+      fetchData();
+    })
+    .catch(err => alert("Lỗi: " + err.message));
+  };
+
+  const handleRejectRecall = (id) => {
+    if (!window.confirm("Bạn có chắc chắn muốn từ chối quyết định thu hồi này và đưa lô thuốc về hoạt động bình thường?")) return;
+    fetch(`/api/recall/${id}/reject`, {
+      method: 'POST',
+      headers: {
+        'X-User-Role': user?.role || ''
+      }
+    })
+    .then(res => {
+      if (!res.ok) return res.json().then(data => { throw new Error(data.error || "Lỗi từ chối."); });
+      return res.json();
+    })
+    .then(() => {
+      alert("Lãnh đạo đã từ chối lệnh thu hồi.");
       fetchData();
     })
     .catch(err => alert("Lỗi: " + err.message));
@@ -399,23 +452,66 @@ export default function Recall({ user }) {
                           borderRadius: '6px', 
                           fontWeight: '600',
                           textTransform: 'none',
-                          background: log.actionType === 'Cách ly' ? 'rgba(245, 158, 11, 0.12)' : log.actionType === 'Trả NCC' ? 'rgba(59, 130, 246, 0.12)' : 'rgba(239, 68, 68, 0.12)',
-                          color: log.actionType === 'Cách ly' ? '#f59e0b' : log.actionType === 'Trả NCC' ? '#3b82f6' : '#ef4444',
-                          border: log.actionType === 'Cách ly' ? '1px solid rgba(245, 158, 11, 0.2)' : log.actionType === 'Trả NCC' ? '1px solid rgba(59, 130, 246, 0.2)' : '1px solid rgba(239, 68, 68, 0.2)'
+                          background: log.status === 'Approved' ? 'rgba(16, 185, 129, 0.12)' : log.status === 'Rejected' ? 'rgba(100, 116, 139, 0.12)' : 'rgba(245, 158, 11, 0.12)',
+                          color: log.status === 'Approved' ? '#10b981' : log.status === 'Rejected' ? '#64748b' : '#f59e0b',
+                          border: log.status === 'Approved' ? '1px solid rgba(16, 185, 129, 0.2)' : log.status === 'Rejected' ? '1px solid rgba(100, 116, 139, 0.2)' : '1px solid rgba(245, 158, 11, 0.2)'
                         }}>
-                          {log.actionType === 'Cách ly' ? 'Quarantined (Đã cách ly)' : log.actionType === 'Trả NCC' ? 'Returned (Trả NCC)' : 'Destroyed (Đã tiêu hủy)'}
+                          {log.status === 'Approved' ? 'Đã duyệt quyết định' : log.status === 'Rejected' ? 'Đã từ chối' : 'Chờ Lãnh đạo duyệt'}
                         </span>
                       </div>
                     </div>
                     <div style={{ fontSize: '0.85rem' }}>
                       <p style={{ margin: '0 0 0.35rem 0' }}><strong>Thuốc thu hồi:</strong> <span style={{ color: 'var(--color-secondary)', fontWeight: '600' }}>{log.batch?.medicine?.medicineName}</span></p>
                       <p style={{ margin: '0 0 0.35rem 0' }}><strong>Số lô:</strong> {log.batch?.batchNumber} - <strong>Hạn dùng:</strong> {log.batch ? new Date(log.batch.expiryDate).toLocaleDateString('vi-VN') : ''}</p>
+                      <p style={{ margin: '0 0 0.35rem 0' }}><strong>Biện pháp:</strong> {log.actionType === 'Cách ly' ? 'Cách ly tạm thời' : log.actionType === 'Trả NCC' ? 'Trả Nhà cung cấp' : 'Tiêu hủy kho'}</p>
                       <p style={{ margin: '0 0 0.35rem 0' }}><strong>Lý do:</strong> {log.reason}</p>
-                      <p style={{ margin: '0 0 0.35rem 0', color: 'var(--text-muted)', fontSize: '0.8rem' }}><strong>Người thực hiện:</strong> {log.createdBy}</p>
+                      <p style={{ margin: '0 0 0.35rem 0', color: 'var(--text-muted)', fontSize: '0.8rem' }}><strong>Người đề xuất:</strong> {log.createdBy}</p>
+                      {log.status === 'Approved' && (
+                        <p style={{ margin: '0 0 0.35rem 0', color: 'var(--text-muted)', fontSize: '0.8rem' }}><strong>Lãnh đạo duyệt:</strong> {log.approvedBy || 'PGS.TS. Lê Minh Trí'}</p>
+                      )}
                       <p style={{ margin: '0 0 0.35rem 0' }}><strong>Ngày tạo lệnh:</strong> {new Date(log.recallDate).toLocaleString('vi-VN')}</p>
 
-                      {log.actionType === 'Cách ly' && (user?.role === 'pharmacist' || user?.role === 'director') && (
-                        <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', borderTop: '1px dashed var(--border-glass)', paddingTop: '0.75rem' }}>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.75rem', borderTop: '1px dashed var(--border-glass)', paddingTop: '0.75rem' }}>
+                        {log.status === 'Pending' && user?.role === 'director' && (
+                          <>
+                            <button
+                              type="button"
+                              className="btn-premium"
+                              style={{ 
+                                padding: '0.25rem 0.75rem', 
+                                fontSize: '0.74rem', 
+                                height: '28px', 
+                                background: 'linear-gradient(135deg, #10b981, #059669)', 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                gap: '0.2rem', 
+                                fontWeight: '600' 
+                              }}
+                              onClick={() => handleStartApproveRecall(log.recallID)}
+                            >
+                              <Check size={12} /> Ký Duyệt Quyết Định
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-secondary"
+                              style={{ 
+                                padding: '0.25rem 0.75rem', 
+                                fontSize: '0.74rem', 
+                                height: '28px', 
+                                color: '#ef4444', 
+                                borderColor: 'rgba(239, 68, 68, 0.4)', 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                gap: '0.2rem', 
+                                background: 'none' 
+                              }}
+                              onClick={() => handleRejectRecall(log.recallID)}
+                            >
+                              <X size={12} /> Từ chối
+                            </button>
+                          </>
+                        )}
+                        {log.status === 'Approved' && log.actionType === 'Cách ly' && (user?.role === 'pharmacist' || user?.role === 'director') &&
                           <button
                             type="button"
                             className="btn-premium"
@@ -433,8 +529,8 @@ export default function Recall({ user }) {
                           >
                             <RotateCcw size={12} /> Giải phóng cách ly (Bình thường)
                           </button>
-                        </div>
-                      )}
+                        }
+                      </div>
                     </div>
                   </div>
                 ))
@@ -523,13 +619,27 @@ export default function Recall({ user }) {
                 </div>
                 <div>
                   <p style={{ margin: '0 0 0.2rem 0' }}><strong>GIÁM ĐỐC BỆNH VIỆN</strong><br />(Ký, đóng dấu duyệt)</p>
-                  <div style={{ height: '60px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.5rem 0', position: 'relative' }}>
-                    <div style={{ position: 'absolute', zIndex: 1 }}>{SIG.duoc}</div>
-                    <div style={{ position: 'absolute', zIndex: 2, top: '-15px', left: '50%', transform: 'translateX(-40%)', pointerEvents: 'none' }}>
-                      <RedStamp name="PGS.TS. L.M.DƯỢC" />
+                  {activeRecallForPrint.status === 'Approved' ? (
+                    <div style={{ height: '60px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.5rem 0', position: 'relative' }}>
+                      {activeRecallForPrint.approverSignature ? (
+                        <img 
+                          src={activeRecallForPrint.approverSignature} 
+                          alt="Chữ ký Lãnh đạo" 
+                          style={{ maxHeight: '100%', maxWidth: '200px', objectFit: 'contain', zIndex: 1 }} 
+                        />
+                      ) : (
+                        <div style={{ position: 'absolute', zIndex: 1 }}>{SIG.duoc}</div>
+                      )}
+                      <div style={{ position: 'absolute', zIndex: 2, top: '-15px', left: '50%', transform: 'translateX(-40%)', pointerEvents: 'none' }}>
+                        <RedStamp name="PGS.TS. Lê Minh Trí" subText="GIÁM ĐỐC ★" />
+                      </div>
                     </div>
-                  </div>
-                  <p style={{ margin: 0, fontWeight: 'bold' }}>PGS.TS. Lê Minh Dược</p>
+                  ) : (
+                    <div style={{ height: '60px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#666', fontStyle: 'italic', fontSize: '0.8rem' }}>
+                      (Chờ Giám đốc phê duyệt ký tên)
+                    </div>
+                  )}
+                  <p style={{ margin: 0, fontWeight: 'bold' }}>{activeRecallForPrint.approvedBy || 'PGS.TS. Lê Minh Trí'}</p>
                 </div>
               </div>
             </div>

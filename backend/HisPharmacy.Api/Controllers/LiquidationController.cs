@@ -181,24 +181,39 @@ public class LiquidationController : ControllerBase
             // Transition status based on type
             receipt.Status = receipt.Type == "Thanh lý" ? "Đã thanh lý" : "Đã tiêu hủy";
 
-            // Subtract stock for all items
-            foreach (var detail in receipt.Details)
+            // Check if this was an automatically generated destruction from a cabinet return (where stock was already deducted)
+            bool skipStockSubtraction = (receipt.Reason ?? "").Contains("tự động từ Phiếu hoàn trả");
+
+            if (!skipStockSubtraction)
             {
-                var inventoryStock = await _context.InventoryStocks.FirstOrDefaultAsync(s => s.BatchID == detail.BatchID);
-                if (inventoryStock != null && inventoryStock.CurrentQuantity >= detail.Quantity)
+                // Subtract stock for all items using robust cascading logic (MainStore -> Departments)
+                foreach (var detail in receipt.Details)
                 {
-                    inventoryStock.CurrentQuantity -= detail.Quantity;
-                }
-                else
-                {
-                    var deptStock = await _context.DepartmentStocks.FirstOrDefaultAsync(s => s.BatchID == detail.BatchID && s.CurrentQuantity >= detail.Quantity);
-                    if (deptStock != null)
+                    int remainingToSubtract = detail.Quantity;
+
+                    // 1. Subtract from main store first
+                    var invStock = await _context.InventoryStocks.FirstOrDefaultAsync(s => s.BatchID == detail.BatchID);
+                    if (invStock != null)
                     {
-                        deptStock.CurrentQuantity -= detail.Quantity;
+                        int subtracted = Math.Min(invStock.CurrentQuantity, remainingToSubtract);
+                        invStock.CurrentQuantity -= subtracted;
+                        remainingToSubtract -= subtracted;
                     }
-                    else if (inventoryStock != null)
+
+                    // 2. Subtract from clinical departments if there's remaining quantity
+                    if (remainingToSubtract > 0)
                     {
-                        inventoryStock.CurrentQuantity = Math.Max(0, inventoryStock.CurrentQuantity - detail.Quantity);
+                        var deptStocks = await _context.DepartmentStocks
+                            .Where(s => s.BatchID == detail.BatchID && s.CurrentQuantity > 0)
+                            .ToListAsync();
+
+                        foreach (var deptStock in deptStocks)
+                        {
+                            if (remainingToSubtract <= 0) break;
+                            int subtracted = Math.Min(deptStock.CurrentQuantity, remainingToSubtract);
+                            deptStock.CurrentQuantity -= subtracted;
+                            remainingToSubtract -= subtracted;
+                        }
                     }
                 }
             }

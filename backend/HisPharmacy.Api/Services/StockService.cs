@@ -16,6 +16,7 @@ public class StockService
     public async Task ApproveRequisitionAsync(
         int requisitionID, 
         string? approverSignature, 
+        string? approverName,
         List<RequisitionDetailApprovalDto>? customQuantities = null,
         string? deliveryBy = null,
         string? deliveryPhone = null)
@@ -35,6 +36,7 @@ public class StockService
 
             // Save approver and delivery details
             req.ApproverSignature = approverSignature;
+            req.ApproverName = approverName;
             req.DeliveryBy = deliveryBy;
             req.DeliveryPhone = deliveryPhone;
             req.DeliveredAt = DateTime.Now;
@@ -183,7 +185,7 @@ public class StockService
     }
 
     // Luồng 4.2: Thủ kho Dược kiểm nhận thực tế thuốc hoàn trả, cập nhật tồn kho và ký nhận cuối cùng
-    public async Task PharmacistApproveReturnAsync(int returnID, string? approverSignature = null)
+    public async Task PharmacistApproveReturnAsync(int returnID, string? approverSignature = null, string? destination = "MainStore")
     {
         using var transaction = await _context.Database.BeginTransactionAsync();
         try
@@ -211,22 +213,75 @@ public class StockService
                 }
 
                 deptStock.CurrentQuantity -= detail.Quantity;
+            }
 
-                // Return back to main store InventoryStocks
-                var invStock = await _context.InventoryStocks
-                    .FirstOrDefaultAsync(s => s.BatchID == detail.BatchID);
+            // Determine if the return is destined for disposal
+            bool isDisposal = (destination == "Disposal");
 
-                if (invStock != null)
+            if (string.IsNullOrEmpty(destination) || destination == "MainStore")
+            {
+                // Fallback: Check if return reason indicates damaged/broken items if destination is not explicitly set
+                var reasonLower = (ret.ReturnReason ?? "").ToLower();
+                bool matchesKeywords = reasonLower.Contains("hỏng") || 
+                                      reasonLower.Contains("vỡ") || 
+                                      reasonLower.Contains("bể") || 
+                                      reasonLower.Contains("nứt") || 
+                                      reasonLower.Contains("hủy") || 
+                                      reasonLower.Contains("hao hụt") || 
+                                      reasonLower.Contains("chất lượng") || 
+                                      reasonLower.Contains("lỗi") ||
+                                      reasonLower.Contains("hết hạn");
+                if (matchesKeywords)
                 {
-                    invStock.CurrentQuantity += detail.Quantity;
+                    isDisposal = true;
                 }
-                else
+            }
+
+            if (isDisposal)
+            {
+                // Auto-create a pending Destruction receipt for the damaged stock
+                var liquidation = new LiquidationReceipt
                 {
-                    _context.InventoryStocks.Add(new InventoryStock
+                    Reason = $"Tiêu hủy thuốc hỏng vỡ tự động từ Phiếu hoàn trả #{ret.ReturnID}. Lý do: {ret.ReturnReason}",
+                    Type = "Tiêu hủy",
+                    LiquidationDate = DateTime.Now,
+                    CreatedBy = "Hệ thống tự động",
+                    Status = "Chờ duyệt",
+                    ProposerSignature = approverSignature,
+                    DigitalSignature = approverSignature
+                };
+                _context.LiquidationReceipts.Add(liquidation);
+                await _context.SaveChangesAsync(); // generates LiquidationID
+
+                foreach (var detail in ret.Details)
+                {
+                    liquidation.Details.Add(new LiquidationReceiptDetail
                     {
                         BatchID = detail.BatchID,
-                        CurrentQuantity = detail.Quantity
+                        Quantity = detail.Quantity
                     });
+                }
+            }
+            else
+            {
+                // Return back to main store InventoryStocks for good items
+                foreach (var detail in ret.Details)
+                {
+                    var invStock = await _context.InventoryStocks
+                        .FirstOrDefaultAsync(s => s.BatchID == detail.BatchID);
+
+                    if (invStock != null)
+                    {
+                        invStock.CurrentQuantity += detail.Quantity;
+                    }
+                    else
+                    {
+                        _context.InventoryStocks.Add(new InventoryStock
+                        {
+                            BatchID = detail.BatchID,
+                            CurrentQuantity = detail.Quantity
+                        });
+                    }
                 }
             }
 

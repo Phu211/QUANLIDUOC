@@ -288,6 +288,8 @@ public class MedicineRequisition
     public string? DeliveryBy { get; set; }
     public string? DeliveryPhone { get; set; }
     public DateTime? DeliveredAt { get; set; }
+    public string? ProposerName { get; set; }
+    public string? ApproverName { get; set; }
     public string? ReceiverName { get; set; }
     public int SlaMinutes { get; set; } = 120;
     public bool IsSlaBreached { get; set; } = false;
@@ -501,6 +503,9 @@ public class RecallLog
     public string? RecallLevel { get; set; } // 'Internal', 'Manufacturer', 'MOH'
     public string? CreatedBy { get; set; }
     public string? DigitalSignature { get; set; }
+    public string Status { get; set; } = "Pending"; // 'Pending', 'Approved', 'Rejected'
+    public string? ApprovedBy { get; set; }
+    public string? ApproverSignature { get; set; } // Director/Leadership signature image string
 
     // Navigation
     public Batch? Batch { get; set; }

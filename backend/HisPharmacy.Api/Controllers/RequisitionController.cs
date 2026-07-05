@@ -403,7 +403,7 @@ public class RequisitionController : ControllerBase
 
             var signature = payload?.ApproverSignature;
             var details = payload?.Details;
-            await _stockService.ApproveRequisitionAsync(id, signature, details, payload?.DeliveryBy, payload?.DeliveryPhone);
+            await _stockService.ApproveRequisitionAsync(id, signature, payload?.ApproverName, details, payload?.DeliveryBy, payload?.DeliveryPhone);
 
             // Broadcast real-time updates
             await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Requisitions");
@@ -587,6 +587,7 @@ public class DirectTransferRequest
 public class RequisitionApprovalPayload
 {
     public string? ApproverSignature { get; set; }
+    public string? ApproverName { get; set; }
     public List<RequisitionDetailApprovalDto>? Details { get; set; }
     public string? DeliveryBy { get; set; }
     public string? DeliveryPhone { get; set; }

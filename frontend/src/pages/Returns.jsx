@@ -52,6 +52,7 @@ export default function Returns({ user }) {
   const [isDrawing, setIsDrawing] = useState(false);
   const canvasRef = useRef(null);
   const [activeReturnForPrint, setActiveReturnForPrint] = useState(null);
+  const [returnDest, setReturnDest] = useState('MainStore');
 
   const fetchInitialData = () => {
     setLoading(true);
@@ -237,7 +238,7 @@ export default function Returns({ user }) {
     if (signatureTarget.action === 'submit') {
       handleSubmitReturn(null, base64Signature);
     } else if (signatureTarget.action === 'approve') {
-      handleApproveReturn(signatureTarget.id, base64Signature);
+      handleApproveReturn(signatureTarget.id, base64Signature, returnDest);
     } else if (signatureTarget.action === 'reject') {
       handleRejectReturn(signatureTarget.id, signatureTarget.reason, base64Signature);
     }
@@ -349,20 +350,24 @@ export default function Returns({ user }) {
     .catch(err => alert("Lỗi: " + err.message));
   };
 
-  const handleApproveReturn = (id, signatureData = null) => {
+  const handleApproveReturn = (id, signatureData = null, destination = 'MainStore') => {
     // INTERCEPT: Request signature before approving return
     if (!signatureData) {
       const confirmMsg = user?.role === 'director'
         ? "Xác nhận phê duyệt hành chính và ký đóng dấu đỏ biên bản hoàn trả? Vui lòng bấm OK và ký duyệt."
-        : "Xác nhận kiểm nhận thực tế thuốc hoàn trả về kho chính? Vui lòng bấm OK và ký duyệt.";
-      if (!window.confirm(confirmMsg)) return;
+        : "Xác nhận kiểm nhận thực tế thuốc hoàn trả? Vui lòng chọn vị trí nhập kho trên bảng ký nhận.";
+      if (user?.role !== 'pharmacist') {
+        if (!window.confirm(confirmMsg)) return;
+      }
       setSignatureTarget({ action: 'approve', id: id });
+      setReturnDest('MainStore');
       setShowSignatureModal(true);
       return;
     }
 
     const payload = {
-      digitalSignature: signatureData
+      digitalSignature: signatureData,
+      destination: destination
     };
 
     const isLeader = user?.role === 'director' || user?.role === 'head';
@@ -374,7 +379,7 @@ export default function Returns({ user }) {
       ? (user?.role === 'head' 
           ? "Trưởng khoa đã phê duyệt hành chính phiếu hoàn trả thành công." 
           : "Lãnh đạo đã phê duyệt hành chính tối cao và ký đóng dấu đỏ thành công biên bản hoàn trả.")
-      : "Thủ kho Dược đã kiểm nhận thuốc hoàn trả thành công. Đang chờ Trưởng khoa ký duyệt hành chính.";
+      : "Thủ kho Dược đã kiểm nhận thuốc hoàn trả thành công.";
 
     fetch(endpoint, { 
       method: 'POST',
@@ -1052,6 +1057,26 @@ export default function Returns({ user }) {
                 ? "Vui lòng vẽ chữ ký của bạn (PGS.TS. Lê Minh Dược - Trưởng Khoa) vào ô dưới đây để phê duyệt tối cao và đóng dấu mộc đỏ."
                 : "Vui lòng vẽ chữ ký của bạn (Dược sĩ Thủ kho Dược) vào ô dưới đây để xác nhận tiếp nhận thực tế thuốc hoàn trả."}
             </p>
+
+            {signatureTarget?.action === 'approve' && user?.role === 'pharmacist' && (
+              <div className="form-group" style={{ marginBottom: '1.25rem', background: 'rgba(255,255,255,0.02)', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--border-glass)' }}>
+                <label className="form-label" style={{ fontWeight: '600', display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem' }}>
+                  Vị trí nhận hoàn trả thuốc thực tế:
+                </label>
+                <select 
+                  className="form-input" 
+                  value={returnDest} 
+                  onChange={e => setReturnDest(e.target.value)}
+                  style={{ background: 'var(--bg-secondary)', color: 'var(--text-main)', border: '1px solid var(--border-glass)', borderRadius: '6px', padding: '0.4rem 0.6rem', width: '100%', fontSize: '0.82rem', cursor: 'pointer' }}
+                >
+                  <option value="MainStore">🟢 Nhập lại kho chẵn chính (Thuốc tốt/đạt chất lượng)</option>
+                  <option value="Disposal">🔴 Nhập vào khu chờ tiêu hủy (Thuốc vỡ/hỏng/hết hạn)</option>
+                </select>
+                <p style={{ margin: '0.4rem 0 0 0', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                  * Nếu chọn "Chờ tiêu hủy", thuốc sẽ không được cộng vào tồn khả dụng mà tự động tạo biên bản tiêu hủy.
+                </p>
+              </div>
+            )}
 
             <div style={{ 
               background: '#f8fafc', 
