@@ -25,6 +25,26 @@ export default function InventoryTracking({ user }) {
     });
   };
 
+  const handleRestoreQuarantine = (quarantineId, medName, qty) => {
+    if (!window.confirm(`Xác nhận phục hồi ${qty} hộp thuốc [${medName}] từ kho hỏng/vỡ trở lại kho chẵn chính? (Sửa lỗi thao tác nhầm)`)) return;
+    
+    fetch(`/api/inventory/quarantine/${quarantineId}/restore`, {
+      method: 'POST',
+      headers: {
+        'X-User-Role': user?.role || ''
+      }
+    })
+    .then(async res => {
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Lỗi phục hồi tồn kho");
+      }
+      alert(data.message || "Đã khôi phục thành công!");
+      fetchReports();
+    })
+    .catch(err => alert("Lỗi: " + err.message));
+  };
+
   useEffect(() => {
     fetchReports();
 
@@ -51,7 +71,8 @@ export default function InventoryTracking({ user }) {
     item.medicineName.toLowerCase().includes(searchTerm.toLowerCase()) ||
     item.medicineCode.toLowerCase().includes(searchTerm.toLowerCase()) ||
     item.batchNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    item.location.toLowerCase().includes(searchTerm.toLowerCase())
+    item.location.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (item.status && item.status.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
   if (loading) return <div style={{ color: '#fff', padding: '2rem' }}>Đang tải báo cáo tồn kho bệnh viện...</div>;
@@ -207,6 +228,9 @@ export default function InventoryTracking({ user }) {
                       if (item.status === 'Cách ly') {
                         indicatorClass = 'warning';
                         indicatorText = 'Cách ly (Khóa phát)';
+                      } else if (item.status === 'Chờ tiêu hủy') {
+                        indicatorClass = 'critical';
+                        indicatorText = 'Chờ tiêu hủy';
                       } else if (item.status === 'Thu hồi') {
                         indicatorClass = 'critical';
                         indicatorText = 'Đang thu hồi';
@@ -234,10 +258,24 @@ export default function InventoryTracking({ user }) {
                           <td><strong>{item.medicineCode}</strong></td>
                           <td><strong>{item.medicineName}</strong></td>
                           <td>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
                               <span style={{ background: 'rgba(255,255,255,0.03)', padding: '0.2rem 0.5rem', borderRadius: '4px', border: '1px solid var(--border-glass)', fontWeight: '600' }}>
                                 {item.batchNumber}
                               </span>
+                              {item.sourceCode && (
+                                <span style={{ 
+                                  fontSize: '0.68rem', 
+                                  fontWeight: '600', 
+                                  color: '#3b82f6', 
+                                  background: 'rgba(59, 130, 246, 0.08)', 
+                                  border: '1px solid rgba(59, 130, 246, 0.2)', 
+                                  padding: '0.1rem 0.35rem', 
+                                  borderRadius: '4px',
+                                  whiteSpace: 'nowrap'
+                                }} title="Mã nguồn hoàn trả/thu hồi">
+                                  {item.sourceCode}
+                                </span>
+                              )}
                               {isFEFO && (
                                 <span style={{ 
                                   fontSize: '0.64rem', 
@@ -254,7 +292,32 @@ export default function InventoryTracking({ user }) {
                               )}
                             </div>
                           </td>
-                          <td>{item.location}</td>
+                          <td>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                              <span>{item.location}</span>
+                              {item.quarantineStockID && (user?.role === 'pharmacist' || user?.role === 'director') && (
+                                <button 
+                                  onClick={() => handleRestoreQuarantine(item.quarantineStockID, item.medicineName, item.quantity)}
+                                  style={{
+                                    fontSize: '0.7rem',
+                                    padding: '0.15rem 0.35rem',
+                                    background: 'rgba(16, 185, 129, 0.15)',
+                                    color: '#10b981',
+                                    border: '1px solid rgba(16, 185, 129, 0.3)',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer',
+                                    fontWeight: 'bold',
+                                    height: '22px',
+                                    display: 'inline-flex',
+                                    alignItems: 'center'
+                                  }}
+                                  title="Khôi phục về kho chẵn chính (Sửa lỗi cập nhật nhầm)"
+                                >
+                                  Khôi phục
+                                </button>
+                              )}
+                            </div>
+                          </td>
                           <td>{item.importPrice.toLocaleString('vi-VN')}đ</td>
                           <td>{expiry.toLocaleDateString('vi-VN')}</td>
                           <td>

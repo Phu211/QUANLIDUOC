@@ -924,7 +924,7 @@ export default function Returns({ user }) {
                             <textPath href="#stampTextPathBottom" startOffset="50%" textAnchor="middle">KHOA DƯỢC ★</textPath>
                           </text>
                           <text x="60" y="52" fill="#dc2626" fontSize="10" fontFamily="Times New Roman, serif" fontWeight="bold" textAnchor="middle">ĐÃ DUYỆT</text>
-                          <text x="60" y="66" fill="#dc2626" fontSize="6.5" fontFamily="Arial, sans-serif" fontWeight="bold" textAnchor="middle">PGS.TS. L.M.DƯỢC</text>
+                          <text x="60" y="66" fill="#dc2626" fontSize="6.5" fontFamily="Arial, sans-serif" fontWeight="bold" textAnchor="middle">PGS.TS. L.M.TRÍ</text>
                         </svg>
                       </div>
                     </div>
@@ -954,7 +954,7 @@ export default function Returns({ user }) {
                             <textPath href="#stampTextPathBottom" startOffset="50%" textAnchor="middle">KHOA DƯỢC ★</textPath>
                           </text>
                           <text x="60" y="52" fill="#dc2626" fontSize="10" fontFamily="Times New Roman, serif" fontWeight="bold" textAnchor="middle">ĐÃ DUYỆT</text>
-                          <text x="60" y="66" fill="#dc2626" fontSize="6.5" fontFamily="Arial, sans-serif" fontWeight="bold" textAnchor="middle">PGS.TS. L.M.DƯỢC</text>
+                          <text x="60" y="66" fill="#dc2626" fontSize="6.5" fontFamily="Arial, sans-serif" fontWeight="bold" textAnchor="middle">PGS.TS. L.M.TRÍ</text>
                         </svg>
                       </div>
                     </div>
@@ -973,9 +973,9 @@ export default function Returns({ user }) {
                   )}
                   <p style={{ fontWeight: 'bold' }}>{
                     activeReturnForPrint.directorSignature
-                      ? 'PGS.TS. Lê Minh Dược (Đã duyệt)' 
+                      ? 'PGS.TS. Lê Minh Trí (Đã duyệt)' 
                       : activeReturnForPrint.status === 'Rejected' && activeReturnForPrint.directorSignature
-                      ? 'PGS.TS. Lê Minh Dược (Từ chối)'
+                      ? 'PGS.TS. Lê Minh Trí (Từ chối)'
                       : 'Chờ phê duyệt'
                   }</p>
                 </div>

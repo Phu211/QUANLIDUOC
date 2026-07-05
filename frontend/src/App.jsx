@@ -307,6 +307,13 @@ export default function App() {
                 <span>Duyệt đề xuất mua</span>
               </a>
               <a 
+                className={`nav-item ${page === 'recall' ? 'active' : ''}`}
+                onClick={() => setPage('recall')}
+              >
+                <ShieldAlert className="nav-icon" />
+                <span>Duyệt thu hồi & cách ly</span>
+              </a>
+              <a 
                 className={`nav-item ${page === 'audit' ? 'active' : ''}`}
                 onClick={() => setPage('audit')}
               >

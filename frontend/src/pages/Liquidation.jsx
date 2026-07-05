@@ -24,7 +24,7 @@ const SIG = {
   )
 };
 
-const RedStamp = ({ name }) => (
+const RedStamp = ({ name, subText = "KHOA DƯỢC ★" }) => (
   <svg width="85" height="85" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" style={{ opacity: 0.85 }}>
     <circle cx="60" cy="60" r="52" fill="none" stroke="#dc2626" strokeWidth="3" />
     <circle cx="60" cy="60" r="46" fill="none" stroke="#dc2626" strokeWidth="1.2" />
@@ -37,7 +37,7 @@ const RedStamp = ({ name }) => (
       <textPath href="#stampTextPathTop" startOffset="50%" textAnchor="middle">BỆNH VIỆN ĐA KHOA HIS PHARMACY</textPath>
     </text>
     <text fill="#dc2626" fontSize="8" fontFamily="Arial, Helvetica, sans-serif" fontWeight="bold" letterSpacing="1">
-      <textPath href="#stampTextPathBottom" startOffset="50%" textAnchor="middle">KHOA DƯỢC ★</textPath>
+      <textPath href="#stampTextPathBottom" startOffset="50%" textAnchor="middle">{subText}</textPath>
     </text>
     <text x="60" y="52" fill="#dc2626" fontSize="10" fontFamily="Times New Roman, serif" fontWeight="bold" textAnchor="middle">ĐÃ DUYỆT</text>
     <text x="60" y="66" fill="#dc2626" fontSize="6.5" fontFamily="Arial, sans-serif" fontWeight="bold" textAnchor="middle">{name}</text>
@@ -269,7 +269,6 @@ export default function Liquidation({ user }) {
     .catch(err => alert("Lỗi: " + err.message));
   };
 
-
   const handleSelectItem = (item) => {
     // Check if already selected
     const exists = selectedItems.find(x => x.batchID === item.batchID && x.location === item.location);
@@ -346,7 +345,10 @@ export default function Liquidation({ user }) {
     .catch(err => alert("Lỗi: " + err.message));
   };
 
-  const getExpiryStatus = (expiryDateStr) => {
+  const getExpiryStatus = (expiryDateStr, itemStatus = '') => {
+    if (itemStatus === 'Cách ly' || itemStatus === 'Chờ tiêu hủy') {
+      return <span className="badge-status rejected" style={{ fontSize: '0.72rem', padding: '0.2rem 0.4rem', background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.2)', textTransform: 'none' }}>Cách ly / Hư hỏng</span>;
+    }
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const expiry = new Date(expiryDateStr);
@@ -444,8 +446,10 @@ export default function Liquidation({ user }) {
                 return expiry <= today;
               };
               const candidates = activeTab === 'liquidation'
-                ? (showAllLowUsage ? allStoreBatches.filter(b => !isExpired(b.expiryDate)) : expiredItems.filter(b => !isExpired(b.expiryDate)))
-                : expiredItems.filter(b => isExpired(b.expiryDate));
+                ? (showAllLowUsage 
+                    ? allStoreBatches.filter(b => !isExpired(b.expiryDate) && b.status !== 'Cách ly' && b.status !== 'Chờ tiêu hủy') 
+                    : expiredItems.filter(b => !isExpired(b.expiryDate) && b.status !== 'Cách ly' && b.status !== 'Chờ tiêu hủy'))
+                : expiredItems.filter(b => isExpired(b.expiryDate) || b.status === 'Cách ly' || b.status === 'Chờ tiêu hủy');
 
               return candidates.length === 0 ? (
                 <p style={{ color: 'var(--text-muted)', padding: '1rem 0' }}>
@@ -481,9 +485,27 @@ export default function Liquidation({ user }) {
                               />
                             </td>
                             <td><strong>{item.medicineName}</strong></td>
-                            <td>{item.batchNumber}</td>
+                            <td>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                                <strong>{item.batchNumber}</strong>
+                                {item.sourceCode && (
+                                  <span style={{ 
+                                    fontSize: '0.68rem', 
+                                    fontWeight: '600', 
+                                    color: '#3b82f6', 
+                                    background: 'rgba(59, 130, 246, 0.08)', 
+                                    border: '1px solid rgba(59, 130, 246, 0.2)', 
+                                    padding: '0.1rem 0.35rem', 
+                                    borderRadius: '4px',
+                                    whiteSpace: 'nowrap'
+                                  }} title="Mã nguồn hoàn trả/thu hồi">
+                                    {item.sourceCode}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
                             <td>{new Date(item.expiryDate).toLocaleDateString('vi-VN')}</td>
-                            <td>{getExpiryStatus(item.expiryDate)}</td>
+                            <td>{getExpiryStatus(item.expiryDate, item.status)}</td>
                             <td>{item.location}</td>
                             <td><strong>{item.quantity}</strong></td>
                           </tr>
@@ -825,9 +847,15 @@ export default function Liquidation({ user }) {
                 <div>
                   <p style={{ margin: 0 }}><strong>Ban kiểm kê Dược</strong></p>
                   <p style={{ margin: '0.1rem 0 0 0', color: '#555', fontStyle: 'italic' }}>(Xác nhận đối chiếu)</p>
-                  <div style={{ height: '55px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0' }}>
-                    {SIG.chuong}
-                  </div>
+                  {activeLiquidationForPrint.status === 'Đã duyệt' || activeLiquidationForPrint.status === 'Đã thanh lý' || activeLiquidationForPrint.status === 'Đã tiêu hủy' ? (
+                    <div style={{ height: '55px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0' }}>
+                      {SIG.chuong}
+                    </div>
+                  ) : (
+                    <div style={{ height: '55px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0', color: '#94a3b8', fontStyle: 'italic', fontSize: '0.74rem' }}>
+                      (Chờ đối chiếu)
+                    </div>
+                  )}
                   <p style={{ fontWeight: 'bold' }}>Thành viên Hội đồng</p>
                 </div>
                 <div>
@@ -837,14 +865,14 @@ export default function Liquidation({ user }) {
                     <div style={{ height: '55px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0', position: 'relative' }}>
                       <img src={activeLiquidationForPrint.approverSignature} alt="Chữ ký Giám đốc" style={{ maxHeight: '100%', maxWidth: '120px', objectFit: 'contain', position: 'absolute', zIndex: 1 }} />
                       <div style={{ position: 'absolute', zIndex: 2, top: '-15px', left: '50%', transform: 'translateX(-40%)', pointerEvents: 'none' }}>
-                        <RedStamp name="PGS.TS. L.M.DƯỢC" />
+                        <RedStamp name="PGS.TS. Lê Minh Trí" subText="GIÁM ĐỐC ★" />
                       </div>
                     </div>
-                  ) : activeLiquidationForPrint.status === 'Đã duyệt' ? (
+                  ) : (activeLiquidationForPrint.status === 'Đã duyệt' || activeLiquidationForPrint.status === 'Đã thanh lý' || activeLiquidationForPrint.status === 'Đã tiêu hủy') ? (
                     <div style={{ height: '55px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0', position: 'relative' }}>
                       <div style={{ position: 'absolute', zIndex: 1 }}>{SIG.duoc}</div>
                       <div style={{ position: 'absolute', zIndex: 2, top: '-15px', left: '50%', transform: 'translateX(-40%)', pointerEvents: 'none' }}>
-                        <RedStamp name="PGS.TS. L.M.DƯỢC" />
+                        <RedStamp name="PGS.TS. Lê Minh Trí" subText="GIÁM ĐỐC ★" />
                       </div>
                     </div>
                   ) : (
@@ -852,7 +880,7 @@ export default function Liquidation({ user }) {
                       {activeLiquidationForPrint.status === 'Từ chối' ? 'ĐÃ TỪ CHỐI' : 'CHỜ DUYỆT'}
                     </div>
                   )}
-                  <p style={{ fontWeight: 'bold' }}>PGS.TS. Lê Minh Dược</p>
+                  <p style={{ fontWeight: 'bold' }}>PGS.TS. Lê Minh Trí</p>
                 </div>
               </div>
             </div>

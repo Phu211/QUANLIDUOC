@@ -1227,14 +1227,14 @@ export default function InventoryAudit({ user }) {
                     <>
                       <img src={activeAuditForPrint.directorSignature} alt="Chữ ký Giám đốc" style={{ maxHeight: '100%', maxWidth: '100px', objectFit: 'contain', position: 'absolute', zIndex: 1 }} />
                       <div style={{ position: 'absolute', zIndex: 2, top: '-15px', left: '50%', transform: 'translateX(-40%)', pointerEvents: 'none' }}>
-                        <RedStamp name="PGS.TS. L.M.DƯỢC" />
+                        <RedStamp name="PGS.TS. L.M.TRÍ" />
                       </div>
                     </>
                   ) : activeAuditForPrint.discrepancyThresholdExceeded && (activeAuditForPrint.status === 'Đã điều chỉnh' || activeAuditForPrint.status === 'Đã xác nhận') ? (
                     <>
                       <div style={{ position: 'absolute', zIndex: 1 }}>{SIG.duoc}</div>
                       <div style={{ position: 'absolute', zIndex: 2, top: '-15px', left: '50%', transform: 'translateX(-40%)', pointerEvents: 'none' }}>
-                        <RedStamp name="PGS.TS. L.M.DƯỢC" />
+                        <RedStamp name="PGS.TS. L.M.TRÍ" />
                       </div>
                     </>
                   ) : (
@@ -1243,7 +1243,7 @@ export default function InventoryAudit({ user }) {
                     </span>
                   )}
                 </div>
-                <p style={{ margin: 0, fontWeight: 'bold' }}>PGS.TS. Lê Minh Dược</p>
+                <p style={{ margin: 0, fontWeight: 'bold' }}>PGS.TS. Lê Minh Trí</p>
                 {activeAuditForPrint.directorSignedAt && (
                   <p style={{ margin: 0, color: '#666', fontSize: '10px' }}>Ký lúc: {new Date(activeAuditForPrint.directorSignedAt).toLocaleString('vi-VN')}</p>
                 )}

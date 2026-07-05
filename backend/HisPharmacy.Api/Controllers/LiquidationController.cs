@@ -34,39 +34,88 @@ public class LiquidationController : ControllerBase
     {
         var today = DateTime.Today;
         var limitDate = today.AddDays(30);
-        // Fetch batches that are expired or near-expired (within 30 days) and still have stock
-        var mainExpired = await _context.InventoryStocks
+
+        var mainExpiredDb = await _context.InventoryStocks
             .Include(s => s.Batch)!.ThenInclude(b => b!.Medicine)
-            .Where(s => s.Batch!.ExpiryDate <= limitDate && s.CurrentQuantity > 0)
-            .Select(s => new
-            {
-                s.BatchID,
-                s.Batch!.BatchNumber,
-                MedicineCode = s.Batch.Medicine != null ? s.Batch.Medicine.MedicineCode : "",
-                MedicineName = s.Batch.Medicine != null ? s.Batch.Medicine.MedicineName : "",
-                s.Batch.ExpiryDate,
-                Location = "Kho chẵn chính",
-                Quantity = s.CurrentQuantity
-            })
+            .Where(s => (s.Batch!.ExpiryDate <= limitDate || s.Batch.Status == "Cách ly" || s.Batch.Status == "Chờ tiêu hủy") && s.CurrentQuantity > 0)
             .ToListAsync();
 
-        var deptExpired = await _context.DepartmentStocks
+        var deptExpiredDb = await _context.DepartmentStocks
             .Include(s => s.Batch)!.ThenInclude(b => b!.Medicine)
             .Include(s => s.Department)
-            .Where(s => s.Batch!.ExpiryDate <= limitDate && s.CurrentQuantity > 0)
-            .Select(s => new
-            {
-                s.BatchID,
-                s.Batch!.BatchNumber,
-                MedicineCode = s.Batch.Medicine != null ? s.Batch.Medicine.MedicineCode : "",
-                MedicineName = s.Batch.Medicine != null ? s.Batch.Medicine.MedicineName : "",
-                s.Batch.ExpiryDate,
-                Location = s.Department != null ? s.Department.DepartmentName : "Tủ trực khoa",
-                Quantity = s.CurrentQuantity
-            })
+            .Where(s => (s.Batch!.ExpiryDate <= limitDate || s.Batch.Status == "Cách ly" || s.Batch.Status == "Chờ tiêu hủy") && s.CurrentQuantity > 0)
             .ToListAsync();
 
-        var allExpired = mainExpired.Concat(deptExpired).ToList();
+        var returnsList = await _context.ReturnReceipts
+            .Include(r => r.Details)
+            .ToListAsync();
+
+        var recallsList = await _context.RecallLogs.ToListAsync();
+
+        var returnLookup = new Dictionary<int, string>();
+        foreach (var r in returnsList)
+        {
+            var code = $"PHT-{r.ReturnDate:yyyyMMdd}-{r.ReturnID.ToString().PadLeft(4, '0')}";
+            foreach (var detail in r.Details)
+            {
+                returnLookup[detail.BatchID] = code;
+            }
+        }
+
+        var recallLookup = new Dictionary<int, string>();
+        foreach (var r in recallsList)
+        {
+            var code = $"QĐTH-{r.RecallDate:yyyyMMdd}-{r.RecallID.ToString().PadLeft(4, '0')}";
+            recallLookup[r.BatchID] = code;
+        }
+
+        var mainExpired = mainExpiredDb.Select(s => new
+        {
+            s.BatchID,
+            s.Batch!.BatchNumber,
+            MedicineCode = s.Batch.Medicine != null ? s.Batch.Medicine.MedicineCode : "",
+            MedicineName = s.Batch.Medicine != null ? s.Batch.Medicine.MedicineName : "",
+            s.Batch.ExpiryDate,
+            Location = "Kho chẵn chính",
+            Quantity = s.CurrentQuantity,
+            Status = s.Batch.Status,
+            SourceCode = returnLookup.ContainsKey(s.BatchID) ? returnLookup[s.BatchID] : 
+                         (recallLookup.ContainsKey(s.BatchID) ? recallLookup[s.BatchID] : null)
+        }).ToList();
+
+        var deptExpired = deptExpiredDb.Select(s => new
+        {
+            s.BatchID,
+            s.Batch!.BatchNumber,
+            MedicineCode = s.Batch.Medicine != null ? s.Batch.Medicine.MedicineCode : "",
+            MedicineName = s.Batch.Medicine != null ? s.Batch.Medicine.MedicineName : "",
+            s.Batch.ExpiryDate,
+            Location = s.Department != null ? s.Department.DepartmentName : "Tủ trực khoa",
+            Quantity = s.CurrentQuantity,
+            Status = s.Batch.Status,
+            SourceCode = returnLookup.ContainsKey(s.BatchID) ? returnLookup[s.BatchID] : 
+                         (recallLookup.ContainsKey(s.BatchID) ? recallLookup[s.BatchID] : null)
+        }).ToList();
+
+        var quarantinedExpiredDb = await _context.QuarantineStocks
+            .Include(q => q.Batch)!.ThenInclude(b => b!.Medicine)
+            .Where(q => q.Status == "AwaitingDestroy" && q.Quantity > 0)
+            .ToListAsync();
+
+        var quarantinedExpired = quarantinedExpiredDb.Select(q => new
+        {
+            q.BatchID,
+            BatchNumber = q.Batch?.BatchNumber ?? "",
+            MedicineCode = q.Batch?.Medicine?.MedicineCode ?? "",
+            MedicineName = q.Batch?.Medicine?.MedicineName ?? "",
+            ExpiryDate = q.Batch?.ExpiryDate ?? DateTime.Now,
+            Location = q.LocationType == "MainStore" ? "Kho chẵn chính (Hư hỏng)" : "Tủ trực khoa (Hư hỏng)",
+            Quantity = q.Quantity,
+            Status = "Chờ tiêu hủy",
+            SourceCode = q.Reason
+        }).ToList();
+
+        var allExpired = mainExpired.Concat(deptExpired).Concat(quarantinedExpired).ToList();
         return Ok(allExpired);
     }
 
@@ -186,21 +235,42 @@ public class LiquidationController : ControllerBase
 
             if (!skipStockSubtraction)
             {
-                // Subtract stock for all items using robust cascading logic (MainStore -> Departments)
+                // Subtract stock for all items using robust cascading logic (Quarantine -> MainStore -> Departments)
                 foreach (var detail in receipt.Details)
                 {
                     int remainingToSubtract = detail.Quantity;
 
-                    // 1. Subtract from main store first
-                    var invStock = await _context.InventoryStocks.FirstOrDefaultAsync(s => s.BatchID == detail.BatchID);
-                    if (invStock != null)
+                    // 1. Subtract from QuarantineStocks first (for damaged items returned or recalled)
+                    var quarStocks = await _context.QuarantineStocks
+                        .Where(s => s.BatchID == detail.BatchID && s.Status == "AwaitingDestroy" && s.Quantity > 0)
+                        .ToListAsync();
+
+                    foreach (var qs in quarStocks)
                     {
-                        int subtracted = Math.Min(invStock.CurrentQuantity, remainingToSubtract);
-                        invStock.CurrentQuantity -= subtracted;
+                        if (remainingToSubtract <= 0) break;
+                        int subtracted = Math.Min(qs.Quantity, remainingToSubtract);
+                        qs.Quantity -= subtracted;
+                        if (qs.Quantity == 0)
+                        {
+                            qs.Status = "Resolved";
+                            qs.ResolvedAt = DateTime.Now;
+                        }
                         remainingToSubtract -= subtracted;
                     }
 
-                    // 2. Subtract from clinical departments if there's remaining quantity
+                    // 2. Subtract from main store next
+                    if (remainingToSubtract > 0)
+                    {
+                        var invStock = await _context.InventoryStocks.FirstOrDefaultAsync(s => s.BatchID == detail.BatchID);
+                        if (invStock != null)
+                        {
+                            int subtracted = Math.Min(invStock.CurrentQuantity, remainingToSubtract);
+                            invStock.CurrentQuantity -= subtracted;
+                            remainingToSubtract -= subtracted;
+                        }
+                    }
+
+                    // 3. Subtract from clinical departments if there's remaining quantity
                     if (remainingToSubtract > 0)
                     {
                         var deptStocks = await _context.DepartmentStocks

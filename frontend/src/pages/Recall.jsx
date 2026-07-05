@@ -45,6 +45,16 @@ const RedStamp = ({ name, subText = "KHOA DƯỢC ★" }) => (
 );
 
 export default function Recall({ user }) {
+  const formatRecallCode = (log) => {
+    if (!log) return '';
+    const dateObj = new Date(log.recallDate || new Date());
+    const yyyy = dateObj.getFullYear();
+    const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const dd = String(dateObj.getDate()).padStart(2, '0');
+    const idStr = String(log.recallID).padStart(4, '0');
+    return `QĐTH-${yyyy}${mm}${dd}-${idStr}`;
+  };
+
   const [recalls, setRecalls] = useState([]);
   const [allBatches, setAllBatches] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -435,8 +445,8 @@ export default function Recall({ user }) {
                     flexDirection: 'column',
                     gap: '0.5rem'
                   }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontWeight: '700' }}>Biên bản #RCL-{log.recallID}</span>
+                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontWeight: '700' }}>Quyết định #{formatRecallCode(log)}</span>
                       <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                         <button 
                           className="btn-secondary" 
@@ -560,7 +570,7 @@ export default function Recall({ user }) {
                 <h2 style={{ margin: 0, fontSize: '1.3rem', fontWeight: 'bold', textTransform: 'uppercase' }}>
                   QUYẾT ĐỊNH THU HỒI & ĐÌNH CHỈ PHÁT HÀNH DƯỢC PHẨM
                 </h2>
-                <p style={{ margin: '0.3rem 0 0 0', fontSize: '0.85rem', color: '#333', fontWeight: '600' }}>Mã quyết định: RCL-{activeRecallForPrint.recallID}</p>
+                <p style={{ margin: '0.3rem 0 0 0', fontSize: '0.85rem', color: '#333', fontWeight: '600' }}>Mã quyết định: {formatRecallCode(activeRecallForPrint)}</p>
                 <p style={{ margin: '0.1rem 0 0 0', fontSize: '0.75rem', color: '#666' }}>
                   Biện pháp xử lý: <strong>{activeRecallForPrint.actionType}</strong>
                 </p>

@@ -76,14 +76,21 @@ public class StockService
 
                 int remainingToAllocate = dispensedQty;
 
+                // Retrieve batch IDs currently in proposed/active liquidation or destruction process (Chờ duyệt/Đã duyệt)
+                var blockedBatchIDs = await _context.LiquidationReceipts
+                    .Where(l => l.Status == "Chờ duyệt" || l.Status == "Đã duyệt")
+                    .SelectMany(l => l.Details.Select(d => d.BatchID))
+                    .ToListAsync();
+
                 // Find active batches in main store, sort by ExpiryDate ascending (FEFO)
-                // Filter out Locked batches (Status must be "Bình thường")
+                // Filter out Locked batches (Status must be "Bình thường") and batches undergoing liquidation/destruction
                 var availableStocks = await _context.InventoryStocks
                     .Include(s => s.Batch)
                     .Where(s => s.Batch!.MedicineID == detail.MedicineID && 
                                 s.CurrentQuantity > 0 && 
                                 s.Batch.ExpiryDate > DateTime.Today &&
-                                s.Batch.Status == "Bình thường")
+                                s.Batch.Status == "Bình thường" &&
+                                !blockedBatchIDs.Contains(s.BatchID))
                     .OrderBy(s => s.Batch!.ExpiryDate)
                     .ToListAsync();
 
@@ -239,27 +246,31 @@ public class StockService
 
             if (isDisposal)
             {
-                // Auto-create a pending Destruction receipt for the damaged stock
-                var liquidation = new LiquidationReceipt
-                {
-                    Reason = $"Tiêu hủy thuốc hỏng vỡ tự động từ Phiếu hoàn trả #{ret.ReturnID}. Lý do: {ret.ReturnReason}",
-                    Type = "Tiêu hủy",
-                    LiquidationDate = DateTime.Now,
-                    CreatedBy = "Hệ thống tự động",
-                    Status = "Chờ duyệt",
-                    ProposerSignature = approverSignature,
-                    DigitalSignature = approverSignature
-                };
-                _context.LiquidationReceipts.Add(liquidation);
-                await _context.SaveChangesAsync(); // generates LiquidationID
-
+                // Create a record in QuarantineStock to isolate this specific returned stock, leaving normal stock untouched
                 foreach (var detail in ret.Details)
                 {
-                    liquidation.Details.Add(new LiquidationReceiptDetail
+                    var returnCode = $"PHT-{ret.ReturnDate:yyyyMMdd}-{ret.ReturnID.ToString().PadLeft(4, '0')}";
+                    
+                    var quarantine = new QuarantineStock
                     {
                         BatchID = detail.BatchID,
-                        Quantity = detail.Quantity
-                    });
+                        MedicineID = 0,
+                        LocationType = "MainStore",
+                        DepartmentID = null,
+                        Quantity = detail.Quantity,
+                        Reason = returnCode,
+                        Status = "AwaitingDestroy",
+                        ReportedBy = "Thủ kho Dược",
+                        CreatedAt = DateTime.Now
+                    };
+
+                    var batch = await _context.Batches.FindAsync(detail.BatchID);
+                    if (batch != null)
+                    {
+                        quarantine.MedicineID = batch.MedicineID;
+                    }
+
+                    _context.QuarantineStocks.Add(quarantine);
                 }
             }
             else
