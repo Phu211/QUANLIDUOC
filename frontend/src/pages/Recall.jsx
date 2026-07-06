@@ -521,25 +521,47 @@ export default function Recall({ user }) {
                             </button>
                           </>
                         )}
-                        {log.status === 'Approved' && log.actionType === 'Cách ly' && (user?.role === 'pharmacist' || user?.role === 'director') &&
-                          <button
-                            type="button"
-                            className="btn-premium"
-                            style={{ 
-                              padding: '0.25rem 0.75rem', 
-                              fontSize: '0.74rem', 
-                              height: '28px', 
-                              background: 'linear-gradient(135deg, #10b981, #059669)', 
-                              display: 'flex', 
-                              alignItems: 'center', 
-                              gap: '0.2rem', 
-                              fontWeight: '600' 
-                            }}
-                            onClick={() => handleRestoreRecall(log.recallID)}
-                          >
-                            <RotateCcw size={12} /> Giải phóng cách ly (Bình thường)
-                          </button>
-                        }
+                        {log.actionType === 'Cách ly' && (user?.role === 'pharmacist' || user?.role === 'director') && (
+                          log.status === 'Approved' ? (
+                            <button
+                              type="button"
+                              className="btn-premium"
+                              style={{ 
+                                padding: '0.25rem 0.75rem', 
+                                fontSize: '0.74rem', 
+                                height: '28px', 
+                                background: 'linear-gradient(135deg, #10b981, #059669)', 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                gap: '0.2rem', 
+                                fontWeight: '600' 
+                              }}
+                              onClick={() => handleRestoreRecall(log.recallID)}
+                            >
+                              <RotateCcw size={12} /> Giải phóng cách ly (Bình thường)
+                            </button>
+                          ) : log.status === 'Pending' ? (
+                            <button
+                              type="button"
+                              className="btn-secondary"
+                              style={{ 
+                                padding: '0.25rem 0.75rem', 
+                                fontSize: '0.74rem', 
+                                height: '28px', 
+                                color: '#ef4444', 
+                                borderColor: 'rgba(239, 68, 68, 0.4)', 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                gap: '0.2rem', 
+                                background: 'none' 
+                              }}
+                              onClick={() => handleRestoreRecall(log.recallID)}
+                              title="Hủy đề xuất cách ly khi chưa phê duyệt"
+                            >
+                              <X size={12} /> Hủy đề xuất cách ly
+                            </button>
+                          ) : null
+                        )}
                       </div>
                     </div>
                   </div>

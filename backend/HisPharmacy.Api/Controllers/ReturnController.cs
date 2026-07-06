@@ -79,8 +79,12 @@ public class ReturnController : ControllerBase
             }
         }
 
+        var userFullName = System.Net.WebUtility.UrlDecode(Request.Headers["X-User-FullName"].ToString());
+        if (string.IsNullOrEmpty(userFullName)) userFullName = "Điều dưỡng Khoa";
+
         ret.Status = "Pending";
         ret.ReturnDate = DateTime.Now;
+        ret.ProposerName = userFullName;
 
         _context.ReturnReceipts.Add(ret);
         await _context.SaveChangesAsync();
@@ -125,7 +129,10 @@ public class ReturnController : ControllerBase
             if (isCabinetLocked)
                 return BadRequest(new { Error = "Tủ trực của khoa hoàn trả đang tiến hành kiểm kê và bị khóa giao dịch nhập xuất." });
 
-            await _stockService.PharmacistApproveReturnAsync(id, request?.DigitalSignature, request?.Destination);
+            var userFullName = System.Net.WebUtility.UrlDecode(Request.Headers["X-User-FullName"].ToString());
+            if (string.IsNullOrEmpty(userFullName)) userFullName = "Thủ kho Dược";
+
+            await _stockService.PharmacistApproveReturnAsync(id, request?.DigitalSignature, request?.Destination, userFullName);
 
             // Broadcast real-time updates
             await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Returns");

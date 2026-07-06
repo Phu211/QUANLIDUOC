@@ -349,6 +349,7 @@ public class ImportReceipt
     public string? DigitalSignature { get; set; } // Base64 signature image string của người nhận/lập phiếu
     public string? SecondInspectorSignature { get; set; } // Base64 signature image string của người kiểm thứ hai
     public string? DeliveryPersonSignature { get; set; } // Base64 signature image string của người giao hàng
+    public string? DeliveryPersonName { get; set; } // Họ tên Người giao hàng (NCC)
     public string? ApproverSignature { get; set; } // Base64 signature image string của người duyệt nhập kho (Ban lãnh đạo)
     public string? EditHistoryJson { get; set; } // Chuỗi JSON lưu vết lịch sử điều chỉnh phiếu
 
@@ -403,7 +404,9 @@ public class ReturnReceipt
     public string Status { get; set; } = "Pending"; // 'Pending', 'PendingLeader', 'Approved', 'Rejected'
     public string? ReturnReason { get; set; } // Lý do hoàn trả thuốc thừa từ khoa lâm sàng
     public string? DigitalSignature { get; set; } // Base64 signature image string của người trả hàng
+    public string? ProposerName { get; set; } // Tên Điều dưỡng/Người trả hàng
     public string? ApproverSignature { get; set; } // Base64 signature image string của người duyệt nhận
+    public string? ApproverName { get; set; } // Tên Dược sĩ/Thủ kho nhận thực tế
     public string? DirectorSignature { get; set; } // Base64 signature image string của Lãnh đạo duyệt nhận
     public string? RejectReason { get; set; } // Lý do từ chối phiếu hoàn trả
 

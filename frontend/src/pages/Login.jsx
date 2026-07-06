@@ -21,9 +21,15 @@ export default function Login({ onLoginSuccess }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: username.trim(), password: password })
     })
-    .then(res => {
+    .then(async res => {
+      const contentType = res.headers.get("content-type");
       if (!res.ok) {
-        return res.json().then(data => { throw new Error(data.error || "Đăng nhập thất bại."); });
+        if (contentType && contentType.includes("application/json")) {
+          const data = await res.json();
+          throw new Error(data.error || "Đăng nhập thất bại.");
+        } else {
+          throw new Error("Không thể kết nối đến Máy chủ API. Vui lòng đảm bảo Backend API (dotnet run) đang hoạt động.");
+        }
       }
       return res.json();
     })
@@ -48,8 +54,16 @@ export default function Login({ onLoginSuccess }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: demoUser, password: demoPass })
       })
-      .then(res => {
-        if (!res.ok) return res.json().then(data => { throw new Error(data.error); });
+      .then(async res => {
+        const contentType = res.headers.get("content-type");
+        if (!res.ok) {
+          if (contentType && contentType.includes("application/json")) {
+            const data = await res.json();
+            throw new Error(data.error || "Đăng nhập thất bại.");
+          } else {
+            throw new Error("Không thể kết nối đến Máy chủ API. Vui lòng đảm bảo Backend API (dotnet run) đang hoạt động.");
+          }
+        }
         return res.json();
       })
       .then(userData => {

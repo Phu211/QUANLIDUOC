@@ -97,6 +97,49 @@ export default function Liquidation({ user }) {
     });
   };
 
+  const handleRestoreQuarantine = (quarantineId, medName, qty) => {
+    if (!window.confirm(`Xác nhận phục hồi ${qty} hộp thuốc [${medName}] từ kho hỏng/vỡ trở lại kho chẵn chính? (Sửa lỗi thao tác nhầm)`)) return;
+    
+    fetch(`/api/inventory/quarantine/${quarantineId}/restore`, {
+      method: 'POST',
+      headers: {
+        'X-User-Role': user?.role || ''
+      }
+    })
+    .then(async res => {
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Lỗi phục hồi tồn kho");
+      }
+      alert(data.message || "Đã khôi phục thành công!");
+      fetchData();
+      window.dispatchEvent(new CustomEvent('pharmacy-update', { detail: 'Inventory' }));
+    })
+    .catch(err => alert("Lỗi: " + err.message));
+  };
+
+  const handleRestoreRecall = (recallId, medName, qty) => {
+    if (!window.confirm(`Xác nhận hủy quyết định thu hồi cách ly và đưa lô thuốc [${medName}] (${qty} hộp) trở lại sử dụng bình thường?`)) return;
+    
+    fetch(`/api/recall/${recallId}/restore`, {
+      method: 'POST',
+      headers: {
+        'X-User-Role': user?.role || '',
+        'X-User-FullName': encodeURIComponent(user?.fullName || '')
+      }
+    })
+    .then(async res => {
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Lỗi phục hồi thuốc cách ly");
+      }
+      alert("Lô thuốc đã được giải phóng cách ly thành công!");
+      fetchData();
+      window.dispatchEvent(new CustomEvent('pharmacy-update', { detail: 'Inventory' }));
+    })
+    .catch(err => alert("Lỗi: " + err.message));
+  };
+
   useEffect(() => {
     fetchData();
 
@@ -469,6 +512,7 @@ export default function Liquidation({ user }) {
                         <th>Trạng thái</th>
                         <th>Nơi lưu trữ</th>
                         <th>Tồn kho</th>
+                        <th>Hành động</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -508,6 +552,55 @@ export default function Liquidation({ user }) {
                             <td>{getExpiryStatus(item.expiryDate, item.status)}</td>
                             <td>{item.location}</td>
                             <td><strong>{item.quantity}</strong></td>
+                            <td style={{ textAlign: 'center' }}>
+                               {item.quarantineStockID ? (
+                                 (user?.role === 'pharmacist' || user?.role === 'director') ? (
+                                   <button 
+                                     type="button"
+                                     onClick={(e) => { e.stopPropagation(); handleRestoreQuarantine(item.quarantineStockID, item.medicineName, item.quantity); }}
+                                     style={{
+                                       fontSize: '0.72rem',
+                                       padding: '0.15rem 0.4rem',
+                                       background: 'rgba(16, 185, 129, 0.12)',
+                                       color: '#10b981',
+                                       border: '1px solid rgba(16, 185, 129, 0.3)',
+                                       borderRadius: '6px',
+                                       cursor: 'pointer',
+                                       fontWeight: '700'
+                                     }}
+                                     title="Đưa về kho chẵn chính làm thuốc bình thường"
+                                   >
+                                     Khôi phục
+                                   </button>
+                                 ) : (
+                                   <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Chờ xử lý</span>
+                                 )
+                               ) : item.recallID && item.status === 'Cách ly' ? (
+                                 (user?.role === 'pharmacist' || user?.role === 'director') ? (
+                                   <button 
+                                     type="button"
+                                     onClick={(e) => { e.stopPropagation(); handleRestoreRecall(item.recallID, item.medicineName, item.quantity); }}
+                                     style={{
+                                       fontSize: '0.72rem',
+                                       padding: '0.15rem 0.4rem',
+                                       background: 'rgba(16, 185, 129, 0.12)',
+                                       color: '#10b981',
+                                       border: '1px solid rgba(16, 185, 129, 0.3)',
+                                       borderRadius: '6px',
+                                       cursor: 'pointer',
+                                       fontWeight: '700'
+                                     }}
+                                     title="Giải phóng cách ly đưa về sử dụng bình thường"
+                                   >
+                                     Hủy cách ly
+                                   </button>
+                                 ) : (
+                                   <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Chờ xử lý</span>
+                                 )
+                               ) : (
+                                 <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>-</span>
+                               )}
+                             </td>
                           </tr>
                         );
                       })}

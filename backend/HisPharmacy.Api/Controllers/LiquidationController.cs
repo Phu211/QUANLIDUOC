@@ -63,15 +63,19 @@ public class LiquidationController : ControllerBase
         }
 
         var recallLookup = new Dictionary<int, string>();
+        var recallIdLookup = new Dictionary<int, int>();
         foreach (var r in recallsList)
         {
             var code = $"QĐTH-{r.RecallDate:yyyyMMdd}-{r.RecallID.ToString().PadLeft(4, '0')}";
             recallLookup[r.BatchID] = code;
+            recallIdLookup[r.BatchID] = r.RecallID;
         }
 
         var mainExpired = mainExpiredDb.Select(s => new
         {
             s.BatchID,
+            RecallID = recallIdLookup.ContainsKey(s.BatchID) ? (int?)recallIdLookup[s.BatchID] : null,
+            QuarantineStockID = (int?)null,
             s.Batch!.BatchNumber,
             MedicineCode = s.Batch.Medicine != null ? s.Batch.Medicine.MedicineCode : "",
             MedicineName = s.Batch.Medicine != null ? s.Batch.Medicine.MedicineName : "",
@@ -86,6 +90,8 @@ public class LiquidationController : ControllerBase
         var deptExpired = deptExpiredDb.Select(s => new
         {
             s.BatchID,
+            RecallID = recallIdLookup.ContainsKey(s.BatchID) ? (int?)recallIdLookup[s.BatchID] : null,
+            QuarantineStockID = (int?)null,
             s.Batch!.BatchNumber,
             MedicineCode = s.Batch.Medicine != null ? s.Batch.Medicine.MedicineCode : "",
             MedicineName = s.Batch.Medicine != null ? s.Batch.Medicine.MedicineName : "",
@@ -105,6 +111,8 @@ public class LiquidationController : ControllerBase
         var quarantinedExpired = quarantinedExpiredDb.Select(q => new
         {
             q.BatchID,
+            RecallID = (int?)null,
+            QuarantineStockID = (int?)q.QuarantineID,
             BatchNumber = q.Batch?.BatchNumber ?? "",
             MedicineCode = q.Batch?.Medicine?.MedicineCode ?? "",
             MedicineName = q.Batch?.Medicine?.MedicineName ?? "",

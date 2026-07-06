@@ -95,6 +95,7 @@ public class ImportController : ControllerBase
                 i.DigitalSignature,
                 i.SecondInspectorSignature,
                 i.DeliveryPersonSignature,
+                i.DeliveryPersonName,
                 i.ApproverSignature,
                 i.EditHistoryJson,
                 Supplier = i.Supplier,
@@ -274,7 +275,8 @@ public class ImportController : ControllerBase
                 request.DigitalSignature,
                 request.SecondInspectorSignature,
                 request.DeliveryPersonSignature,
-                request.Items);
+                request.Items,
+                request.DeliveryPersonName);
             
             // Fetch populated import object to return
             var result = await _context.ImportReceipts
@@ -407,7 +409,8 @@ public class ImportController : ControllerBase
                 request.DigitalSignature,
                 request.SecondInspectorSignature,
                 request.DeliveryPersonSignature,
-                request.Items);
+                request.Items,
+                request.DeliveryPersonName);
 
             var result = await _context.ImportReceipts
                 .Include(i => i.Supplier)
@@ -455,6 +458,7 @@ public class ImportController : ControllerBase
                 DigitalSignature = request.DigitalSignature,
                 SecondInspectorSignature = request.SecondInspectorSignature,
                 DeliveryPersonSignature = request.DeliveryPersonSignature,
+                DeliveryPersonName = request.DeliveryPersonName,
                 Items = request.Items
             };
 
@@ -490,6 +494,7 @@ public class CreateImportRequest
     public string? DigitalSignature { get; set; }
     public string? SecondInspectorSignature { get; set; }
     public string? DeliveryPersonSignature { get; set; }
+    public string? DeliveryPersonName { get; set; }
     public List<ImportItemDto> Items { get; set; } = new();
 }
 
@@ -502,6 +507,7 @@ public class CompleteInspectionRequest
     public string? DigitalSignature { get; set; }
     public string? SecondInspectorSignature { get; set; }
     public string? DeliveryPersonSignature { get; set; }
+    public string? DeliveryPersonName { get; set; }
     public List<ImportItemDto> Items { get; set; } = new();
 }
 

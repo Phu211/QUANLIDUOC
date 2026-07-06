@@ -101,6 +101,7 @@ export default function ImportReceipts({ user }) {
   const [anomalyStatus, setAnomalyStatus] = useState('Từ chối');
 
   // GSP State Progression Extensions
+  const [deliveryPersonName, setDeliveryPersonName] = useState('');
   const [inspectingReceiptId, setInspectingReceiptId] = useState(null);
   const [inspectingReceiptCode, setInspectingReceiptCode] = useState('');
   const [editingReceiptId, setEditingReceiptId] = useState(null);
@@ -602,6 +603,10 @@ export default function ImportReceipts({ user }) {
       alert("Vui lòng vẽ chữ ký của Thủ kho (Người lập phiếu).");
       return;
     }
+    if (needSig2 && !deliveryPersonName.trim()) {
+      alert("Vui lòng điền họ tên người giao hàng (Đại diện NCC).");
+      return;
+    }
     if (needSig2 && isCanvasEmpty(canvasRef2.current)) {
       alert("Vui lòng vẽ chữ ký của Người giao hàng (Đại diện NCC).");
       return;
@@ -792,6 +797,7 @@ export default function ImportReceipts({ user }) {
     // Reset Steps 2, 3, 4 values
     setItems([{ medicineID: '', batchNumber: '', productionDate: '', expiryDate: '', importPrice: '', quantity: '' }]);
     setSecondInspector('');
+    setDeliveryPersonName(imp.deliveryPersonName || '');
     setIsAnomaly(false);
     setAnomalyDescription('');
     setCheckPackagingIntact(false);
@@ -823,6 +829,7 @@ export default function ImportReceipts({ user }) {
     setAnomalyStatus('Từ chối');
     setAnomalyDescription('');
     setSecondInspector('');
+    setDeliveryPersonName('');
 
     setCheckInvoiceMatches(false);
     setCheckTempHumidity(false);
@@ -870,6 +877,7 @@ export default function ImportReceipts({ user }) {
     }
 
     setSecondInspector(imp.secondInspector || '');
+    setDeliveryPersonName(imp.deliveryPersonName || '');
     setAnomalyDescription(imp.anomalyDescription || '');
     setIsAnomaly(!!imp.anomalyDescription);
 
@@ -933,6 +941,7 @@ export default function ImportReceipts({ user }) {
         documentsJson: JSON.stringify(uploadedDocs),
         digitalSignature: sig1, // Attach digital signature (Thủ kho)
         deliveryPersonSignature: sig2, // Attach delivery signature
+        deliveryPersonName: deliveryPersonName.trim() || null,
         items: [] // Empty items at reception phase
       };
 
@@ -1039,6 +1048,7 @@ export default function ImportReceipts({ user }) {
         digitalSignature: sig1 || null,
         secondInspectorSignature: sig3 || null,
         deliveryPersonSignature: sig2 || null,
+        deliveryPersonName: deliveryPersonName.trim() || null,
         items: formattedItems
       };
 
@@ -1081,6 +1091,7 @@ export default function ImportReceipts({ user }) {
         digitalSignature: sig1 || null, // Attach first signature if drawn (fast-import)
         secondInspectorSignature: sig3, // Attach second signature (Dược sĩ cùng kiểm)
         deliveryPersonSignature: sig2 || null, // Attach delivery signature if drawn
+        deliveryPersonName: deliveryPersonName.trim() || null,
         items: formattedItems
       };
 
@@ -1137,6 +1148,7 @@ export default function ImportReceipts({ user }) {
       digitalSignature: sig1,
       secondInspectorSignature: sig3,
       deliveryPersonSignature: sig2,
+      deliveryPersonName: deliveryPersonName.trim() || null,
       items: formattedItems
     };
 
@@ -2825,7 +2837,7 @@ export default function ImportReceipts({ user }) {
                 const isSpecialImport = hasSpecialMedicine || (totalValue > 100000000);
 
                 return (
-                  <div style={{ display: 'grid', gridTemplateColumns: isSpecialImport ? '1fr 1fr 1fr 1fr' : '1fr 1fr 1fr', textAlign: 'center', fontSize: '0.8rem', marginTop: '1.5rem', lineHeight: '1.35' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', textAlign: 'center', fontSize: '0.8rem', marginTop: '1.5rem', lineHeight: '1.35' }}>
                     <div>
                       <p style={{ margin: 0 }}><strong>Đại diện bên giao hàng</strong></p>
                       <p style={{ margin: '0.1rem 0 0 0', color: '#555', fontStyle: 'italic' }}>(Ký tay trên hệ thống)</p>
@@ -2836,7 +2848,7 @@ export default function ImportReceipts({ user }) {
                       ) : (
                         <div style={{ height: '55px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0', color: '#888', fontSize: '0.7rem' }}>- Chưa ký -</div>
                       )}
-                      <p style={{ fontWeight: 'bold' }}>Người giao hàng</p>
+                      <p style={{ fontWeight: 'bold' }}>{activeReceiptForPrint.deliveryPersonName || 'Người giao hàng'}</p>
                     </div>
                     <div>
                       <p style={{ margin: 0 }}><strong>Cán bộ kiểm nhận (Thủ kho)</strong></p>
@@ -2853,73 +2865,51 @@ export default function ImportReceipts({ user }) {
                       <p style={{ fontWeight: 'bold' }}>{activeReceiptForPrint.createdBy}</p>
                     </div>
                     <div>
-                      <p style={{ margin: 0 }}><strong>Dược sĩ trưởng (Người duyệt)</strong></p>
+                      <p style={{ margin: 0 }}><strong>Dược sĩ cùng kiểm (Người kiểm 2)</strong></p>
                       <p style={{ margin: '0.1rem 0 0 0', color: '#555', fontStyle: 'italic' }}>(Ký tay trên hệ thống)</p>
-                      {!isSpecialImport && activeReceiptForPrint.approverSignature ? (
-                        <div style={{ height: '55px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0', position: 'relative' }}>
-                          <img src={activeReceiptForPrint.approverSignature} alt="Chữ ký Dược sĩ trưởng" style={{ maxHeight: '100%', maxWidth: '100px', objectFit: 'contain', position: 'absolute', zIndex: 1 }} />
-                          <div style={{ position: 'absolute', zIndex: 2, top: '-15px', left: '50%', transform: 'translateX(-40%)', pointerEvents: 'none' }}>
-                            <RedStamp name="DS. H.L.Đ.PHÚ" />
-                          </div>
-                        </div>
-                      ) : activeReceiptForPrint.secondInspectorSignature ? (
+                      {activeReceiptForPrint.secondInspectorSignature ? (
                         <div style={{ height: '55px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0' }}>
-                          <img src={activeReceiptForPrint.secondInspectorSignature} alt="Chữ ký Dược sĩ 2" style={{ maxHeight: '100%', maxWidth: '100px', objectFit: 'contain' }} />
-                        </div>
-                      ) : (!isSpecialImport && activeReceiptForPrint.status === 'Đã nhập kho') ? (
-                        <div style={{ height: '55px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0', position: 'relative' }}>
-                          <div style={{ position: 'absolute', zIndex: 1 }}>{SIG.chuong}</div>
-                          <div style={{ position: 'absolute', zIndex: 2, top: '-15px', left: '50%', transform: 'translateX(-40%)', pointerEvents: 'none' }}>
-                            <RedStamp name="DS. H.L.Đ.PHÚ" />
-                          </div>
+                          <img src={activeReceiptForPrint.secondInspectorSignature} alt="Chữ ký Dược sĩ cùng kiểm" style={{ maxHeight: '100%', maxWidth: '100px', objectFit: 'contain' }} />
                         </div>
                       ) : (
-                        <div style={{ height: '55px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0' }}>
-                          {SIG.chuong}
+                        <div style={{ height: '55px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0', color: '#888', fontSize: '0.7rem' }}>- Chưa ký -</div>
+                      )}
+                      <p style={{ fontWeight: 'bold' }}>{activeReceiptForPrint.secondInspector || 'Dược sĩ cùng kiểm'}</p>
+                    </div>
+                    <div>
+                      <p style={{ margin: 0 }}><strong>{isSpecialImport ? 'Đại diện ban lãnh đạo' : 'Dược sĩ trưởng (Người duyệt)'}</strong></p>
+                      <p style={{ margin: '0.1rem 0 0 0', color: '#555', fontStyle: 'italic' }}>(Ký tay trên hệ thống)</p>
+                      {activeReceiptForPrint.approverSignature ? (
+                        <div style={{ height: '55px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0', position: 'relative' }}>
+                          <img src={activeReceiptForPrint.approverSignature} alt="Chữ ký Người duyệt" style={{ maxHeight: '100%', maxWidth: '100px', objectFit: 'contain', position: 'absolute', zIndex: 1 }} />
+                          <div style={{ position: 'absolute', zIndex: 2, top: '-15px', left: '50%', transform: 'translateX(-40%)', pointerEvents: 'none' }}>
+                            <RedStamp name={isSpecialImport ? "PGS.TS. L.M.TRÍ" : "DS. H.L.Đ.PHÚ"} />
+                          </div>
+                        </div>
+                      ) : activeReceiptForPrint.status === 'Đã nhập kho' ? (
+                        <div style={{ height: '55px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0', position: 'relative' }}>
+                          <div style={{ position: 'absolute', zIndex: 1 }}>{SIG.duoc}</div>
+                          <div style={{ position: 'absolute', zIndex: 2, top: '-15px', left: '50%', transform: 'translateX(-40%)', pointerEvents: 'none' }}>
+                            <RedStamp name={isSpecialImport ? "PGS.TS. L.M.TRÍ" : "DS. H.L.Đ.PHÚ"} />
+                          </div>
+                        </div>
+                      ) : activeReceiptForPrint.status === 'Từ chối' ? (
+                        <div style={{ height: '55px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0' }}>
+                          <span style={{ border: '2px solid #ef4444', color: '#ef4444', padding: '0.15rem 0.4rem', borderRadius: '4px', fontSize: '0.68rem', fontWeight: 'bold', textTransform: 'uppercase', transform: 'rotate(-5deg)' }}>TỪ CHỐI LÔ</span>
+                        </div>
+                      ) : (
+                        <div style={{ height: '55px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0' }}>
+                          <span style={{ border: '1px dashed #94a3b8', color: '#94a3b8', padding: '0.15rem 0.4rem', borderRadius: '4px', fontSize: '0.66rem' }}>CHỜ DUYỆT</span>
                         </div>
                       )}
                       <p style={{ fontWeight: 'bold' }}>
                         {isSpecialImport 
-                          ? (activeReceiptForPrint.secondInspector || 'Dược sĩ cùng kiểm') 
+                          ? (activeReceiptForPrint.status === 'Đã nhập kho' || activeReceiptForPrint.status === 'Đã kiểm' || activeReceiptForPrint.status === 'Approved'
+                            ? 'PGS.TS. Lê Minh Trí'
+                            : 'Ban Giám Đốc') 
                           : 'Dược sĩ Hà Lâm Đình Phú'}
                       </p>
                     </div>
-                    {isSpecialImport && (
-                      <div>
-                        <p style={{ margin: 0 }}><strong>Đại diện ban lãnh đạo</strong></p>
-                        <p style={{ margin: '0.1rem 0 0 0', color: '#555', fontStyle: 'italic' }}>(Ký tay trên hệ thống)</p>
-                        {activeReceiptForPrint.approverSignature ? (
-                          <div style={{ height: '55px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0', position: 'relative' }}>
-                            <img src={activeReceiptForPrint.approverSignature} alt="Chữ ký Ban lãnh đạo" style={{ maxHeight: '100%', maxWidth: '100px', objectFit: 'contain', position: 'absolute', zIndex: 1 }} />
-                            <div style={{ position: 'absolute', zIndex: 2, top: '-15px', left: '50%', transform: 'translateX(-40%)', pointerEvents: 'none' }}>
-                              <RedStamp name="PGS.TS. L.M.TRÍ" />
-                            </div>
-                          </div>
-                        ) : activeReceiptForPrint.status === 'Đã nhập kho' ? (
-                          <div style={{ height: '55px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0', position: 'relative' }}>
-                            <div style={{ position: 'absolute', zIndex: 1 }}>{SIG.duoc}</div>
-                            <div style={{ position: 'absolute', zIndex: 2, top: '-15px', left: '50%', transform: 'translateX(-40%)', pointerEvents: 'none' }}>
-                              <RedStamp name="PGS.TS. L.M.TRÍ" />
-                            </div>
-                          </div>
-                        ) : activeReceiptForPrint.status === 'Từ chối' ? (
-                          <div style={{ height: '55px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0' }}>
-                            <span style={{ border: '2px solid #ef4444', color: '#ef4444', padding: '0.15rem 0.4rem', borderRadius: '4px', fontSize: '0.68rem', fontWeight: 'bold', textTransform: 'uppercase', transform: 'rotate(-5deg)' }}>TỪ CHỐI LÔ</span>
-                          </div>
-                        ) : (
-                          <div style={{ height: '55px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0' }}>
-                            <span style={{ border: '1px dashed #94a3b8', color: '#94a3b8', padding: '0.15rem 0.4rem', borderRadius: '4px', fontSize: '0.66rem' }}>CHỜ DUYỆT</span>
-                          </div>
-                        )}
-                        <p style={{ fontWeight: 'bold' }}>
-                          {activeReceiptForPrint.status === 'Đã nhập kho' || activeReceiptForPrint.status === 'Đã kiểm' || activeReceiptForPrint.status === 'Approved'
-                            ? 'PGS.TS. Lê Minh Trí'
-                            : activeReceiptForPrint.status === 'Từ chối'
-                              ? 'PGS.TS. Lê Minh Trí'
-                              : 'Ban Giám Đốc'}
-                        </p>
-                      </div>
-                    )}
                   </div>
                 );
               })()}
@@ -3132,9 +3122,22 @@ export default function ImportReceipts({ user }) {
 
                   {/* Pad 2: Người giao hàng */}
                   {needSig2 && (
-                    <div>
-                      <div style={{ fontSize: '0.78rem', fontWeight: '700', marginBottom: '0.35rem', color: 'var(--text-main)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span>2. Chữ ký Người giao hàng (Đại diện NCC) <span style={{ color: '#ef4444' }}>*</span></span>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                      <div className="form-group" style={{ marginBottom: '0.2rem' }}>
+                        <label className="form-label" style={{ fontSize: '0.78rem', fontWeight: '700', color: 'var(--text-main)' }}>
+                          Họ và tên Người giao hàng (Đại diện NCC) <span style={{ color: '#ef4444' }}>*</span>
+                        </label>
+                        <input
+                          type="text"
+                          className="form-input"
+                          placeholder="Nhập họ tên người giao hàng"
+                          value={deliveryPersonName}
+                          onChange={e => setDeliveryPersonName(e.target.value)}
+                          style={{ height: '34px', fontSize: '0.8rem', background: '#ffffff', color: '#000000', border: '1px solid #cbd5e1' }}
+                        />
+                      </div>
+                      <div style={{ fontSize: '0.78rem', fontWeight: '700', marginBottom: '0.1rem', color: 'var(--text-main)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span>2. Vẽ chữ ký Người giao hàng (Đại diện NCC) <span style={{ color: '#ef4444' }}>*</span></span>
                         <button type="button" className="btn-secondary" style={{ padding: '0.15rem 0.4rem', fontSize: '0.65rem', height: '22px', display: 'flex', alignItems: 'center', gap: '0.15rem' }} onClick={() => clearCanvas(canvasRef2)}>
                           <Eraser size={10} /> Xóa
                         </button>

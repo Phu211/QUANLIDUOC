@@ -192,7 +192,7 @@ public class StockService
     }
 
     // Luồng 4.2: Thủ kho Dược kiểm nhận thực tế thuốc hoàn trả, cập nhật tồn kho và ký nhận cuối cùng
-    public async Task PharmacistApproveReturnAsync(int returnID, string? approverSignature = null, string? destination = "MainStore")
+    public async Task PharmacistApproveReturnAsync(int returnID, string? approverSignature = null, string? destination = "MainStore", string? approverName = null)
     {
         using var transaction = await _context.Database.BeginTransactionAsync();
         try
@@ -301,6 +301,10 @@ public class StockService
             {
                 ret.ApproverSignature = approverSignature;
             }
+            if (!string.IsNullOrEmpty(approverName))
+            {
+                ret.ApproverName = approverName;
+            }
             await _context.SaveChangesAsync();
             await transaction.CommitAsync();
         }
@@ -328,7 +332,8 @@ public class StockService
         string? digitalSignature,
         string? secondInspectorSignature,
         string? deliveryPersonSignature,
-        List<ImportItemDto> items)
+        List<ImportItemDto> items,
+        string? deliveryPersonName = null)
     {
         using var transaction = await _context.Database.BeginTransactionAsync();
         try
@@ -377,7 +382,8 @@ public class StockService
                 DocumentsJson = documentsJson,
                 DigitalSignature = digitalSignature,
                 SecondInspectorSignature = secondInspectorSignature,
-                DeliveryPersonSignature = deliveryPersonSignature
+                DeliveryPersonSignature = deliveryPersonSignature,
+                DeliveryPersonName = deliveryPersonName
             };
             _context.ImportReceipts.Add(import);
 
@@ -453,7 +459,8 @@ public class StockService
         string? digitalSignature,
         string? secondInspectorSignature,
         string? deliveryPersonSignature,
-        List<ImportItemDto> items)
+        List<ImportItemDto> items,
+        string? deliveryPersonName = null)
     {
         using var transaction = await _context.Database.BeginTransactionAsync();
         try
@@ -483,6 +490,10 @@ public class StockService
             if (!string.IsNullOrWhiteSpace(deliveryPersonSignature))
             {
                 import.DeliveryPersonSignature = deliveryPersonSignature;
+            }
+            if (!string.IsNullOrWhiteSpace(deliveryPersonName))
+            {
+                import.DeliveryPersonName = deliveryPersonName;
             }
 
             if (!string.IsNullOrWhiteSpace(documentsJson))
@@ -662,6 +673,9 @@ public class StockService
             if (!string.IsNullOrEmpty(request.DeliveryPersonSignature))
                 import.DeliveryPersonSignature = request.DeliveryPersonSignature;
 
+            if (!string.IsNullOrEmpty(request.DeliveryPersonName))
+                import.DeliveryPersonName = request.DeliveryPersonName;
+
             if (!string.IsNullOrEmpty(request.Status))
                 import.Status = request.Status;
 
@@ -740,6 +754,7 @@ public class UpdateImportRequestDto
     public string? DigitalSignature { get; set; }
     public string? SecondInspectorSignature { get; set; }
     public string? DeliveryPersonSignature { get; set; }
+    public string? DeliveryPersonName { get; set; }
     public List<ImportItemDto> Items { get; set; } = new();
 }
 

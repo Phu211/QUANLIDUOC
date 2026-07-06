@@ -219,6 +219,17 @@ export default function Returns({ user }) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
   };
 
+  const getDepartmentHeadName = (deptId) => {
+    switch (Number(deptId)) {
+      case 1: return 'BS.CKII. Nguyễn Hữu Lực';
+      case 2: return 'BS.CKII. Lê Văn Chương';
+      case 3: return 'BS.CKII. Nguyễn Đăng Đức Anh';
+      case 4: return 'BS.CKII. Trương Minh Quân';
+      case 5: return 'BS.CKII. Nguyễn Xuân Duy Thắng';
+      default: return 'Trưởng Khoa Lâm Sàng';
+    }
+  };
+
   const handleConfirmSignature = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -319,7 +330,8 @@ export default function Returns({ user }) {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
-        'X-User-Role': user?.role || ''
+        'X-User-Role': user?.role || '',
+        'X-User-FullName': encodeURIComponent(user?.fullName || '')
       },
       body: JSON.stringify(payload)
     })
@@ -386,6 +398,7 @@ export default function Returns({ user }) {
       headers: { 
         'Content-Type': 'application/json',
         'X-User-Role': user?.role || '',
+        'X-User-FullName': encodeURIComponent(user?.fullName || ''),
         'X-User-DeptID': user?.departmentID ? user.departmentID.toString() : ''
       },
       body: JSON.stringify(payload)
@@ -883,85 +896,31 @@ export default function Returns({ user }) {
                       {SIG.hong}
                     </div>
                   )}
-                  <p style={{ fontWeight: 'bold' }}>Điều dưỡng khoa lâm sàng</p>
+                  <p style={{ fontWeight: 'bold' }}>{activeReturnForPrint.proposerName || 'Điều dưỡng khoa lâm sàng'}</p>
                 </div>
                 <div>
-                  <p style={{ margin: 0 }}><strong>Trưởng Khoa / Lãnh đạo</strong></p>
-                  <p style={{ margin: '0.1rem 0 0 0', color: '#555', fontStyle: 'italic' }}>(Ký, đóng dấu)</p>
+                  <p style={{ margin: 0 }}><strong>Trưởng Khoa Lâm Sàng</strong></p>
+                  <p style={{ margin: '0.1rem 0 0 0', color: '#555', fontStyle: 'italic' }}>(Ký, ghi rõ họ tên)</p>
                   {activeReturnForPrint.directorSignature ? (
-                    <div style={{ height: '80px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0', position: 'relative' }}>
+                    <div style={{ height: '80px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0' }}>
                       <img 
                         src={activeReturnForPrint.directorSignature} 
-                        alt="Chữ ký Lãnh đạo" 
+                        alt="Chữ ký Trưởng Khoa" 
                         style={{ 
                           maxHeight: '100%', 
                           maxWidth: '120px', 
-                          objectFit: 'contain',
-                          position: 'absolute',
-                          zIndex: 1
+                          objectFit: 'contain'
                         }} 
                       />
-                      {/* Overlapping Red Stamp */}
-                      <div style={{ 
-                        position: 'absolute', 
-                        zIndex: 2, 
-                        top: '0px', 
-                        left: '50%', 
-                        transform: 'translateX(-40%) translateY(-5px)', 
-                        pointerEvents: 'none'
-                      }}>
-                        <svg width="85" height="85" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" style={{ opacity: 0.85 }}>
-                          <circle cx="60" cy="60" r="52" fill="none" stroke="#dc2626" strokeWidth="3" />
-                          <circle cx="60" cy="60" r="46" fill="none" stroke="#dc2626" strokeWidth="1.2" />
-                          <defs>
-                            <path id="stampTextPathTop" d="M 18 60 A 42 42 0 0 1 102 60" fill="none" />
-                            <path id="stampTextPathBottom" d="M 102 60 A 42 42 0 0 1 18 60" fill="none" />
-                          </defs>
-                          <text fill="#dc2626" fontSize="7.5" fontFamily="Arial, Helvetica, sans-serif" fontWeight="bold" letterSpacing="0.5">
-                            <textPath href="#stampTextPathTop" startOffset="50%" textAnchor="middle">BỆNH VIỆN ĐA KHOA HIS PHARMACY</textPath>
-                          </text>
-                          <text fill="#dc2626" fontSize="8" fontFamily="Arial, Helvetica, sans-serif" fontWeight="bold" letterSpacing="1">
-                            <textPath href="#stampTextPathBottom" startOffset="50%" textAnchor="middle">KHOA DƯỢC ★</textPath>
-                          </text>
-                          <text x="60" y="52" fill="#dc2626" fontSize="10" fontFamily="Times New Roman, serif" fontWeight="bold" textAnchor="middle">ĐÃ DUYỆT</text>
-                          <text x="60" y="66" fill="#dc2626" fontSize="6.5" fontFamily="Arial, sans-serif" fontWeight="bold" textAnchor="middle">PGS.TS. L.M.TRÍ</text>
-                        </svg>
-                      </div>
                     </div>
                   ) : activeReturnForPrint.status === 'Approved' || activeReturnForPrint.status === 'PendingPharmacist' ? (
-                    <div style={{ height: '80px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0', position: 'relative' }}>
-                      <div style={{ position: 'absolute', zIndex: 1 }}>{SIG.duoc}</div>
-                      {/* Overlapping Red Stamp */}
-                      <div style={{ 
-                        position: 'absolute', 
-                        zIndex: 2, 
-                        top: '0px', 
-                        left: '50%', 
-                        transform: 'translateX(-40%) translateY(-5px)', 
-                        pointerEvents: 'none'
-                      }}>
-                        <svg width="85" height="85" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" style={{ opacity: 0.85 }}>
-                          <circle cx="60" cy="60" r="52" fill="none" stroke="#dc2626" strokeWidth="3" />
-                          <circle cx="60" cy="60" r="46" fill="none" stroke="#dc2626" strokeWidth="1.2" />
-                          <defs>
-                            <path id="stampTextPathTop" d="M 18 60 A 42 42 0 0 1 102 60" fill="none" />
-                            <path id="stampTextPathBottom" d="M 102 60 A 42 42 0 0 1 18 60" fill="none" />
-                          </defs>
-                          <text fill="#dc2626" fontSize="7.5" fontFamily="Arial, Helvetica, sans-serif" fontWeight="bold" letterSpacing="0.5">
-                            <textPath href="#stampTextPathTop" startOffset="50%" textAnchor="middle">BỆNH VIỆN ĐA KHOA HIS PHARMACY</textPath>
-                          </text>
-                          <text fill="#dc2626" fontSize="8" fontFamily="Arial, Helvetica, sans-serif" fontWeight="bold" letterSpacing="1">
-                            <textPath href="#stampTextPathBottom" startOffset="50%" textAnchor="middle">KHOA DƯỢC ★</textPath>
-                          </text>
-                          <text x="60" y="52" fill="#dc2626" fontSize="10" fontFamily="Times New Roman, serif" fontWeight="bold" textAnchor="middle">ĐÃ DUYỆT</text>
-                          <text x="60" y="66" fill="#dc2626" fontSize="6.5" fontFamily="Arial, sans-serif" fontWeight="bold" textAnchor="middle">PGS.TS. L.M.TRÍ</text>
-                        </svg>
-                      </div>
+                    <div style={{ height: '80px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0' }}>
+                      {SIG.duoc}
                     </div>
                   ) : activeReturnForPrint.status === 'Pending' ? (
                     <div style={{ height: '80px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0' }}>
                       <span style={{ color: '#3b82f6', fontSize: '0.8rem', fontWeight: 'bold', fontStyle: 'italic', border: '1px dashed #3b82f6', padding: '0.25rem 0.5rem', borderRadius: '4px' }}>
-                        Chờ Lãnh đạo ký duyệt
+                        Chờ duyệt
                       </span>
                     </div>
                   ) : (
@@ -973,9 +932,9 @@ export default function Returns({ user }) {
                   )}
                   <p style={{ fontWeight: 'bold' }}>{
                     activeReturnForPrint.directorSignature
-                      ? 'PGS.TS. Lê Minh Trí (Đã duyệt)' 
+                      ? `${getDepartmentHeadName(activeReturnForPrint.departmentID)} (Đã duyệt)` 
                       : activeReturnForPrint.status === 'Rejected' && activeReturnForPrint.directorSignature
-                      ? 'PGS.TS. Lê Minh Trí (Từ chối)'
+                      ? `${getDepartmentHeadName(activeReturnForPrint.departmentID)} (Từ chối)`
                       : 'Chờ phê duyệt'
                   }</p>
                 </div>
@@ -1005,9 +964,9 @@ export default function Returns({ user }) {
                   )}
                   <p style={{ fontWeight: 'bold' }}>{
                     activeReturnForPrint.approverSignature 
-                      ? 'Dược sĩ Khoa Dược (Đã nhận)' 
+                      ? `${activeReturnForPrint.approverName || 'Dược sĩ Khoa Dược'} (Đã nhận)` 
                       : activeReturnForPrint.status === 'Rejected' && activeReturnForPrint.approverSignature
-                      ? 'Dược sĩ Khoa Dược (Từ chối)'
+                      ? `${activeReturnForPrint.approverName || 'Dược sĩ Khoa Dược'} (Từ chối)`
                       : 'Chờ tiếp nhận'
                   }</p>
                 </div>

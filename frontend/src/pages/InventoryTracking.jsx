@@ -6,6 +6,7 @@ export default function InventoryTracking({ user }) {
   const [summaryReport, setSummaryReport] = useState([]);
   const [batchReport, setBatchReport] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [filterType, setFilterType] = useState('all'); // 'all', 'returned', 'recalled', 'normal'
   const [loading, setLoading] = useState(true);
 
   const fetchReports = () => {
@@ -67,13 +68,26 @@ export default function InventoryTracking({ user }) {
     (item.genericName && item.genericName.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
-  const filteredBatches = batchReport.filter(item => 
-    item.medicineName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    item.medicineCode.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    item.batchNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    item.location.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (item.status && item.status.toLowerCase().includes(searchTerm.toLowerCase()))
-  );
+  const filteredBatches = batchReport.filter(item => {
+    const matchesSearch = item.medicineName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.medicineCode.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.batchNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.location.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (item.status && item.status.toLowerCase().includes(searchTerm.toLowerCase()));
+
+    if (!matchesSearch) return false;
+
+    if (filterType === 'returned') {
+      return item.sourceCode && item.sourceCode.startsWith('PHT-');
+    }
+    if (filterType === 'recalled') {
+      return (item.sourceCode && item.sourceCode.startsWith('QĐTH-')) || item.status === 'Cách ly';
+    }
+    if (filterType === 'normal') {
+      return !item.sourceCode && item.status !== 'Cách ly' && item.status !== 'Chờ tiêu hủy';
+    }
+    return true;
+  });
 
   if (loading) return <div style={{ color: '#fff', padding: '2rem' }}>Đang tải báo cáo tồn kho bệnh viện...</div>;
 
@@ -110,32 +124,57 @@ export default function InventoryTracking({ user }) {
           </button>
         </div>
 
-        <div style={{ 
-          display: 'flex', 
-          alignItems: 'center', 
-          background: 'var(--bg-secondary)', 
-          border: '1px solid var(--border-color)', 
-          borderRadius: '8px', 
-          padding: '0.4rem 0.8rem', 
-          width: '320px',
-          boxShadow: 'var(--shadow-sm)'
-        }}>
-          <Search size={16} color="var(--text-dim)" style={{ marginRight: '0.5rem' }} />
-          <input 
-            type="text" 
-            placeholder="Tìm theo tên thuốc, mã, hoạt chất..." 
-            style={{ 
-              border: 'none', 
-              background: 'none', 
-              padding: 0, 
-              fontSize: '0.85rem', 
-              outline: 'none', 
-              color: 'var(--text-main)',
-              width: '100%'
-            }}
-            value={searchTerm}
-            onChange={handleSearchChange}
-          />
+        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+          {reportType === 'batches' && (
+            <select
+              value={filterType}
+              onChange={(e) => setFilterType(e.target.value)}
+              style={{
+                background: 'var(--bg-secondary)',
+                color: 'var(--text-main)',
+                border: '1px solid var(--border-color)',
+                borderRadius: '8px',
+                padding: '0.42rem 0.8rem',
+                fontSize: '0.85rem',
+                outline: 'none',
+                cursor: 'pointer',
+                boxShadow: 'var(--shadow-sm)'
+              }}
+            >
+              <option value="all">Tất cả nguồn thuốc</option>
+              <option value="returned">Chỉ thuốc hoàn trả (PHT)</option>
+              <option value="recalled">Chỉ thuốc thu hồi/cách ly (QĐTH)</option>
+              <option value="normal">Chỉ thuốc bình thường (Kho chính)</option>
+            </select>
+          )}
+
+          <div style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            background: 'var(--bg-secondary)', 
+            border: '1px solid var(--border-color)', 
+            borderRadius: '8px', 
+            padding: '0.4rem 0.8rem', 
+            width: '320px',
+            boxShadow: 'var(--shadow-sm)'
+          }}>
+            <Search size={16} color="var(--text-dim)" style={{ marginRight: '0.5rem' }} />
+            <input 
+              type="text" 
+              placeholder="Tìm theo tên thuốc, mã, hoạt chất..." 
+              style={{ 
+                border: 'none', 
+                background: 'none', 
+                padding: 0, 
+                fontSize: '0.85rem', 
+                outline: 'none', 
+                color: 'var(--text-main)',
+                width: '100%'
+              }}
+              value={searchTerm}
+              onChange={handleSearchChange}
+            />
+          </div>
         </div>
       </div>
 

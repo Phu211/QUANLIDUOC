@@ -59,6 +59,18 @@ using (var scope = app.Services.CreateScope())
         db.Database.ExecuteSqlRaw("IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('RecallLogs') AND name = 'ApprovedBy') ALTER TABLE RecallLogs ADD ApprovedBy NVARCHAR(250) NULL;");
         db.Database.ExecuteSqlRaw("IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('RecallLogs') AND name = 'ApproverSignature') ALTER TABLE RecallLogs ADD ApproverSignature NVARCHAR(MAX) NULL;");
         db.Database.ExecuteSqlRaw("UPDATE RecallLogs SET Status = 'Approved' WHERE Status IS NULL;");
+        
+        db.Database.ExecuteSqlRaw("IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('ReturnReceipts') AND name = 'ApproverName') ALTER TABLE ReturnReceipts ADD ApproverName NVARCHAR(250) NULL;");
+        db.Database.ExecuteSqlRaw("IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('ReturnReceipts') AND name = 'ProposerName') ALTER TABLE ReturnReceipts ADD ProposerName NVARCHAR(250) NULL;");
+        db.Database.ExecuteSqlRaw("IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('ImportReceipts') AND name = 'DeliveryPersonName') ALTER TABLE ImportReceipts ADD DeliveryPersonName NVARCHAR(250) NULL;");
+        
+        // Data patches for historical return receipts
+        db.Database.ExecuteSqlRaw("UPDATE ReturnReceipts SET ProposerName = N'Điều dưỡng trưởng Trần Trung Nam' WHERE DepartmentID = 1 AND (ProposerName IS NULL OR ProposerName = N'ĐDT. Tạ Thị Hồng');");
+        db.Database.ExecuteSqlRaw("UPDATE ReturnReceipts SET ProposerName = N'Điều dưỡng trưởng Trần Vỹ Khang' WHERE DepartmentID = 2 AND (ProposerName IS NULL OR ProposerName = N'ĐDT. Phan Thị Cẩm Tú');");
+        db.Database.ExecuteSqlRaw("UPDATE ReturnReceipts SET ProposerName = N'Điều dưỡng trưởng Trần Thanh Phương' WHERE DepartmentID = 3 AND (ProposerName IS NULL OR ProposerName = N'ĐDT. Nguyễn Thị Mai');");
+        db.Database.ExecuteSqlRaw("UPDATE ReturnReceipts SET ProposerName = N'Điều dưỡng trưởng Nguyễn Trần Gia Khang' WHERE DepartmentID = 4 AND (ProposerName IS NULL OR ProposerName = N'ĐDT. Lê Thị Ngọc');");
+        db.Database.ExecuteSqlRaw("UPDATE ReturnReceipts SET ProposerName = N'Điều dưỡng trưởng Nguyễn Thái Bình Dương' WHERE DepartmentID = 5 AND (ProposerName IS NULL OR ProposerName = N'ĐDT. Phạm Hoàng Yến');");
+        db.Database.ExecuteSqlRaw("UPDATE ReturnReceipts SET ApproverName = N'DS. Hà Lâm Đình Phú' WHERE ApproverSignature IS NOT NULL AND ApproverName IS NULL;");
     }
     catch (Exception ex)
     {
