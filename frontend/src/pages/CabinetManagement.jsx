@@ -16,8 +16,8 @@ export default function CabinetManagement({ user }) {
   // Patient Export Form State
   const [patientCode, setPatientCode] = useState('');
   const [patientName, setPatientName] = useState('');
-  const [selectedStockId, setSelectedStockId] = useState(''); // DepartmentStock BatchID
-  const [exportQty, setExportQty] = useState('');
+  const [exportItems, setExportItems] = useState([{ batchID: '', quantity: '' }]);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     fetch('/api/requisition/departments')
@@ -65,38 +65,80 @@ export default function CabinetManagement({ user }) {
     return () => window.removeEventListener('pharmacy-update', handleUpdate);
   }, [selectedDept]);
 
+  const addExportItem = () => {
+    setExportItems([...exportItems, { batchID: '', quantity: '' }]);
+  };
+
+  const updateExportItem = (index, field, value) => {
+    const updated = [...exportItems];
+    updated[index][field] = value;
+    setExportItems(updated);
+  };
+
+  const removeExportItem = (index) => {
+    const updated = exportItems.filter((_, idx) => idx !== index);
+    setExportItems(updated);
+  };
+
   const handleExportSubmit = (e) => {
     e.preventDefault();
-    if (!selectedDept) return;
-    if (!patientCode || !patientName || !selectedStockId || !exportQty) {
-      alert("Vui lòng điền đầy đủ thông tin xuất tủ trực cho bệnh nhân.");
+    if (!selectedDept || exporting) return;
+    if (!patientCode || !patientName) {
+      alert("Vui lòng điền đầy đủ thông tin bệnh nhân.");
       return;
     }
 
-    const qtyStr = exportQty.toString().trim();
-    if (!/^\d+$/.test(qtyStr)) {
-      alert("Số lượng xuất phải là số nguyên dương lớn hơn hoặc bằng 1.");
-      return;
-    }
-    const qty = parseInt(qtyStr, 10);
-    if (qty <= 0) {
-      alert("Số lượng xuất phải là số nguyên dương lớn hơn hoặc bằng 1.");
+    if (exportItems.length === 0) {
+      alert("Vui lòng thêm ít nhất một loại thuốc để xuất tủ.");
       return;
     }
 
-    const stockItem = cabinetStocks.find(s => s.batchID.toString() === selectedStockId);
-    if (!stockItem || stockItem.currentQuantity < qty) {
-      alert("Số lượng tồn trong tủ trực tại khoa phòng không đủ để cấp.");
-      return;
+    // Validate items
+    const validatedItems = [];
+    for (let i = 0; i < exportItems.length; i++) {
+      const item = exportItems[i];
+      if (!item.batchID || !item.quantity) {
+        alert(`Dòng số ${i + 1}: Vui lòng chọn thuốc và nhập số lượng.`);
+        return;
+      }
+
+      const qtyStr = item.quantity.toString().trim();
+      if (!/^\d+$/.test(qtyStr)) {
+        alert(`Dòng số ${i + 1}: Số lượng xuất phải là số nguyên dương lớn hơn hoặc bằng 1.`);
+        return;
+      }
+      const qty = parseInt(qtyStr, 10);
+      if (qty <= 0) {
+        alert(`Dòng số ${i + 1}: Số lượng xuất phải là số nguyên dương lớn hơn hoặc bằng 1.`);
+        return;
+      }
+
+      const stockItem = cabinetStocks.find(s => s.batchID.toString() === item.batchID);
+      if (!stockItem || stockItem.currentQuantity < qty) {
+        alert(`Dòng số ${i + 1}: Số lượng tồn trong tủ trực của thuốc "${stockItem?.batch?.medicine?.medicineName || 'đã chọn'}" không đủ để cấp.`);
+        return;
+      }
+
+      // Check duplicates
+      if (validatedItems.some(v => v.batchID === parseInt(item.batchID))) {
+        alert(`Dòng số ${i + 1}: Thuốc này đã bị trùng lặp trong danh sách xuất.`);
+        return;
+      }
+
+      validatedItems.push({
+        batchID: parseInt(item.batchID),
+        quantity: qty
+      });
     }
 
     const payload = {
       departmentID: parseInt(selectedDept),
-      batchID: parseInt(selectedStockId),
       patientCode: patientCode,
       patientName: patientName,
-      quantity: qty
+      items: validatedItems
     };
+
+    setExporting(true);
 
     fetch('/api/cabinet/export', {
       method: 'POST',
@@ -112,15 +154,15 @@ export default function CabinetManagement({ user }) {
       }
       return res.json();
     })
-    .then(newTx => {
+    .then(newTxs => {
       alert(`Đã xuất tủ trực thành công cho bệnh nhân: ${patientName}.`);
       setPatientCode('');
       setPatientName('');
-      setSelectedStockId('');
-      setExportQty('');
+      setExportItems([{ batchID: '', quantity: '' }]);
       fetchCabinetData(selectedDept);
     })
-    .catch(err => alert(err.message));
+    .catch(err => alert(err.message))
+    .finally(() => setExporting(false));
   };
 
   const handleReturnRecall = (batchID) => {
@@ -463,39 +505,74 @@ export default function CabinetManagement({ user }) {
                 </div>
               </div>
 
-              <div className="form-row" style={{ marginTop: '0.5rem' }}>
-                <div className="form-group">
-                  <label className="form-label">Chọn Thuốc trong tủ</label>
-                    <select 
-                      className="form-input"
-                      value={selectedStockId}
-                      onChange={e => setSelectedStockId(e.target.value)}
-                    >
-                      <option value="">-- Chọn thuốc xuất tủ --</option>
-                      {cabinetStocks.map((s, idx) => {
-                        const isEarliest = cabinetStocks.findIndex(item => item.batch?.medicineID === s.batch?.medicineID) === idx;
-                        const expiryStr = s.batch?.expiryDate ? new Date(s.batch.expiryDate).toLocaleDateString('vi-VN') : 'N/A';
-                        const isSuspended = s.batch?.status !== 'Bình thường';
-                        return (
-                          <option key={s.batchID} value={s.batchID} disabled={isSuspended}>
-                            {s.batch?.medicine?.medicineName} (Lô: {s.batch?.batchNumber} - Tồn: {s.currentQuantity} - HSD: {expiryStr}){isSuspended ? ` [ĐÌNH CHỈ / THU HỒI: ${s.batch?.status}]` : isEarliest ? ' ★ [ƯU TIÊN FEFO]' : ''}
-                          </option>
-                        );
-                      })}
-                    </select>
+              <div style={{ marginTop: '1rem', borderTop: '1px dashed var(--border-glass)', paddingTop: '1rem', marginBottom: '1rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                  <span style={{ fontSize: '0.88rem', fontWeight: '700', color: 'var(--text-main)' }}>
+                    Danh sách Thuốc / Vật tư cấp phát:
+                  </span>
+                  <button 
+                    type="button" 
+                    className="btn-premium" 
+                    style={{ padding: '0.25rem 0.6rem', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.25rem', height: '28px', background: 'var(--color-secondary)', borderColor: 'var(--color-secondary)', color: '#ffffff' }}
+                    onClick={addExportItem}
+                  >
+                    + Thêm thuốc
+                  </button>
                 </div>
-                <div className="form-group">
-                  <label className="form-label">Số lượng xuất</label>
-                  <input 
-                    type="number" 
-                    min="1"
-                    step="1"
-                    className="form-input" 
-                    placeholder="VD: 2" 
-                    value={exportQty} 
-                    onChange={e => setExportQty(e.target.value)}
-                  />
-                </div>
+
+                {exportItems.map((item, index) => {
+                  return (
+                    <div key={index} className="form-row" style={{ marginTop: '0.5rem', alignItems: 'flex-end', background: 'rgba(255,255,255,0.02)', padding: '0.5rem', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.05)', display: 'flex', gap: '0.75rem' }}>
+                      <div className="form-group" style={{ flex: 3 }}>
+                        <label className="form-label" style={{ fontSize: '0.75rem' }}>Thuốc trong tủ / Lô sản xuất ({index + 1})</label>
+                        <select 
+                          className="form-input"
+                          value={item.batchID}
+                          onChange={e => updateExportItem(index, 'batchID', e.target.value)}
+                        >
+                          <option value="">-- Chọn thuốc xuất tủ --</option>
+                          {cabinetStocks.map((s, idx) => {
+                            const isEarliest = cabinetStocks.findIndex(it => it.batch?.medicineID === s.batch?.medicineID) === idx;
+                            const expiryStr = s.batch?.expiryDate ? new Date(s.batch.expiryDate).toLocaleDateString('vi-VN') : 'N/A';
+                            const isSuspended = s.batch?.status !== 'Bình thường';
+                            const expiryDate = s.batch?.expiryDate ? new Date(s.batch.expiryDate) : null;
+                            const today = new Date();
+                            today.setHours(0,0,0,0);
+                            const isExpired = expiryDate ? (expiryDate - today) <= 0 : false;
+                            const isDisabled = isSuspended || isExpired;
+                            return (
+                              <option key={s.batchID} value={s.batchID} disabled={isDisabled}>
+                                {s.batch?.medicine?.medicineName} (Lô: {s.batch?.batchNumber} - Tồn: {s.currentQuantity} - HSD: {expiryStr}){isSuspended ? ` [ĐÌNH CHỈ / THU HỒI: ${s.batch?.status}]` : isExpired ? ' [⚠️ HẾT HẠN]' : isEarliest ? ' ★ [ƯU TIÊN FEFO]' : ''}
+                              </option>
+                            );
+                          })}
+                        </select>
+                      </div>
+                      <div className="form-group" style={{ flex: 1 }}>
+                        <label className="form-label" style={{ fontSize: '0.75rem' }}>Số lượng</label>
+                        <input 
+                          type="number" 
+                          min="1"
+                          step="1"
+                          className="form-input" 
+                          placeholder="SL" 
+                          value={item.quantity} 
+                          onChange={e => updateExportItem(index, 'quantity', e.target.value)}
+                        />
+                      </div>
+                      {exportItems.length > 1 && (
+                        <button 
+                          type="button" 
+                          className="btn-danger" 
+                          style={{ padding: '0.4rem 0.5rem', height: '38px', minWidth: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '0px', background: '#ef4444', borderColor: '#ef4444', color: '#ffffff', borderRadius: '6px' }}
+                          onClick={() => removeExportItem(index)}
+                        >
+                          <X size={14} />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
 
               {cabinetStocks.length === 0 && (
@@ -518,8 +595,17 @@ export default function CabinetManagement({ user }) {
                 <span>Điều dưỡng lâm sàng thực hiện cấp phát tủ trực theo y lệnh của Bác sĩ điều trị.</span>
               </div>
 
-              <button type="submit" className="btn-premium" style={{ width: '100%', justifyContent: 'center', marginTop: '0.5rem' }} disabled={cabinetStocks.length === 0}>
-                <Send size={16} /> Xác nhận cấp xuất từ tủ trực (Theo Y lệnh)
+              <button 
+                type="submit" 
+                className="btn-premium" 
+                style={{ width: '100%', justifyContent: 'center', marginTop: '0.5rem', opacity: exporting ? 0.7 : 1 }} 
+                disabled={cabinetStocks.length === 0 || exporting}
+              >
+                {exporting ? 'Đang xử lý...' : (
+                  <>
+                    <Send size={16} /> Xác nhận cấp xuất từ tủ trực (Theo Y lệnh)
+                  </>
+                )}
               </button>
             </form>
           </div>

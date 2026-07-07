@@ -33,6 +33,11 @@ public class CabinetService
                 throw new InvalidOperationException($"Lô thuốc {stock.Batch.BatchNumber} đang bị đình chỉ hoặc thu hồi (Trạng thái: {stock.Batch.Status}). Không thể cấp phát cho bệnh nhân!");
             }
 
+            if (stock.Batch != null && stock.Batch.ExpiryDate.Date <= DateTime.Today.Date)
+            {
+                throw new InvalidOperationException($"Lô thuốc {stock.Batch.BatchNumber} đã hết hạn sử dụng (Hạn dùng: {stock.Batch.ExpiryDate:dd/MM/yyyy}). Không thể cấp phát cho bệnh nhân!");
+            }
+
             // Subtract cabinet stock
             stock.CurrentQuantity -= quantity;
 
@@ -54,6 +59,68 @@ public class CabinetService
             await transaction.CommitAsync();
 
             return cabTx;
+        }
+        catch
+        {
+            await transaction.RollbackAsync();
+            throw;
+        }
+    }
+
+    // Luồng 2b: Xuất nhiều loại thuốc từ tủ trực cấp phát cho bệnh nhân
+    public async Task<List<CabinetTransaction>> ExportMultipleFromCabinetAsync(int departmentID, string patientCode, string patientName, List<CabinetExportItem> items)
+    {
+        using var transaction = await _context.Database.BeginTransactionAsync();
+        try
+        {
+            var transactions = new List<CabinetTransaction>();
+
+            foreach (var item in items)
+            {
+                // Find stock card in the department cabinet
+                var stock = await _context.DepartmentStocks
+                    .Include(ds => ds.Batch)
+                    .FirstOrDefaultAsync(ds => ds.DepartmentID == departmentID && ds.BatchID == item.BatchID);
+
+                if (stock == null || stock.CurrentQuantity < item.Quantity)
+                {
+                    throw new InvalidOperationException($"Số lượng tồn trong tủ trực tại khoa phòng không đủ để xuất phát.");
+                }
+
+                if (stock.Batch != null && stock.Batch.Status != "Bình thường")
+                {
+                    throw new InvalidOperationException($"Lô thuốc {stock.Batch.BatchNumber} đang bị đình chỉ hoặc thu hồi (Trạng thái: {stock.Batch.Status}). Không thể cấp phát cho bệnh nhân!");
+                }
+
+                if (stock.Batch != null && stock.Batch.ExpiryDate.Date <= DateTime.Today.Date)
+                {
+                    throw new InvalidOperationException($"Lô thuốc {stock.Batch.BatchNumber} đã hết hạn sử dụng (Hạn dùng: {stock.Batch.ExpiryDate:dd/MM/yyyy}). Không thể cấp phát cho bệnh nhân!");
+                }
+
+                // Subtract cabinet stock
+                stock.CurrentQuantity -= item.Quantity;
+
+                // Log cabinet transaction
+                var cabTx = new CabinetTransaction
+                {
+                    DepartmentID = departmentID,
+                    BatchID = item.BatchID,
+                    PatientCode = patientCode,
+                    PatientName = patientName,
+                    Quantity = item.Quantity,
+                    TransactionDate = DateTime.Now,
+                    IsRefilled = false,
+                    RequisitionID = null
+                };
+
+                _context.CabinetTransactions.Add(cabTx);
+                transactions.Add(cabTx);
+            }
+
+            await _context.SaveChangesAsync();
+            await transaction.CommitAsync();
+
+            return transactions;
         }
         catch
         {
@@ -143,4 +210,10 @@ public class CabinetService
             throw;
         }
     }
+}
+
+public class CabinetExportItem
+{
+    public int BatchID { get; set; }
+    public int Quantity { get; set; }
 }

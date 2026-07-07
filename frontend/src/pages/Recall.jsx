@@ -170,6 +170,14 @@ export default function Recall({ user }) {
 
   useEffect(() => {
     fetchData();
+
+    const handleUpdate = (e) => {
+      if (e.detail === 'Recalls' || e.detail === 'Inventory') {
+        fetchData();
+      }
+    };
+    window.addEventListener('pharmacy-update', handleUpdate);
+    return () => window.removeEventListener('pharmacy-update', handleUpdate);
   }, []);
 
   const fetchData = () => {
@@ -659,9 +667,7 @@ export default function Recall({ user }) {
                           alt="Chữ ký Lãnh đạo" 
                           style={{ maxHeight: '100%', maxWidth: '200px', objectFit: 'contain', zIndex: 1 }} 
                         />
-                      ) : (
-                        <div style={{ position: 'absolute', zIndex: 1 }}>{SIG.duoc}</div>
-                      )}
+                      ) : null}
                       <div style={{ position: 'absolute', zIndex: 2, top: '-15px', left: '50%', transform: 'translateX(-40%)', pointerEvents: 'none' }}>
                         <RedStamp name="PGS.TS. Lê Minh Trí" subText="GIÁM ĐỐC ★" />
                       </div>

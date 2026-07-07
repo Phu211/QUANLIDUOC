@@ -412,22 +412,26 @@ namespace HisPharmacy.Api.Controllers
                 return NotFound(new { message = "Không tìm thấy phiếu kiểm kê" });
             }
 
-            if (audit.Status != "Có chênh lệch")
+            if (audit.Status != "Có chênh lệch" && audit.Status != "Đã xác nhận")
             {
-                return BadRequest(new { message = "Phiếu kiểm kê không ở trạng thái Chờ duyệt chênh lệch." });
+                return BadRequest(new { message = "Phiếu kiểm kê không ở trạng thái hợp lệ để phê duyệt." });
             }
 
+            // Cập nhật thông tin ký duyệt
+            var oldStatus = audit.Status;
             audit.DirectorSignature = request.Signature;
             audit.DirectorSignedBy = request.SignedBy;
             audit.DirectorSignedAt = DateTime.Now;
-            audit.Status = "Đã xác nhận"; // Đã được duyệt chênh lệch, sẵn sàng điều chỉnh tồn kho
+            audit.Status = "Đã xác nhận"; // Đã được duyệt chênh lệch / Ký xác nhận, sẵn sàng điều chỉnh tồn kho
 
             // Cập nhật dòng thời gian
             var timeline = JsonSerializer.Deserialize<List<TimelineEvent>>(audit.TimelineJson ?? "[]") ?? new List<TimelineEvent>();
             timeline.Add(new TimelineEvent
             {
                 Time = DateTime.Now.ToString("dd/MM/yyyy HH:mm"),
-                Activity = $"Ban Giám Đốc phê duyệt chênh lệch kiểm kê và ký số bởi {request.SignedBy}",
+                Activity = oldStatus == "Có chênh lệch"
+                    ? $"Ban Giám Đốc phê duyệt chênh lệch kiểm kê và ký số bởi {request.SignedBy}"
+                    : $"Ban Giám Đốc ký xác nhận biên bản kiểm kê bởi {request.SignedBy}",
                 User = request.SignedBy
             });
             audit.TimelineJson = JsonSerializer.Serialize(timeline);

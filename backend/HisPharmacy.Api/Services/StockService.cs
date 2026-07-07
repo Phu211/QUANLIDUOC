@@ -432,7 +432,7 @@ public class StockService
     }
 
     // Phương thức phê duyệt kiểm nhập phiếu nhập kho (chuyển trạng thái sang Đã nhập kho)
-    public async Task ApproveImportReceiptAsync(int importID, string? approverSignature = null)
+    public async Task ApproveImportReceiptAsync(int importID, string? approverSignature = null, string? approverName = null)
     {
         var import = await _context.ImportReceipts.FindAsync(importID);
         if (import == null)
@@ -445,6 +445,10 @@ public class StockService
         if (!string.IsNullOrWhiteSpace(approverSignature))
         {
             import.ApproverSignature = approverSignature;
+        }
+        if (!string.IsNullOrWhiteSpace(approverName))
+        {
+            import.ApproverName = approverName;
         }
         await _context.SaveChangesAsync();
     }

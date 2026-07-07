@@ -291,6 +291,8 @@ public class MedicineRequisition
     public string? ProposerName { get; set; }
     public string? ApproverName { get; set; }
     public string? ReceiverName { get; set; }
+    public string? WitnessName { get; set; }
+    public string? WitnessSignature { get; set; }
     public int SlaMinutes { get; set; } = 120;
     public bool IsSlaBreached { get; set; } = false;
 
@@ -351,6 +353,7 @@ public class ImportReceipt
     public string? DeliveryPersonSignature { get; set; } // Base64 signature image string của người giao hàng
     public string? DeliveryPersonName { get; set; } // Họ tên Người giao hàng (NCC)
     public string? ApproverSignature { get; set; } // Base64 signature image string của người duyệt nhập kho (Ban lãnh đạo)
+    public string? ApproverName { get; set; } // Họ tên Dược sĩ trưởng hoặc Ban giám đốc duyệt
     public string? EditHistoryJson { get; set; } // Chuỗi JSON lưu vết lịch sử điều chỉnh phiếu
 
     // Navigation
@@ -437,6 +440,8 @@ public class LiquidationReceipt
     public string? ProposerSignature { get; set; }
     public string? ApproverSignature { get; set; }
     public string Type { get; set; } = "Tiêu hủy"; // 'Thanh lý', 'Tiêu hủy'
+    public string? CheckerName { get; set; }
+    public string? CheckerSignature { get; set; }
 
     // Navigation
     public List<LiquidationReceiptDetail> Details { get; set; } = new();

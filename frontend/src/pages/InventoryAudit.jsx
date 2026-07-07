@@ -858,13 +858,13 @@ export default function InventoryAudit({ user }) {
               </>
             )}
 
-            {activeAudit.status === 'Có chênh lệch' && user?.role === 'director' && (
+            {((activeAudit.status === 'Có chênh lệch' || activeAudit.status === 'Đã xác nhận') && user?.role === 'director' && !activeAudit.directorSignature) && (
               <button 
                 className="btn-premium" 
                 style={{ width: '100%', height: '36px', fontSize: '0.82rem', background: '#7c3aed', color: '#fff', border: 'none' }}
                 onClick={() => openSignatureModal('approve')}
               >
-                Ký Duyệt Chênh Lệch Lớn
+                {activeAudit.status === 'Có chênh lệch' ? 'Ký Duyệt Chênh Lệch Lớn' : 'Ký Phê Duyệt Kiểm Kê'}
               </button>
             )}
 
@@ -1230,16 +1230,9 @@ export default function InventoryAudit({ user }) {
                         <RedStamp name="PGS.TS. L.M.TRÍ" />
                       </div>
                     </>
-                  ) : activeAuditForPrint.discrepancyThresholdExceeded && (activeAuditForPrint.status === 'Đã điều chỉnh' || activeAuditForPrint.status === 'Đã xác nhận') ? (
-                    <>
-                      <div style={{ position: 'absolute', zIndex: 1 }}>{SIG.duoc}</div>
-                      <div style={{ position: 'absolute', zIndex: 2, top: '-15px', left: '50%', transform: 'translateX(-40%)', pointerEvents: 'none' }}>
-                        <RedStamp name="PGS.TS. L.M.TRÍ" />
-                      </div>
-                    </>
                   ) : (
                     <span style={{ color: '#888', fontStyle: 'italic', fontSize: '11px' }}>
-                      {activeAuditForPrint.discrepancyThresholdExceeded ? 'Chờ Ban Giám Đốc duyệt' : 'Không yêu cầu'}
+                      Chờ Ban Giám Đốc duyệt
                     </span>
                   )}
                 </div>

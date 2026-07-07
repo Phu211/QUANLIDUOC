@@ -51,8 +51,22 @@ public class CabinetController : ControllerBase
         var userRole = Request.Headers["X-User-Role"].ToString();
         if (userRole != "nurse" && userRole != "head" && userRole != "head_nurse")
             return BadRequest(new { Error = "Quyền truy cập bị từ chối. Chỉ Điều dưỡng khoa hoặc Trưởng khoa mới có quyền thực hiện xuất tủ trực cấp phát cho bệnh nhân." });
-        if (request == null || request.Quantity <= 0)
+        
+        if (request == null)
             return BadRequest(new { Error = "Thông tin xuất tủ trực không hợp lệ." });
+
+        var items = new List<CabinetExportItem>();
+        if (request.Items != null && request.Items.Any())
+        {
+            items.AddRange(request.Items);
+        }
+        else if (request.BatchID.HasValue && request.Quantity.HasValue)
+        {
+            items.Add(new CabinetExportItem { BatchID = request.BatchID.Value, Quantity = request.Quantity.Value });
+        }
+
+        if (!items.Any() || items.Any(i => i.Quantity <= 0))
+            return BadRequest(new { Error = "Số lượng xuất phải lớn hơn 0." });
 
         try
         {
@@ -61,12 +75,11 @@ public class CabinetController : ControllerBase
             if (isCabinetLocked)
                 return BadRequest(new { Error = "Tủ trực của khoa đang tiến hành kiểm kê và bị khóa mọi giao dịch xuất tủ." });
 
-            var tx = await _cabinetService.ExportFromCabinetAsync(
+            var txs = await _cabinetService.ExportMultipleFromCabinetAsync(
                 request.DepartmentID, 
-                request.BatchID, 
                 request.PatientCode, 
                 request.PatientName, 
-                request.Quantity
+                items
             );
 
             // Broadcast real-time updates
@@ -74,7 +87,7 @@ public class CabinetController : ControllerBase
             await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Inventory");
             await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Dashboard");
 
-            return Ok(tx);
+            return Ok(txs);
         }
         catch (Exception ex)
         {
@@ -118,10 +131,11 @@ public class CabinetController : ControllerBase
 public class CabinetExportRequest
 {
     public int DepartmentID { get; set; }
-    public int BatchID { get; set; }
+    public int? BatchID { get; set; }
     public string PatientCode { get; set; } = string.Empty;
     public string PatientName { get; set; } = string.Empty;
-    public int Quantity { get; set; }
+    public int? Quantity { get; set; }
+    public List<CabinetExportItem> Items { get; set; } = new();
 }
 
 public class RefillRequestPayload

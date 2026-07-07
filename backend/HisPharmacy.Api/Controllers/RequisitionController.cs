@@ -336,6 +336,8 @@ public class RequisitionController : ControllerBase
             req.ReceiverSignature = payload.ReceiverSignature;
             req.ReceiverName = payload.ReceiverName ?? userFullName;
             req.ReceiveDate = DateTime.Now;
+            req.WitnessName = payload.WitnessName;
+            req.WitnessSignature = payload.WitnessSignature;
 
             // Check SLA Breach
             if (req.DeliveredAt != null)
@@ -481,7 +483,7 @@ public class RequisitionController : ControllerBase
         if (userRole != "pharmacist")
             return BadRequest(new { Error = "Quyền truy cập bị từ chối. Chỉ Thủ kho Dược mới có quyền thực hiện cấp phát trực tiếp." });
 
-        if (request == null || request.DepartmentID <= 0 || request.Quantity <= 0 || request.BatchID <= 0)
+        if (request == null || request.DepartmentID <= 0 || request.Items == null || !request.Items.Any())
             return BadRequest(new { Error = "Thông tin cấp phát không hợp lệ." });
 
         // Check lock MainStore
@@ -497,22 +499,10 @@ public class RequisitionController : ControllerBase
         using var transaction = await _context.Database.BeginTransactionAsync();
         try
         {
-            // 1. Check main store stock
-            var invStock = await _context.InventoryStocks
-                .Include(s => s.Batch)
-                .FirstOrDefaultAsync(s => s.BatchID == request.BatchID);
+            var userFullName = System.Net.WebUtility.UrlDecode(Request.Headers["X-User-FullName"].ToString());
+            if (string.IsNullOrEmpty(userFullName)) userFullName = "Thủ kho Dược";
 
-            if (invStock == null || invStock.CurrentQuantity < request.Quantity)
-                return BadRequest(new { Error = "Số lượng tồn kho chính không đủ để cấp phát." });
-
-            if (invStock.Batch != null && invStock.Batch.Status != "Bình thường")
-                return BadRequest(new { Error = $"Lô thuốc này đang ở trạng thái [{invStock.Batch.Status}], không được phép thực hiện cấp phát." });
-
-            // 2. Subtract from main store and add to ReservedQuantity
-            invStock.CurrentQuantity -= request.Quantity;
-            invStock.ReservedQuantity += request.Quantity;
-
-            // 3. Create a preceding MedicineRequisition under the hood
+            // 1. Create a preceding MedicineRequisition under the hood
             var requisition = new MedicineRequisition
             {
                 DepartmentID = request.DepartmentID,
@@ -520,6 +510,7 @@ public class RequisitionController : ControllerBase
                 RequisitionType = "DirectTransfer",
                 Status = "InTransit",
                 ApproverSignature = request.DigitalSignature,
+                ApproverName = userFullName,
                 DeliveredAt = DateTime.Now,
                 DeliveryBy = "Thủ kho Dược",
                 DeliveryPhone = "0909123456",
@@ -529,17 +520,7 @@ public class RequisitionController : ControllerBase
             _context.MedicineRequisitions.Add(requisition);
             await _context.SaveChangesAsync(); // Generates RequisitionID
 
-            // 4. Create MedicineRequisitionDetail
-            var reqDetail = new MedicineRequisitionDetail
-            {
-                RequisitionID = requisition.RequisitionID,
-                MedicineID = invStock.Batch?.MedicineID ?? 0,
-                RequestedQuantity = request.Quantity,
-                DispensedQuantity = request.Quantity
-            };
-            _context.MedicineRequisitionDetails.Add(reqDetail);
-
-            // 5. Record InternalTransfer log linked to the Requisition
+            // 2. Record InternalTransfer log linked to the Requisition
             var transfer = new InternalTransfer
             {
                 FromDepartmentID = null,
@@ -551,12 +532,63 @@ public class RequisitionController : ControllerBase
             _context.InternalTransfers.Add(transfer);
             await _context.SaveChangesAsync(); // Generates TransferID
 
-            transfer.Details.Add(new InternalTransferDetail
+            foreach (var item in request.Items)
             {
-                TransferID = transfer.TransferID,
-                BatchID = request.BatchID,
-                Quantity = request.Quantity
-            });
+                if (item.Quantity <= 0 || item.BatchID <= 0)
+                    return BadRequest(new { Error = "Lô hoặc số lượng cấp phát không hợp lệ." });
+
+                // Check main store stock
+                var invStock = await _context.InventoryStocks
+                    .Include(s => s.Batch)
+                    .FirstOrDefaultAsync(s => s.BatchID == item.BatchID);
+
+                if (invStock == null || invStock.CurrentQuantity < item.Quantity)
+                    return BadRequest(new { Error = $"Số lượng tồn kho chính không đủ để cấp phát." });
+
+                if (invStock.Batch != null && invStock.Batch.Status != "Bình thường")
+                    return BadRequest(new { Error = $"Lô thuốc [{invStock.Batch.BatchNumber}] đang ở trạng thái [{invStock.Batch.Status}], không được phép thực hiện cấp phát." });
+
+                if (invStock.Batch != null && invStock.Batch.ExpiryDate.Date <= DateTime.Today.Date)
+                    return BadRequest(new { Error = $"Lô thuốc [{invStock.Batch.BatchNumber}] đã hết hạn sử dụng ({invStock.Batch.ExpiryDate:dd/MM/yyyy}), không được phép thực hiện cấp phát." });
+
+                // Subtract from main store and add to ReservedQuantity
+                invStock.CurrentQuantity -= item.Quantity;
+                invStock.ReservedQuantity += item.Quantity;
+
+                // Create MedicineRequisitionDetail
+                var reqDetail = new MedicineRequisitionDetail
+                {
+                    RequisitionID = requisition.RequisitionID,
+                    MedicineID = invStock.Batch?.MedicineID ?? 0,
+                    RequestedQuantity = item.Quantity,
+                    DispensedQuantity = item.Quantity
+                };
+                _context.MedicineRequisitionDetails.Add(reqDetail);
+
+                transfer.Details.Add(new InternalTransferDetail
+                {
+                    TransferID = transfer.TransferID,
+                    BatchID = item.BatchID,
+                    Quantity = item.Quantity
+                });
+
+                // Write to InventoryMovements audit trail
+                _context.InventoryMovements.Add(new InventoryMovement
+                {
+                    MedicineID = invStock.Batch?.MedicineID ?? 0,
+                    BatchID = item.BatchID,
+                    LocationType = "MainStore",
+                    DepartmentID = null,
+                    BeforeQuantity = invStock.CurrentQuantity + item.Quantity,
+                    ChangeQuantity = -item.Quantity,
+                    AfterQuantity = invStock.CurrentQuantity,
+                    SourceType = "Requisition",
+                    SourceID = requisition.RequisitionID,
+                    Action = "SUBTRACT_RESERVE",
+                    ByUser = "Thủ kho Dược",
+                    CreatedAt = DateTime.Now
+                });
+            }
 
             await _context.SaveChangesAsync();
             await transaction.CommitAsync();
@@ -565,6 +597,7 @@ public class RequisitionController : ControllerBase
             await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Cabinets");
             await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Inventory");
             await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Dashboard");
+            await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Requisitions");
 
             return Ok(new { Message = "Cấp phát trực tiếp xuống tủ trực khoa phòng thành công." });
         }
@@ -576,11 +609,16 @@ public class RequisitionController : ControllerBase
     }
 }
 
+public class DirectTransferItemDto
+{
+    public int BatchID { get; set; }
+    public int Quantity { get; set; }
+}
+
 public class DirectTransferRequest
 {
     public int DepartmentID { get; set; }
-    public int BatchID { get; set; }
-    public int Quantity { get; set; }
+    public List<DirectTransferItemDto> Items { get; set; } = new();
     public string? DigitalSignature { get; set; }
 }
 

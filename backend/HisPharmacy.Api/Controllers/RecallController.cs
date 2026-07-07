@@ -90,7 +90,7 @@ public class RecallController : ControllerBase
                             Reason = $"Tiêu hủy thuốc tự động từ Quyết định thu hồi #RCL-{log.RecallID}. Lý do: {request.Reason}",
                             Type = "Tiêu hủy",
                             LiquidationDate = DateTime.Now,
-                            CreatedBy = "Hệ thống tự động",
+                            CreatedBy = "Dược sĩ Hà Lâm Đình Phú",
                             Status = "Chờ duyệt",
                             DigitalSignature = request.DigitalSignature
                         };
@@ -177,7 +177,7 @@ public class RecallController : ControllerBase
                         Reason = $"Tiêu hủy thuốc tự động từ Quyết định thu hồi #RCL-{log.RecallID}. Lý do: {log.Reason}",
                         Type = "Tiêu hủy",
                         LiquidationDate = DateTime.Now,
-                        CreatedBy = "Hệ thống tự động",
+                        CreatedBy = "Dược sĩ Hà Lâm Đình Phú",
                         Status = "Chờ duyệt",
                         DigitalSignature = request.DigitalSignature
                     };

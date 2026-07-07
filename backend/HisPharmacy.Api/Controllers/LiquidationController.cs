@@ -153,7 +153,8 @@ public class LiquidationController : ControllerBase
                 Status = isDirector ? "Đã duyệt" : "Chờ duyệt",
                 ProposerSignature = request.DigitalSignature,
                 DigitalSignature = request.DigitalSignature,
-                ApproverSignature = isDirector ? request.DigitalSignature : null
+                ApproverSignature = isDirector ? request.DigitalSignature : null,
+                CheckerName = request.CheckerName
             };
             _context.LiquidationReceipts.Add(receipt);
             await _context.SaveChangesAsync();
@@ -335,6 +336,35 @@ public class LiquidationController : ControllerBase
 
         return Ok(receipt);
     }
+
+    [HttpPost("{id}/check")]
+    public async Task<IActionResult> CheckLiquidation(int id, [FromBody] CheckLiquidationRequest request)
+    {
+        var userRole = Request.Headers["X-User-Role"].ToString();
+        if (userRole != "pharmacist" && userRole != "director")
+            return BadRequest(new { Error = "Quyền truy cập bị từ chối. Chỉ Dược sĩ hoặc Lãnh đạo mới có quyền ký xác nhận kiểm kê." });
+
+        if (request == null || string.IsNullOrEmpty(request.CheckerName) || string.IsNullOrEmpty(request.CheckerSignature))
+            return BadRequest(new { Error = "Vui lòng điền họ tên và ký tên đầy đủ." });
+
+        var receipt = await _context.LiquidationReceipts.FindAsync(id);
+        if (receipt == null)
+            return NotFound(new { Error = "Không tìm thấy phiếu yêu cầu." });
+
+        receipt.CheckerName = request.CheckerName;
+        receipt.CheckerSignature = request.CheckerSignature;
+
+        await _context.SaveChangesAsync();
+        await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Liquidations");
+
+        return Ok(receipt);
+    }
+}
+
+public class CheckLiquidationRequest
+{
+    public string CheckerName { get; set; } = string.Empty;
+    public string CheckerSignature { get; set; } = string.Empty;
 }
 
 public class CreateLiquidationRequest
@@ -344,6 +374,7 @@ public class CreateLiquidationRequest
     public string Type { get; set; } = "Tiêu hủy"; // 'Thanh lý', 'Tiêu hủy'
     public List<LiquidationItemDto> Items { get; set; } = new();
     public string? DigitalSignature { get; set; }
+    public string? CheckerName { get; set; }
 }
 
 public class LiquidationItemDto

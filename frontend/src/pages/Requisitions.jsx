@@ -133,6 +133,7 @@ export default function Requisitions({ user }) {
   const [selectedDept, setSelectedDept] = useState('');
   const [selectedBatchId, setSelectedBatchId] = useState('');
   const [transferQty, setTransferQty] = useState('');
+  const [directTransferItems, setDirectTransferItems] = useState([]);
   const [submittingDirect, setSubmittingDirect] = useState(false);
 
   // Digital Signature States
@@ -646,18 +647,60 @@ export default function Requisitions({ user }) {
     setShowSignatureModal(true);
   };
 
-  // Intercept: Direct Transfer -> Open Signature Pad
-  const handleDirectTransferSubmit = (e) => {
+  // Add medicine to direct transfer list
+  const addDirectTransferItem = (e) => {
     e.preventDefault();
-    if (!selectedDept || !selectedBatchId || !transferQty) {
-      alert("Vui lòng điền đầy đủ thông tin cấp phát.");
+    if (!selectedBatchId || !transferQty) {
+      alert("Vui lòng chọn thuốc và nhập số lượng.");
+      return;
+    }
+    const qty = parseInt(transferQty);
+    if (qty <= 0) {
+      alert("Số lượng phải lớn hơn 0.");
+      return;
+    }
+    const batchItem = mainStoreBatches.find(b => b.batchID.toString() === selectedBatchId);
+    if (!batchItem) return;
+    if (batchItem.quantity < qty) {
+      alert(`Số lượng tồn chính không đủ (Hiện có: ${batchItem.quantity}).`);
       return;
     }
 
-    const qty = parseInt(transferQty);
-    const batchItem = mainStoreBatches.find(b => b.batchID.toString() === selectedBatchId);
-    if (!batchItem || batchItem.quantity < qty) {
-      alert(`Số lượng tồn kho chính không đủ (Hiện có: ${batchItem?.quantity || 0}).`);
+    // Check duplicate
+    if (directTransferItems.some(item => item.batchID === batchItem.batchID)) {
+      alert("Lô thuốc này đã có trong danh sách cấp phát.");
+      return;
+    }
+
+    setDirectTransferItems(prev => [
+      ...prev,
+      {
+        batchID: batchItem.batchID,
+        quantity: qty,
+        batchNumber: batchItem.batchNumber,
+        medicineName: batchItem.medicineName,
+        unit: batchItem.unit || 'hộp',
+        expiryDate: batchItem.expiryDate
+      }
+    ]);
+    setSelectedBatchId('');
+    setTransferQty('');
+  };
+
+  // Remove medicine from direct transfer list
+  const removeDirectTransferItem = (batchID) => {
+    setDirectTransferItems(prev => prev.filter(item => item.batchID !== batchID));
+  };
+
+  // Intercept: Direct Transfer -> Open Signature Pad
+  const handleDirectTransferSubmit = (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    if (!selectedDept) {
+      alert("Vui lòng chọn khoa tiếp nhận.");
+      return;
+    }
+    if (directTransferItems.length === 0) {
+      alert("Vui lòng thêm ít nhất một thuốc vào danh sách cấp phát.");
       return;
     }
 
@@ -724,12 +767,15 @@ export default function Requisitions({ user }) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-User-Role': user?.role || ''
+          'X-User-Role': user?.role || '',
+          'X-User-FullName': encodeURIComponent(user?.fullName || '')
         },
         body: JSON.stringify({
           departmentID: parseInt(selectedDept),
-          batchID: parseInt(selectedBatchId),
-          quantity: parseInt(transferQty),
+          items: directTransferItems.map(item => ({
+            batchID: item.batchID,
+            quantity: item.quantity
+          })),
           digitalSignature: signatureBase64
         })
       })
@@ -741,8 +787,7 @@ export default function Requisitions({ user }) {
       })
       .then(data => {
         alert("Xuất cấp phát trực tiếp thành công! Phiếu đã chuyển sang trạng thái [Đang vận chuyển], vui lòng thông báo cho điều dưỡng khoa tiếp nhận thực hiện ký nhận.");
-        setTransferQty('');
-        setSelectedBatchId('');
+        setDirectTransferItems([]);
         fetchRequisitions();
         fetchMainStoreBatches();
         fetchInternalTransfers();
@@ -1257,7 +1302,7 @@ export default function Requisitions({ user }) {
             <h3 style={{ marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <Send size={20} color="var(--color-secondary)" /> Chủ Động Cấp Phát Trực Tiếp
             </h3>
-            <form onSubmit={handleDirectTransferSubmit}>
+            <div>
               <div className="form-group" style={{ marginBottom: '1.25rem' }}>
                 <label className="form-label">Khoa Lâm Sàng Tiếp Nhận</label>
                 <select 
@@ -1265,56 +1310,119 @@ export default function Requisitions({ user }) {
                   value={selectedDept}
                   onChange={e => setSelectedDept(e.target.value)}
                   required
+                  disabled={directTransferItems.length > 0}
                 >
                   <option value="">-- Chọn khoa tiếp nhận --</option>
                   {departments.map(d => (
                     <option key={d.departmentID} value={d.departmentID}>{d.departmentName}</option>
                   ))}
                 </select>
+                {directTransferItems.length > 0 && (
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block', marginTop: '0.25rem' }}>
+                    * Muốn đổi khoa tiếp nhận vui lòng xoá hết thuốc đã chọn trong danh sách dưới.
+                  </span>
+                )}
               </div>
 
-              <div className="form-group" style={{ marginBottom: '1.25rem' }}>
-                <label className="form-label">Chọn Thuốc / Vật Tư xuất từ Kho Chẵn</label>
-                <select 
-                  className="form-input"
-                  value={selectedBatchId}
-                  onChange={e => setSelectedBatchId(e.target.value)}
-                  required
+              <div style={{ background: 'rgba(255,255,255,0.02)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border-glass)', marginBottom: '1.25rem' }}>
+                <h4 style={{ marginBottom: '0.75rem', fontSize: '0.9rem', color: 'var(--color-secondary)' }}>Thêm Thuốc vào danh sách cấp phát</h4>
+                
+                <div className="form-group" style={{ marginBottom: '1.0rem' }}>
+                  <label className="form-label">Chọn Thuốc / Vật Tư xuất từ Kho Chẵn</label>
+                  <select 
+                    className="form-input"
+                    value={selectedBatchId}
+                    onChange={e => setSelectedBatchId(e.target.value)}
+                  >
+                    <option value="">-- Chọn lô dược phẩm / vật tư có trong kho --</option>
+                    {mainStoreBatches.map(b => {
+                      const expDate = b.expiryDate ? new Date(b.expiryDate).toLocaleDateString('vi-VN') : 'N/A';
+                      return (
+                        <option key={b.batchID} value={b.batchID}>
+                          {b.medicineName} (Lô: {b.batchNumber} - Tồn chính: {b.quantity} - HSD: {expDate})
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+
+                <div className="form-group" style={{ marginBottom: '1.0rem' }}>
+                  <label className="form-label">Số lượng cấp phát thực tế</label>
+                  <input 
+                    type="number" 
+                    className="form-input" 
+                    placeholder="Nhập số lượng cấp phát"
+                    value={transferQty}
+                    onChange={e => setTransferQty(e.target.value)}
+                    min="1"
+                  />
+                </div>
+
+                <button 
+                  type="button" 
+                  className="btn-secondary" 
+                  style={{ width: '100%', justifyContent: 'center', height: '36px', fontSize: '0.85rem' }}
+                  onClick={addDirectTransferItem}
                 >
-                  <option value="">-- Chọn lô dược phẩm / vật tư có trong kho --</option>
-                  {mainStoreBatches.map(b => {
-                    const expDate = b.expiryDate ? new Date(b.expiryDate).toLocaleDateString('vi-VN') : 'N/A';
-                    return (
-                      <option key={b.batchID} value={b.batchID}>
-                        {b.medicineName} (Lô: {b.batchNumber} - Tồn chính: {b.quantity} - HSD: {expDate})
-                      </option>
-                    );
-                  })}
-                </select>
+                  + Thêm Vào Danh Sách
+                </button>
               </div>
 
-              <div className="form-group" style={{ marginBottom: '1.5rem' }}>
-                <label className="form-label">Số lượng cấp phát thực tế</label>
-                <input 
-                  type="number" 
-                  className="form-input" 
-                  placeholder="Nhập số lượng cấp phát"
-                  value={transferQty}
-                  onChange={e => setTransferQty(e.target.value)}
-                  min="1"
-                  required
-                />
-              </div>
+              {/* Added Items List */}
+              {directTransferItems.length > 0 && (
+                <div style={{ marginBottom: '1.25rem' }}>
+                  <h4 style={{ marginBottom: '0.5rem', fontSize: '0.9rem' }}>Danh Sách Thuốc Đã Chọn ({directTransferItems.length})</h4>
+                  <div className="table-container" style={{ border: '1px solid var(--border-glass)' }}>
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Thuốc / Lô</th>
+                          <th style={{ textAlign: 'center' }}>Hạn dùng</th>
+                          <th style={{ textAlign: 'center' }}>Số lượng</th>
+                          <th style={{ textAlign: 'center' }}>Thao tác</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {directTransferItems.map(item => (
+                          <tr key={item.batchID}>
+                            <td>
+                              <strong>{item.medicineName}</strong>
+                              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Lô: {item.batchNumber}</div>
+                            </td>
+                            <td style={{ textAlign: 'center' }}>
+                              {item.expiryDate ? new Date(item.expiryDate).toLocaleDateString('vi-VN') : 'N/A'}
+                            </td>
+                            <td style={{ textAlign: 'center', fontWeight: 'bold', color: 'var(--color-primary)' }}>
+                              {item.quantity} {item.unit}
+                            </td>
+                            <td style={{ textAlign: 'center' }}>
+                              <button 
+                                type="button" 
+                                className="btn-secondary"
+                                style={{ padding: '0.2rem 0.5rem', background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.2)' }}
+                                onClick={() => removeDirectTransferItem(item.batchID)}
+                              >
+                                Xoá
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
 
               <button 
-                type="submit" 
+                type="button" 
                 className="btn-premium" 
                 style={{ width: '100%', justifyContent: 'center' }}
-                disabled={submittingDirect}
+                disabled={submittingDirect || directTransferItems.length === 0}
+                onClick={handleDirectTransferSubmit}
               >
                 <Send size={16} /> {submittingDirect ? "Đang thực hiện..." : "Xác nhận cấp phát trực tiếp"}
               </button>
-            </form>
+            </div>
           </div>
         </div>
       )}
@@ -1882,117 +1990,186 @@ export default function Requisitions({ user }) {
               </div>
             )}
 
-            {/* TRIPLE SIGNATURES DISPLAY FOR HISTORIC RECORDS */}
-            {activeReqForDetail.status !== 'Pending' && (
-              <div style={{ 
-                display: 'grid', 
-                gridTemplateColumns: '1fr 1fr 1fr', 
-                gap: '1rem', 
-                marginTop: '1.5rem', 
-                borderTop: '1px solid var(--border-glass)', 
-                paddingTop: '1rem' 
-              }}>
-                {/* Proposer Signature */}
-                <div style={{ 
-                  background: 'rgba(255, 255, 255, 0.01)', 
-                  border: '1px solid var(--border-glass)', 
-                  borderRadius: '8px', 
-                  padding: '0.75rem', 
-                  textAlign: 'center' 
-                }}>
-                  <div style={{ fontSize: '0.72rem', fontWeight: '700', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
-                    CHỮ KÝ NGƯỜI LẬP (ĐIỀU DƯỠNG)
-                  </div>
-                  {activeReqForDetail.digitalSignature ? (
-                    <div style={{ height: '80px', display: 'flex', justifyContent: 'center', alignItems: 'center', background: '#ffffff', borderRadius: '4px', padding: '0.25rem' }}>
-                      <img src={activeReqForDetail.digitalSignature} alt="Chữ ký điều dưỡng" style={{ maxHeight: '100%', maxWidth: '180px', objectFit: 'contain' }} />
-                    </div>
-                  ) : (
-                    <div style={{ height: '80px', display: 'flex', justifyContent: 'center', alignItems: 'center', color: 'var(--text-dim)', fontSize: '0.8rem', fontStyle: 'italic' }}>
-                      Không có chữ ký số
-                    </div>
-                  )}
-                  <div style={{ fontSize: '0.7rem', marginTop: '0.5rem', fontWeight: '500', color: 'var(--text-dim)' }}>
-                    {(() => {
-                      const proposer = activeReqForDetail.proposerName || (() => {
-                        const deptId = activeReqForDetail?.departmentID;
-                        const deptName = activeReqForDetail?.department?.departmentName || '';
-                        if (deptId === 2 || String(deptName).toLowerCase().includes('cấp cứu')) return 'Trần Vỹ Khang';
-                        if (deptId === 1 || String(deptName).toLowerCase().includes('khám bệnh')) return 'Trần Trung Nam';
-                        if (deptId === 3 || String(deptName).toLowerCase().includes('nội tổng hợp')) return 'Trần Thanh Phương';
-                        if (deptId === 4 || String(deptName).toLowerCase().includes('xét nghiệm')) return 'Nguyễn Trần Gia Khang';
-                        if (deptId === 5 || String(deptName).toLowerCase().includes('đông y')) return 'Nguyễn Thái Bình Dương';
-                        return 'Điều dưỡng trưởng khoa';
-                      })();
-                      return `${proposer} (${activeReqForDetail.requisitionType === 'CabinetRefill' ? 'Ký đề xuất bù tủ' : 'Ký gửi phiếu đề xuất'})`;
-                    })()}
-                  </div>
-                </div>
+            {/* SIGNATURES DISPLAY FOR HISTORIC RECORDS */}
+            {activeReqForDetail.status !== 'Pending' && (() => {
+              const isDirect = activeReqForDetail.requisitionType === 'DirectTransfer';
+              const showProposer = !isDirect || !!activeReqForDetail.digitalSignature;
+              const showHead = !isDirect || !!activeReqForDetail.headSignature;
+              const showReceiver = !!activeReqForDetail.receiverSignature;
+              const showWitness = !!activeReqForDetail.witnessSignature;
+              let colCount = 1; // Approver is always shown
+              if (showProposer) colCount += 1;
+              if (showHead) colCount += 1;
+              if (showReceiver) colCount += 1;
+              if (showWitness) colCount += 1;
 
-                {/* Head Signature (Trưởng khoa) */}
+              return (
                 <div style={{ 
-                  background: 'rgba(255, 255, 255, 0.01)', 
-                  border: '1px solid var(--border-glass)', 
-                  borderRadius: '8px', 
-                  padding: '0.75rem', 
-                  textAlign: 'center' 
+                  display: 'grid', 
+                  gridTemplateColumns: `repeat(${colCount}, minmax(0, 1fr))`, 
+                  gap: '1rem', 
+                  marginTop: '1.5rem', 
+                  borderTop: '1px solid var(--border-glass)', 
+                  paddingTop: '1rem' 
                 }}>
-                  <div style={{ fontSize: '0.72rem', fontWeight: '700', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
-                    CHỮ KÝ TRƯỞNG KHOA LÂM SÀNG
-                  </div>
-                  {activeReqForDetail.headSignature ? (
-                    <div style={{ height: '80px', display: 'flex', justifyContent: 'center', alignItems: 'center', background: '#ffffff', borderRadius: '4px', padding: '0.25rem' }}>
-                      <img src={activeReqForDetail.headSignature} alt="Chữ ký Trưởng khoa" style={{ maxHeight: '100%', maxWidth: '180px', objectFit: 'contain' }} />
-                    </div>
-                  ) : (
-                    <div style={{ height: '80px', display: 'flex', justifyContent: 'center', alignItems: 'center', color: 'var(--text-dim)', fontSize: '0.8rem', fontStyle: 'italic' }}>
-                      {activeReqForDetail.status === 'PendingHead' ? 'Chờ Trưởng khoa ký' : 'Không yêu cầu ký'}
+                  {/* Proposer Signature */}
+                  {showProposer && (
+                    <div style={{ 
+                      background: 'rgba(255, 255, 255, 0.01)', 
+                      border: '1px solid var(--border-glass)', 
+                      borderRadius: '8px', 
+                      padding: '0.75rem', 
+                      textAlign: 'center',
+                      minWidth: '0',
+                      overflow: 'hidden'
+                    }}>
+                      <div style={{ fontSize: '0.72rem', fontWeight: '700', color: 'var(--text-muted)', marginBottom: '0.5rem', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
+                        CHỮ KÝ NGƯỜI LẬP (ĐIỀU DƯỠNG)
+                      </div>
+                      {activeReqForDetail.digitalSignature ? (
+                        <div style={{ height: '80px', display: 'flex', justifyContent: 'center', alignItems: 'center', background: '#ffffff', borderRadius: '4px', padding: '0.25rem' }}>
+                          <img src={activeReqForDetail.digitalSignature} alt="Chữ ký điều dưỡng" style={{ maxHeight: '100%', maxWidth: '100%', objectFit: 'contain' }} />
+                        </div>
+                      ) : (
+                        <div style={{ height: '80px', display: 'flex', justifyContent: 'center', alignItems: 'center', color: 'var(--text-dim)', fontSize: '0.8rem', fontStyle: 'italic', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
+                          Không có chữ ký số
+                        </div>
+                      )}
+                      <div style={{ fontSize: '0.7rem', marginTop: '0.5rem', fontWeight: '500', color: 'var(--text-dim)', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
+                        {(() => {
+                          const proposer = activeReqForDetail.proposerName || (() => {
+                            const deptId = activeReqForDetail?.departmentID;
+                            const deptName = activeReqForDetail?.department?.departmentName || '';
+                            if (deptId === 2 || String(deptName).toLowerCase().includes('cấp cứu')) return 'Trần Vỹ Khang';
+                            if (deptId === 1 || String(deptName).toLowerCase().includes('khám bệnh')) return 'Trần Trung Nam';
+                            if (deptId === 3 || String(deptName).toLowerCase().includes('nội tổng hợp')) return 'Trần Thanh Phương';
+                            if (deptId === 4 || String(deptName).toLowerCase().includes('xét nghiệm')) return 'Nguyễn Trần Gia Khang';
+                            if (deptId === 5 || String(deptName).toLowerCase().includes('đông y')) return 'Nguyễn Thái Bình Dương';
+                            return 'Điều dưỡng trưởng khoa';
+                          })();
+                          return `${proposer} (${activeReqForDetail.requisitionType === 'CabinetRefill' ? 'Ký đề xuất bù tủ' : 'Ký gửi phiếu đề xuất'})`;
+                        })()}
+                      </div>
                     </div>
                   )}
-                  <div style={{ fontSize: '0.7rem', marginTop: '0.5rem', fontWeight: '500', color: 'var(--text-dim)' }}>
-                    {activeReqForDetail.headSignature ? (() => {
-                      const deptId = activeReqForDetail.departmentID;
-                      const deptName = activeReqForDetail.department?.departmentName || '';
-                      if (deptId === 2 || String(deptName).toLowerCase().includes('cấp cứu')) return 'BS.CKII. Lê Văn Chương';
-                      if (deptId === 1 || String(deptName).toLowerCase().includes('khám bệnh')) return 'BS.CKII. Nguyễn Hữu Lực';
-                      if (deptId === 3 || String(deptName).toLowerCase().includes('nội tổng hợp')) return 'BS.CKII. Nguyễn Đăng Đức Anh';
-                      if (deptId === 4 || String(deptName).toLowerCase().includes('xét nghiệm')) return 'BS.CKII. Trương Minh Quân';
-                      if (deptId === 5 || String(deptName).toLowerCase().includes('đông y')) return 'BS.CKII. Nguyễn Xuân Duy Thắng';
-                      return 'Trưởng khoa (Đã Duyệt)';
-                    })() : 'Chưa ký'}
-                  </div>
-                </div>
 
-                {/* Approver Signature */}
-                <div style={{ 
-                  background: 'rgba(255, 255, 255, 0.01)', 
-                  border: '1px solid var(--border-glass)', 
-                  borderRadius: '8px', 
-                  padding: '0.75rem', 
-                  textAlign: 'center' 
-                }}>
-                  <div style={{ fontSize: '0.72rem', fontWeight: '700', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
-                    {activeReqForDetail.status === 'Rejected' ? 'CHỮ KÝ NGƯỜI TỪ CHỐI (THỦ KHO DƯỢC)' : 'CHỮ KÝ CẤP PHÁT (THỦ KHO DƯỢC)'}
-                  </div>
-                  {activeReqForDetail.approverSignature ? (
-                    <div style={{ height: '80px', display: 'flex', justifyContent: 'center', alignItems: 'center', background: '#ffffff', borderRadius: '4px', padding: '0.25rem' }}>
-                      <img src={activeReqForDetail.approverSignature} alt="Chữ ký thủ kho" style={{ maxHeight: '100%', maxWidth: '180px', objectFit: 'contain' }} />
-                    </div>
-                  ) : (
-                    <div style={{ height: '80px', display: 'flex', justifyContent: 'center', alignItems: 'center', color: 'var(--text-dim)', fontSize: '0.8rem', fontStyle: 'italic' }}>
-                      {activeReqForDetail.status === 'Rejected' ? 'Không có chữ ký số từ chối' : 'Chờ xuất kho'}
+                  {/* Head Signature (Trưởng khoa) */}
+                  {showHead && (
+                    <div style={{ 
+                      background: 'rgba(255, 255, 255, 0.01)', 
+                      border: '1px solid var(--border-glass)', 
+                      borderRadius: '8px', 
+                      padding: '0.75rem', 
+                      textAlign: 'center',
+                      minWidth: '0',
+                      overflow: 'hidden'
+                    }}>
+                      <div style={{ fontSize: '0.72rem', fontWeight: '700', color: 'var(--text-muted)', marginBottom: '0.5rem', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
+                        CHỮ KÝ TRƯỞNG KHOA LÂM SÀNG
+                      </div>
+                      {activeReqForDetail.headSignature ? (
+                        <div style={{ height: '80px', display: 'flex', justifyContent: 'center', alignItems: 'center', background: '#ffffff', borderRadius: '4px', padding: '0.25rem' }}>
+                          <img src={activeReqForDetail.headSignature} alt="Chữ ký Trưởng khoa" style={{ maxHeight: '100%', maxWidth: '100%', objectFit: 'contain' }} />
+                        </div>
+                      ) : (
+                        <div style={{ height: '80px', display: 'flex', justifyContent: 'center', alignItems: 'center', color: 'var(--text-dim)', fontSize: '0.8rem', fontStyle: 'italic', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
+                          {activeReqForDetail.status === 'PendingHead' ? 'Chờ Trưởng khoa ký' : 'Không yêu cầu ký'}
+                        </div>
+                      )}
+                      <div style={{ fontSize: '0.7rem', marginTop: '0.5rem', fontWeight: '500', color: 'var(--text-dim)', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
+                        {activeReqForDetail.headSignature ? (() => {
+                          const deptId = activeReqForDetail.departmentID;
+                          const deptName = activeReqForDetail.department?.departmentName || '';
+                          if (deptId === 2 || String(deptName).toLowerCase().includes('cấp cứu')) return 'BS.CKII. Lê Văn Chương';
+                          if (deptId === 1 || String(deptName).toLowerCase().includes('khám bệnh')) return 'BS.CKII. Nguyễn Hữu Lực';
+                          if (deptId === 3 || String(deptName).toLowerCase().includes('nội tổng hợp')) return 'BS.CKII. Nguyễn Đăng Đức Anh';
+                          if (deptId === 4 || String(deptName).toLowerCase().includes('xét nghiệm')) return 'BS.CKII. Trương Minh Quân';
+                          if (deptId === 5 || String(deptName).toLowerCase().includes('đông y')) return 'BS.CKII. Nguyễn Xuân Duy Thắng';
+                          return 'Trưởng khoa (Đã Duyệt)';
+                        })() : 'Chưa ký'}
+                      </div>
                     </div>
                   )}
-                  <div style={{ fontSize: '0.7rem', marginTop: '0.5rem', fontWeight: '500', color: 'var(--text-dim)' }}>
-                    {activeReqForDetail.status === 'Rejected' || activeReqForDetail.status === 'RejectedByHead' || activeReqForDetail.status === 'RejectedByPharmacy'
-                      ? `${activeReqForDetail.approverName || 'Dược sĩ Kho Dược'} (Đã Từ Chối)`
-                      : (activeReqForDetail.status === 'Pending' || activeReqForDetail.status === 'PendingHead')
-                      ? 'Chờ phê duyệt cấp phát'
-                      : `${activeReqForDetail.approverName || 'Dược sĩ Kho Dược'} (Đã Duyệt Cấp Phát)`}
+
+                  {/* Approver Signature */}
+                  <div style={{ 
+                    background: 'rgba(255, 255, 255, 0.01)', 
+                    border: '1px solid var(--border-glass)', 
+                    borderRadius: '8px', 
+                    padding: '0.75rem', 
+                    textAlign: 'center',
+                    minWidth: '0',
+                    overflow: 'hidden'
+                  }}>
+                    <div style={{ fontSize: '0.72rem', fontWeight: '700', color: 'var(--text-muted)', marginBottom: '0.5rem', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
+                      {activeReqForDetail.status === 'Rejected' ? 'CHỮ KÝ NGƯỜI TỪ CHỐI (THỦ KHO DƯỢC)' : 'CHỮ KÝ CẤP PHÁT (THỦ KHO DƯỢC)'}
+                    </div>
+                    {activeReqForDetail.approverSignature ? (
+                      <div style={{ height: '80px', display: 'flex', justifyContent: 'center', alignItems: 'center', background: '#ffffff', borderRadius: '4px', padding: '0.25rem' }}>
+                        <img src={activeReqForDetail.approverSignature} alt="Chữ ký thủ kho" style={{ maxHeight: '100%', maxWidth: '100%', objectFit: 'contain' }} />
+                      </div>
+                    ) : (
+                      <div style={{ height: '80px', display: 'flex', justifyContent: 'center', alignItems: 'center', color: 'var(--text-dim)', fontSize: '0.8rem', fontStyle: 'italic', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
+                        {activeReqForDetail.status === 'Rejected' ? 'Không có chữ ký số từ chối' : 'Chờ xuất kho'}
+                      </div>
+                    )}
+                    <div style={{ fontSize: '0.7rem', marginTop: '0.5rem', fontWeight: '500', color: 'var(--text-dim)', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
+                      {activeReqForDetail.status === 'Rejected' || activeReqForDetail.status === 'RejectedByHead' || activeReqForDetail.status === 'RejectedByPharmacy'
+                        ? `${activeReqForDetail.approverName || 'Dược sĩ Kho Dược'} (Đã Từ Chối)`
+                        : (activeReqForDetail.status === 'Pending' || activeReqForDetail.status === 'PendingHead')
+                        ? 'Chờ phê duyệt cấp phát'
+                        : `${activeReqForDetail.approverName || 'Dược sĩ Kho Dược'} (Đã Duyệt Cấp Phát)`}
+                    </div>
                   </div>
+
+                  {/* Receiver Signature (Điều dưỡng nhận) */}
+                  {showReceiver && (
+                    <div style={{ 
+                      background: 'rgba(255, 255, 255, 0.01)', 
+                      border: '1px solid var(--border-glass)', 
+                      borderRadius: '8px', 
+                      padding: '0.75rem', 
+                      textAlign: 'center',
+                      minWidth: '0',
+                      overflow: 'hidden'
+                    }}>
+                      <div style={{ fontSize: '0.72rem', fontWeight: '700', color: 'var(--text-muted)', marginBottom: '0.5rem', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
+                        CHỮ KÝ NGƯỜI NHẬN (ĐIỀU DƯỠNG)
+                      </div>
+                      <div style={{ height: '80px', display: 'flex', justifyContent: 'center', alignItems: 'center', background: '#ffffff', borderRadius: '4px', padding: '0.25rem' }}>
+                        <img src={activeReqForDetail.receiverSignature} alt="Chữ ký nhận" style={{ maxHeight: '100%', maxWidth: '100%', objectFit: 'contain' }} />
+                      </div>
+                      <div style={{ fontSize: '0.7rem', marginTop: '0.5rem', fontWeight: '500', color: 'var(--text-dim)', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
+                        {activeReqForDetail.receiverName || 'Điều dưỡng tiếp nhận'}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Witness Signature (Người đồng kiểm nhận) */}
+                  {showWitness && (
+                    <div style={{ 
+                      background: 'rgba(255, 255, 255, 0.01)', 
+                      border: '1px solid var(--border-glass)', 
+                      borderRadius: '8px', 
+                      padding: '0.75rem', 
+                      textAlign: 'center',
+                      minWidth: '0',
+                      overflow: 'hidden'
+                    }}>
+                      <div style={{ fontSize: '0.72rem', fontWeight: '700', color: 'var(--text-muted)', marginBottom: '0.5rem', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
+                        CHỮ KÝ ĐỒNG KIỂM NHẬN
+                      </div>
+                      <div style={{ height: '80px', display: 'flex', justifyContent: 'center', alignItems: 'center', background: '#ffffff', borderRadius: '4px', padding: '0.25rem' }}>
+                        <img src={activeReqForDetail.witnessSignature} alt="Chữ ký đồng kiểm nhận" style={{ maxHeight: '100%', maxWidth: '100%', objectFit: 'contain' }} />
+                      </div>
+                      <div style={{ fontSize: '0.7rem', marginTop: '0.5rem', fontWeight: '500', color: 'var(--text-dim)', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
+                        {activeReqForDetail.witnessName || 'Người làm chứng'}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '1.5rem', borderTop: '1px solid var(--border-glass)', paddingTop: '1rem' }}>
               <button className="btn-secondary" onClick={() => setActiveReqForDetail(null)}>Đóng</button>
@@ -2161,7 +2338,7 @@ export default function Requisitions({ user }) {
                   </div>
                 )}
                 <div style={{ fontSize: '0.7rem', marginTop: '0.5rem', fontWeight: '500', color: 'var(--text-dim)' }}>
-                  Dược sĩ Nguyễn Văn Khoa
+                  {activeTransferForDetail.requisition?.approverName || 'Thủ kho Dược'}
                 </div>
               </div>
 
@@ -2732,114 +2909,95 @@ export default function Requisitions({ user }) {
                   </div>
 
                   {/* Signatures Section */}
-                  <div style={{ 
-                    display: 'grid', 
-                    gridTemplateColumns: activeReqForPrint.requisitionType === 'DirectTransfer' 
-                      ? '1fr 1fr' 
-                      : '1fr 1fr 1fr 1fr 1.2fr', 
-                    gap: '0.75rem', 
-                    textAlign: 'center', 
-                    marginTop: '2rem', 
-                    fontSize: '12px', 
-                    pageBreakInside: 'avoid' 
-                  }}>
-                    
-                    {/* Receiver */}
-                    <div>
-                      <p style={{ margin: '0 0 0.2rem 0', fontWeight: 'bold', textTransform: 'uppercase' }}>ĐIỀU DƯỠNG TIẾP NHẬN</p>
-                      <p style={{ margin: '0 0 0.5rem 0', color: '#555', fontStyle: 'italic' }}>(Ký và ghi rõ họ tên)</p>
-                      <div style={{ height: '70px', display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '0.5rem 0' }}>
-                        {activeReqForPrint.receiverSignature ? (
-                          <img src={activeReqForPrint.receiverSignature} alt="Chữ ký nhận" style={{ maxHeight: '100%', maxWidth: '100px', objectFit: 'contain' }} />
-                        ) : (
-                          <span style={{ color: '#888', fontStyle: 'italic', fontSize: '10px' }}>Chờ ký nhận</span>
-                        )}
-                      </div>
-                      <p style={{ margin: 0, fontWeight: 'bold' }}>{activeReqForPrint.receiverName || 'Điều dưỡng tiếp nhận'}</p>
-                    </div>
+                  {(() => {
+                    const showPrintHead = activeReqForPrint.requisitionType !== 'DirectTransfer' || !!activeReqForPrint.headSignature;
+                    const showPrintWitness = !!activeReqForPrint.witnessSignature;
 
-                    {/* Trưởng khoa Lâm sàng */}
-                    {activeReqForPrint.requisitionType !== 'DirectTransfer' ? (
-                      <div>
-                      <p style={{ margin: '0 0 0.2rem 0', fontWeight: 'bold', textTransform: 'uppercase' }}>TRƯỞNG KHOA LÂM SÀNG</p>
-                      <p style={{ margin: '0 0 0.5rem 0', color: '#555', fontStyle: 'italic' }}>(Ký duyệt hoặc Ký thay)</p>
-                      <div style={{ height: '70px', display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '0.5rem 0' }}>
-                        {activeReqForPrint.headSignature ? (
-                          <img src={activeReqForPrint.headSignature} alt="Chữ ký Trưởng khoa" style={{ maxHeight: '100%', maxWidth: '100px', objectFit: 'contain' }} />
-                        ) : (
-                          activeReqForPrint.status === 'Approved' || activeReqForPrint.status === 'Pending' || activeReqForPrint.status === 'InTransit' || activeReqForPrint.status === 'Received' || activeReqForPrint.status === 'PartiallyReceived' ? SIG.chuong : <span style={{ color: '#888', fontStyle: 'italic', fontSize: '10px' }}>Chờ ký duyệt</span>
-                        )}
-                      </div>
-                      <p style={{ margin: 0, fontWeight: 'bold' }}>{activeReqForPrint.delegatedTo ? `✍️ Ký thay: DĐ. ${activeReqForPrint.delegatedTo}` : (() => {
-                        const deptId = activeReqForPrint.departmentID;
-                        const deptName = activeReqForPrint.department?.departmentName || '';
-                        if (deptId === 2 || String(deptName).toLowerCase().includes('cấp cứu')) return 'BS.CKII. Lê Văn Chương';
-                        if (deptId === 1 || String(deptName).toLowerCase().includes('khám bệnh')) return 'BS.CKII. Nguyễn Hữu Lực';
-                        if (deptId === 3 || String(deptName).toLowerCase().includes('nội tổng hợp')) return 'BS.CKII. Nguyễn Đăng Đức Anh';
-                        if (deptId === 4 || String(deptName).toLowerCase().includes('xét nghiệm')) return 'BS.CKII. Trương Minh Quân';
-                        if (deptId === 5 || String(deptName).toLowerCase().includes('đông y')) return 'BS.CKII. Nguyễn Xuân Duy Thắng';
-                        return 'Trưởng khoa';
-                      })()}</p>
-                      </div>
-                    ) : null}
+                    let printCols = ['1fr']; // Receiver
+                    if (showPrintWitness) printCols.push('1fr');
+                    if (showPrintHead) printCols.push('1fr');
+                    printCols.push('1fr'); // Dispenser
+                    const gridColsPrint = printCols.join(' ');
 
-                    {/* Dispenser */}
-                    <div>
-                      <p style={{ margin: '0 0 0.2rem 0', fontWeight: 'bold', textTransform: 'uppercase' }}>THỦ KHO CẤP PHÁT</p>
-                      <p style={{ margin: '0 0 0.5rem 0', color: '#555', fontStyle: 'italic' }}>(Ký và ghi rõ họ tên)</p>
-                      <div style={{ height: '70px', display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '0.5rem 0' }}>
-                        {activeReqForPrint.approverSignature ? (
-                          <img src={activeReqForPrint.approverSignature} alt="Chữ ký giao" style={{ maxHeight: '100%', maxWidth: '100px', objectFit: 'contain' }} />
-                        ) : (
-                          activeReqForPrint.status === 'Approved' || activeReqForPrint.status === 'InTransit' || activeReqForPrint.status === 'Received' || activeReqForPrint.status === 'PartiallyReceived' ? SIG.khoa : <span style={{ color: '#888', fontStyle: 'italic', fontSize: '11px' }}>Chờ ký phát</span>
-                        )}
-                      </div>
-                      <p style={{ margin: 0, fontWeight: 'bold' }}>{activeReqForPrint.approverName || 'Dược sĩ Kho Dược'}</p>
-                    </div>
-
-                    {/* Trưởng khoa Dược */}
-                    {activeReqForPrint.requisitionType !== 'DirectTransfer' ? (
-                      <div>
-                        <p style={{ margin: '0 0 0.2rem 0', fontWeight: 'bold', textTransform: 'uppercase' }}>TRƯỞNG KHOA DƯỢC</p>
-                        <p style={{ margin: '0 0 0.5rem 0', color: '#555', fontStyle: 'italic' }}>(Ký duyệt điện tử, đóng dấu)</p>
-                        <div style={{ height: '70px', display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '0.5rem 0', position: 'relative' }}>
-                          {activeReqForPrint.status === 'Approved' || activeReqForPrint.status === 'InTransit' || activeReqForPrint.status === 'Received' || activeReqForPrint.status === 'PartiallyReceived' ? (
-                            <>
-                              {SIG.duoc}
-                              <div style={{ position: 'absolute', zIndex: 2, top: '-10px', left: '50%', transform: 'translateX(-40%) translateY(-5px)', pointerEvents: 'none' }}>
-                                <RedStamp name="DS. H.L.Đ.PHÚ" subText="KHOA DƯỢC ★" />
-                              </div>
-                            </>
-                          ) : (
-                            <span style={{ color: '#888', fontStyle: 'italic', fontSize: '11px' }}>Chờ phê duyệt</span>
-                          )}
+                    return (
+                      <div style={{ 
+                        display: 'grid', 
+                        gridTemplateColumns: gridColsPrint, 
+                        gap: '0.75rem', 
+                        textAlign: 'center', 
+                        marginTop: '2rem', 
+                        fontSize: '12px', 
+                        pageBreakInside: 'avoid' 
+                      }}>
+                        
+                        {/* Receiver */}
+                        <div>
+                          <p style={{ margin: '0 0 0.2rem 0', fontWeight: 'bold', textTransform: 'uppercase' }}>ĐIỀU DƯỠNG TIẾP NHẬN</p>
+                          <p style={{ margin: '0 0 0.5rem 0', color: '#555', fontStyle: 'italic' }}>(Ký và ghi rõ họ tên)</p>
+                          <div style={{ height: '70px', display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '0.5rem 0' }}>
+                            {activeReqForPrint.receiverSignature ? (
+                              <img src={activeReqForPrint.receiverSignature} alt="Chữ ký nhận" style={{ maxHeight: '100%', maxWidth: '100px', objectFit: 'contain' }} />
+                            ) : (
+                              <span style={{ color: '#888', fontStyle: 'italic', fontSize: '10px' }}>Chờ ký nhận</span>
+                            )}
+                          </div>
+                          <p style={{ margin: 0, fontWeight: 'bold' }}>{activeReqForPrint.receiverName || 'Điều dưỡng tiếp nhận'}</p>
                         </div>
-                        <p style={{ margin: 0, fontWeight: 'bold' }}>Dược sĩ Hà Lâm Đình Phú</p>
-                      </div>
-                    ) : null}
 
-                    {/* Giám đốc Bệnh viện */}
-                    {activeReqForPrint.requisitionType !== 'DirectTransfer' ? (
-                      <div>
-                        <p style={{ margin: '0 0 0.2rem 0', fontWeight: 'bold', textTransform: 'uppercase' }}>GIÁM ĐỐC BỆNH VIỆN</p>
-                        <p style={{ margin: '0 0 0.5rem 0', color: '#555', fontStyle: 'italic' }}>(Ký duyệt, đóng dấu đỏ)</p>
-                        <div style={{ height: '70px', display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '0.5rem 0', position: 'relative' }}>
-                          {activeReqForPrint.status === 'Approved' || activeReqForPrint.status === 'InTransit' || activeReqForPrint.status === 'Received' || activeReqForPrint.status === 'PartiallyReceived' ? (
-                            <>
-                              {SIG.duoc}
-                              <div style={{ position: 'absolute', zIndex: 2, top: '-10px', left: '50%', transform: 'translateX(-40%) translateY(-5px)', pointerEvents: 'none' }}>
-                                <RedStamp name="PGS.TS. L.M.TRÍ" subText="GIÁM ĐỐC ★" />
-                              </div>
-                            </>
-                          ) : (
-                            <span style={{ color: '#888', fontStyle: 'italic', fontSize: '11px' }}>Chờ phê duyệt</span>
-                          )}
+                        {/* Witness / Co-Receiver (Người đồng kiểm nhận) */}
+                        {showPrintWitness && (
+                          <div>
+                            <p style={{ margin: '0 0 0.2rem 0', fontWeight: 'bold', textTransform: 'uppercase' }}>ĐỒNG KIỂM NHẬN</p>
+                            <p style={{ margin: '0 0 0.5rem 0', color: '#555', fontStyle: 'italic' }}>(Ký và ghi rõ họ tên)</p>
+                            <div style={{ height: '70px', display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '0.5rem 0' }}>
+                              <img src={activeReqForPrint.witnessSignature} alt="Chữ ký đồng kiểm nhận" style={{ maxHeight: '100%', maxWidth: '100px', objectFit: 'contain' }} />
+                            </div>
+                            <p style={{ margin: 0, fontWeight: 'bold' }}>{activeReqForPrint.witnessName || 'Người đồng kiểm nhận'}</p>
+                          </div>
+                        )}
+
+                        {/* Trưởng khoa Lâm sàng */}
+                        {showPrintHead && (
+                          <div>
+                            <p style={{ margin: '0 0 0.2rem 0', fontWeight: 'bold', textTransform: 'uppercase' }}>TRƯỞNG KHOA LÂM SÀNG</p>
+                            <p style={{ margin: '0 0 0.5rem 0', color: '#555', fontStyle: 'italic' }}>(Ký duyệt hoặc Ký thay)</p>
+                            <div style={{ height: '70px', display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '0.5rem 0' }}>
+                              {activeReqForPrint.headSignature ? (
+                                <img src={activeReqForPrint.headSignature} alt="Chữ ký Trưởng khoa" style={{ maxHeight: '100%', maxWidth: '100px', objectFit: 'contain' }} />
+                              ) : (
+                                activeReqForPrint.status === 'Approved' || activeReqForPrint.status === 'InTransit' || activeReqForPrint.status === 'Received' || activeReqForPrint.status === 'PartiallyReceived' ? SIG.chuong : <span style={{ color: '#888', fontStyle: 'italic', fontSize: '10px' }}>Chờ ký duyệt</span>
+                              )}
+                            </div>
+                            <p style={{ margin: 0, fontWeight: 'bold' }}>{activeReqForPrint.delegatedTo ? `✍️ Ký thay: DĐ. ${activeReqForPrint.delegatedTo}` : (() => {
+                              const deptId = activeReqForPrint.departmentID;
+                              const deptName = activeReqForPrint.department?.departmentName || '';
+                              if (deptId === 2 || String(deptName).toLowerCase().includes('cấp cứu')) return 'BS.CKII. Lê Văn Chương';
+                              if (deptId === 1 || String(deptName).toLowerCase().includes('khám bệnh')) return 'BS.CKII. Nguyễn Hữu Lực';
+                              if (deptId === 3 || String(deptName).toLowerCase().includes('nội tổng hợp')) return 'BS.CKII. Nguyễn Đăng Đức Anh';
+                              if (deptId === 4 || String(deptName).toLowerCase().includes('xét nghiệm')) return 'BS.CKII. Trương Minh Quân';
+                              if (deptId === 5 || String(deptName).toLowerCase().includes('đông y')) return 'BS.CKII. Nguyễn Xuân Duy Thắng';
+                              return 'Trưởng khoa';
+                            })()}</p>
+                          </div>
+                        )}
+
+                        {/* Dispenser */}
+                        <div>
+                          <p style={{ margin: '0 0 0.2rem 0', fontWeight: 'bold', textTransform: 'uppercase' }}>THỦ KHO CẤP PHÁT</p>
+                          <p style={{ margin: '0 0 0.5rem 0', color: '#555', fontStyle: 'italic' }}>(Ký và ghi rõ họ tên)</p>
+                          <div style={{ height: '70px', display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '0.5rem 0' }}>
+                            {activeReqForPrint.approverSignature ? (
+                              <img src={activeReqForPrint.approverSignature} alt="Chữ ký giao" style={{ maxHeight: '100%', maxWidth: '100px', objectFit: 'contain' }} />
+                            ) : (
+                              activeReqForPrint.status === 'Approved' || activeReqForPrint.status === 'InTransit' || activeReqForPrint.status === 'Received' || activeReqForPrint.status === 'PartiallyReceived' ? SIG.khoa : <span style={{ color: '#888', fontStyle: 'italic', fontSize: '11px' }}>Chờ ký phát</span>
+                            )}
+                          </div>
+                          <p style={{ margin: 0, fontWeight: 'bold' }}>{activeReqForPrint.approverName || 'Dược sĩ Kho Dược'}</p>
                         </div>
-                        <p style={{ margin: 0, fontWeight: 'bold' }}>PGS.TS. Lê Minh Trí</p>
-                      </div>
-                    ) : null}
 
-                  </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             </div>
@@ -2922,7 +3080,7 @@ export default function Requisitions({ user }) {
                           <td style={{ width: '50%', padding: '0.15rem 0' }}><strong>Khoa lâm sàng nhận:</strong> Khoa {activeTransferForPrint.toDepartment?.departmentName}</td>
                         </tr>
                         <tr>
-                          <td style={{ width: '50%', padding: '0.15rem 0' }}><strong>Người lập phiếu (Xuất cấp):</strong> Dược sĩ Nguyễn Văn Khoa</td>
+                          <td style={{ width: '50%', padding: '0.15rem 0' }}><strong>Người lập phiếu (Xuất cấp):</strong> {activeTransferForPrint.requisition?.approverName || 'Thủ kho Dược'}</td>
                           <td style={{ width: '50%', padding: '0.15rem 0' }}><strong>Chức vụ:</strong> Thủ kho Dược chính</td>
                         </tr>
                       </tbody>
@@ -2969,15 +3127,41 @@ export default function Requisitions({ user }) {
                   </div>
 
                   {/* Signatures Section */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1.5rem', textAlign: 'center', marginTop: '2.5rem', fontSize: '13px', pageBreakInside: 'avoid' }}>
+                  <div style={{ 
+                    display: 'grid', 
+                    gridTemplateColumns: activeTransferForPrint.requisition?.witnessSignature ? '1fr 1fr 1fr 1fr' : '1fr 1fr 1fr', 
+                    gap: '1.5rem', 
+                    textAlign: 'center', 
+                    marginTop: '2.5rem', 
+                    fontSize: '13px', 
+                    pageBreakInside: 'avoid' 
+                  }}>
                     
                     {/* Receiver */}
                     <div>
                       <p style={{ margin: '0 0 0.2rem 0', fontWeight: 'bold', textTransform: 'uppercase' }}>ĐẠI DIỆN KHOA LÂM SÀNG NHẬN</p>
                       <p style={{ margin: '0 0 0.5rem 0', color: '#555', fontStyle: 'italic' }}>(Ký, ghi rõ họ tên khi nhận thuốc)</p>
-                      <div style={{ height: '75px', borderBottom: '1px dashed #888', width: '160px', margin: '0.5rem auto 2.5rem auto' }}></div>
-                      <p style={{ margin: 0, color: '#888', fontStyle: 'italic' }}>(Tập thể điều dưỡng khoa)</p>
+                      <div style={{ height: '75px', display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '0.5rem auto' }}>
+                        {activeTransferForPrint.requisition?.receiverSignature ? (
+                          <img src={activeTransferForPrint.requisition.receiverSignature} alt="Chữ ký nhận" style={{ maxHeight: '100%', maxWidth: '120px', objectFit: 'contain' }} />
+                        ) : (
+                          <div style={{ height: '75px', borderBottom: '1px dashed #888', width: '160px', margin: '0 auto' }}></div>
+                        )}
+                      </div>
+                      <p style={{ margin: 0, fontWeight: 'bold' }}>{activeTransferForPrint.requisition?.receiverName || '(Tập thể điều dưỡng khoa)'}</p>
                     </div>
+
+                    {/* Witness / Co-Receiver */}
+                    {activeTransferForPrint.requisition?.witnessSignature ? (
+                      <div>
+                        <p style={{ margin: '0 0 0.2rem 0', fontWeight: 'bold', textTransform: 'uppercase' }}>ĐỒNG KIỂM NHẬN</p>
+                        <p style={{ margin: '0 0 0.5rem 0', color: '#555', fontStyle: 'italic' }}>(Ký và ghi rõ họ tên)</p>
+                        <div style={{ height: '75px', display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '0.5rem auto' }}>
+                          <img src={activeTransferForPrint.requisition.witnessSignature} alt="Chữ ký đồng kiểm nhận" style={{ maxHeight: '100%', maxWidth: '120px', objectFit: 'contain' }} />
+                        </div>
+                        <p style={{ margin: 0, fontWeight: 'bold' }}>{activeTransferForPrint.requisition.witnessName}</p>
+                      </div>
+                    ) : null}
 
                     {/* Dispenser */}
                     <div>
@@ -2990,7 +3174,7 @@ export default function Requisitions({ user }) {
                           SIG.khoa
                         )}
                       </div>
-                      <p style={{ margin: 0, fontWeight: 'bold' }}>Nguyễn Văn Khoa</p>
+                      <p style={{ margin: 0, fontWeight: 'bold' }}>{activeTransferForPrint.requisition?.approverName || 'Thủ kho Dược'}</p>
                     </div>
 
                     {/* Chief Pharmacist */}

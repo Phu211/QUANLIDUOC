@@ -364,7 +364,9 @@ export default function App() {
             <div className="top-bar-badge">
               <Warehouse size={14} />
               <span>
-                {user.role === 'nurse' ? `Khoa: ${user.departmentName || 'Lâm sàng'}` : 'Kho: Kho chẵn chính'}
+                {(user.role === 'nurse' || user.role === 'head_nurse' || user.role === 'head') 
+                  ? `Khoa: ${user.departmentName || 'Lâm sàng'}` 
+                  : (user.role === 'director' ? 'Ban Giám Đốc' : 'Kho: Kho chẵn chính')}
               </span>
             </div>
             <div className="top-bar-badge" style={{ background: 'rgba(13, 148, 136, 0.1)', color: 'var(--color-secondary)' }}>

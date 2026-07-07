@@ -338,7 +338,10 @@ public class ImportController : ControllerBase
                 return BadRequest(new { Error = $"Quyền truy cập bị từ chối. {reason} Chỉ Ban Giám Đốc mới được quyền phê duyệt phiếu nhập đặc biệt này." });
             }
 
-            await _stockService.ApproveImportReceiptAsync(id, request?.ApproverSignature);
+            var userFullName = System.Net.WebUtility.UrlDecode(Request.Headers["X-User-FullName"].ToString());
+            if (string.IsNullOrEmpty(userFullName)) userFullName = userRole == "director" ? "Ban Giám Đốc" : "Dược sĩ trưởng";
+
+            await _stockService.ApproveImportReceiptAsync(id, request?.ApproverSignature, userFullName);
 
             // Broadcast real-time updates
             await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Imports");

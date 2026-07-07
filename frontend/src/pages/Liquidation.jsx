@@ -56,6 +56,7 @@ export default function Liquidation({ user }) {
   const [activeTab, setActiveTab] = useState('liquidation'); // 'liquidation' or 'destruction'
   const [showAllLowUsage, setShowAllLowUsage] = useState(false); // Toggle to show other stock
   const [responsiblePerson, setResponsiblePerson] = useState('');
+  const [checkerName, setCheckerName] = useState('DS. Lê Văn Chương');
 
   // Digital Signature & Print States
   const [showSignatureModal, setShowSignatureModal] = useState(false);
@@ -63,6 +64,7 @@ export default function Liquidation({ user }) {
   const canvasRef = useRef(null);
   const [activeLiquidationForPrint, setActiveLiquidationForPrint] = useState(null);
   const [signatureTarget, setSignatureTarget] = useState(null); // { action, id }
+  const [checkerNameInput, setCheckerNameInput] = useState('');
 
   const getLiquidationCode = (liq) => {
     if (!liq) return '';
@@ -90,6 +92,7 @@ export default function Liquidation({ user }) {
       setSelectedItems([]);
       setReason('TL01 - Hết hạn sử dụng');
       setResponsiblePerson('');
+      setCheckerName('DS. Lê Văn Chương');
     })
     .catch(err => {
       console.error("Error loading liquidation data: ", err);
@@ -239,7 +242,35 @@ export default function Liquidation({ user }) {
     const base64Signature = canvas.toDataURL('image/png');
     setShowSignatureModal(false);
     
-    if (signatureTarget?.action === 'approve_liquidation') {
+    if (signatureTarget?.action === 'check_liquidation') {
+      if (!checkerNameInput.trim()) {
+        alert("Vui lòng nhập họ tên thành viên Ban kiểm kê dược.");
+        return;
+      }
+      const id = signatureTarget.id;
+      fetch(`/api/liquidation/${id}/check`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Role': user?.role || '',
+          'X-User-FullName': encodeURIComponent(user?.fullName || '')
+        },
+        body: JSON.stringify({
+          checkerName: checkerNameInput.trim(),
+          checkerSignature: base64Signature
+        })
+      })
+      .then(res => {
+        if (!res.ok) return res.json().then(data => { throw new Error(data.error || "Lỗi ký nhận kiểm kê."); });
+        return res.json();
+      })
+      .then(() => {
+        alert("Ký xác nhận đối chiếu (Ban kiểm kê Dược) thành công!");
+        setCheckerNameInput('');
+        fetchData();
+      })
+      .catch(err => alert("Lỗi ký nhận: " + err.message));
+    } else if (signatureTarget?.action === 'approve_liquidation') {
       const id = signatureTarget.id;
       fetch(`/api/liquidation/${id}/approve`, {
         method: 'POST',
@@ -267,6 +298,12 @@ export default function Liquidation({ user }) {
 
   const handleStartApprove = (id) => {
     setSignatureTarget({ action: 'approve_liquidation', id });
+    setShowSignatureModal(true);
+  };
+
+  const handleStartCheck = (liq) => {
+    setSignatureTarget({ action: 'check_liquidation', id: liq.liquidationID });
+    setCheckerNameInput(liq.checkerName || user?.fullName || '');
     setShowSignatureModal(true);
   };
 
@@ -357,9 +394,10 @@ export default function Liquidation({ user }) {
     const payload = {
       reason: finalReason,
       type: activeTab === 'liquidation' ? 'Thanh lý' : 'Tiêu hủy',
-      createdBy: user?.fullName || 'Thủ kho Dược',
+      createdBy: user?.fullName || 'Dược sĩ Hà Lâm Đình Phú',
       items: selectedItems,
-      digitalSignature: signatureData
+      digitalSignature: signatureData,
+      checkerName: checkerName
     };
 
     fetch('/api/liquidation/create', {
@@ -637,6 +675,18 @@ export default function Liquidation({ user }) {
                   </select>
                 </div>
 
+                <div className="form-group" style={{ marginTop: '1rem' }}>
+                  <label className="form-label">Đại diện Ban kiểm kê Dược</label>
+                  <input 
+                    type="text" 
+                    className="form-input" 
+                    placeholder="VD: DS. Lê Văn Chương, DS. Nguyễn Văn A..."
+                    value={checkerName}
+                    onChange={e => setCheckerName(e.target.value)}
+                    style={{ background: 'var(--bg-secondary)', color: 'var(--text-main)', border: '1px solid var(--border-glass)', borderRadius: '8px', padding: '0.6rem 0.8rem', width: '100%' }}
+                  />
+                </div>
+
                 {activeTab === 'destruction' && (
                   <div className="form-group" style={{ marginTop: '1rem' }}>
                     <label className="form-label">Ghi nhận trách nhiệm / Cá nhân làm hao hụt (nếu có)</label>
@@ -761,7 +811,7 @@ export default function Liquidation({ user }) {
                   </div>
                   <div style={{ fontSize: '0.85rem' }}>
                     <p style={{ margin: '0 0 0.35rem 0' }}><strong>Lý do:</strong> {liq.reason}</p>
-                    <p style={{ margin: '0 0 0.35rem 0', color: 'var(--text-muted)', fontSize: '0.8rem' }}><strong>Người lập:</strong> {liq.createdBy || 'Thủ kho Dược'}</p>
+                    <p style={{ margin: '0 0 0.35rem 0', color: 'var(--text-muted)', fontSize: '0.8rem' }}><strong>Người lập:</strong> {liq.createdBy || 'Dược sĩ Hà Lâm Đình Phú'}</p>
                     <p style={{ margin: '0 0 0.35rem 0' }}><strong>Ngày thực hiện:</strong> {new Date(liq.liquidationDate).toLocaleString('vi-VN')}</p>
                     <div style={{ background: 'rgba(255,255,255,0.02)', borderRadius: '8px', padding: '0.5rem 0.75rem', marginTop: '0.5rem' }}>
                       {liq.details?.map(d => (
@@ -810,6 +860,30 @@ export default function Liquidation({ user }) {
                           onClick={() => handleExecuteLiquidation(liq.liquidationID)}
                         >
                           <Check size={12} /> Xác nhận đã {liq.type === 'Thanh lý' ? 'thanh lý' : 'tiêu hủy'} thực tế
+                        </button>
+                      </div>
+                    )}
+
+                    {(user?.role === 'pharmacist' || user?.role === 'director') && !liq.checkerSignature && (liq.status === 'Chờ duyệt' || liq.status === 'Đã duyệt' || liq.status === 'Đã thanh lý' || liq.status === 'Đã tiêu hủy') && (
+                      <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', borderTop: '1px dashed var(--border-glass)', paddingTop: '0.75rem' }}>
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          style={{ 
+                            padding: '0.25rem 0.75rem', 
+                            fontSize: '0.74rem', 
+                            height: '28px', 
+                            color: 'var(--color-secondary)', 
+                            borderColor: 'var(--color-secondary)', 
+                            background: 'none',
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            gap: '0.2rem',
+                            fontWeight: '600'
+                          }}
+                          onClick={() => handleStartCheck(liq)}
+                        >
+                          <PenTool size={12} /> Ký xác nhận đối chiếu (Ban kiểm kê Dược)
                         </button>
                       </div>
                     )}
@@ -935,12 +1009,16 @@ export default function Liquidation({ user }) {
                       {SIG.khoa}
                     </div>
                   )}
-                  <p style={{ fontWeight: 'bold' }}>{activeLiquidationForPrint.createdBy || 'Thủ kho Dược'}</p>
+                  <p style={{ fontWeight: 'bold' }}>{activeLiquidationForPrint.createdBy || 'Dược sĩ Hà Lâm Đình Phú'}</p>
                 </div>
                 <div>
                   <p style={{ margin: 0 }}><strong>Ban kiểm kê Dược</strong></p>
                   <p style={{ margin: '0.1rem 0 0 0', color: '#555', fontStyle: 'italic' }}>(Xác nhận đối chiếu)</p>
-                  {activeLiquidationForPrint.status === 'Đã duyệt' || activeLiquidationForPrint.status === 'Đã thanh lý' || activeLiquidationForPrint.status === 'Đã tiêu hủy' ? (
+                  {activeLiquidationForPrint.checkerSignature ? (
+                    <div style={{ height: '55px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0' }}>
+                      <img src={activeLiquidationForPrint.checkerSignature} alt="Chữ ký Kiểm kê" style={{ maxHeight: '100%', maxWidth: '120px', objectFit: 'contain' }} />
+                    </div>
+                  ) : (activeLiquidationForPrint.status === 'Đã duyệt' || activeLiquidationForPrint.status === 'Đã thanh lý' || activeLiquidationForPrint.status === 'Đã tiêu hủy') ? (
                     <div style={{ height: '55px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0' }}>
                       {SIG.chuong}
                     </div>
@@ -949,7 +1027,7 @@ export default function Liquidation({ user }) {
                       (Chờ đối chiếu)
                     </div>
                   )}
-                  <p style={{ fontWeight: 'bold' }}>Thành viên Hội đồng</p>
+                  <p style={{ fontWeight: 'bold' }}>{activeLiquidationForPrint.checkerName || 'DS. Lê Văn Chương'}</p>
                 </div>
                 <div>
                   <p style={{ margin: 0 }}><strong>Giám đốc bệnh viện</strong></p>
@@ -963,7 +1041,6 @@ export default function Liquidation({ user }) {
                     </div>
                   ) : (activeLiquidationForPrint.status === 'Đã duyệt' || activeLiquidationForPrint.status === 'Đã thanh lý' || activeLiquidationForPrint.status === 'Đã tiêu hủy') ? (
                     <div style={{ height: '55px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0.15rem 0', position: 'relative' }}>
-                      <div style={{ position: 'absolute', zIndex: 1 }}>{SIG.duoc}</div>
                       <div style={{ position: 'absolute', zIndex: 2, top: '-15px', left: '50%', transform: 'translateX(-40%)', pointerEvents: 'none' }}>
                         <RedStamp name="PGS.TS. Lê Minh Trí" subText="GIÁM ĐỐC ★" />
                       </div>
@@ -1012,11 +1089,28 @@ export default function Liquidation({ user }) {
             </button>
 
             <h3 style={{ marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <PenTool size={20} color="var(--color-secondary)" /> Ký Phê Duyệt Thanh Lý
+              <PenTool size={20} color="var(--color-secondary)" /> 
+              {signatureTarget?.action === 'check_liquidation' ? 'Ký Xác Nhận Đối Chiếu (Ban Kiểm Kê)' : 'Ký Phê Duyệt Thanh Lý'}
             </h3>
             <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem', marginBottom: '1.25rem' }}>
-              Vui lòng vẽ chữ ký của bạn (Lãnh đạo/Giám đốc) vào ô dưới đây để phê duyệt biên bản thanh lý tiêu hủy dược phẩm.
+              {signatureTarget?.action === 'check_liquidation' 
+                ? 'Vui lòng điền họ tên thành viên Ban kiểm kê và ký vẽ tay xác nhận đối chiếu dược phẩm thanh lý.'
+                : 'Vui lòng vẽ chữ ký của bạn (Lãnh đạo/Giám đốc) vào ô dưới đây để phê duyệt biên bản thanh lý tiêu hủy dược phẩm.'}
             </p>
+
+            {signatureTarget?.action === 'check_liquidation' && (
+              <div className="form-group" style={{ marginBottom: '1rem' }}>
+                <label className="form-label">Họ tên Thành viên Ban kiểm kê Dược</label>
+                <input 
+                  type="text" 
+                  className="form-input" 
+                  placeholder="Nhập đầy đủ họ tên..."
+                  value={checkerNameInput}
+                  onChange={e => setCheckerNameInput(e.target.value)}
+                  style={{ background: 'var(--bg-secondary)', color: 'var(--text-main)', border: '1px solid var(--border-glass)', borderRadius: '8px', padding: '0.6rem 0.8rem', width: '100%' }}
+                />
+              </div>
+            )}
 
             <div style={{ 
               background: '#f8fafc', 

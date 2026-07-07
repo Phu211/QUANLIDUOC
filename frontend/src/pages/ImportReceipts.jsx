@@ -570,7 +570,8 @@ export default function ImportReceipts({ user }) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-User-Role': user?.role || ''
+          'X-User-Role': user?.role || '',
+          'X-User-FullName': encodeURIComponent(user?.fullName || '')
         },
         body: JSON.stringify({ approverSignature: leaderSig })
       })
@@ -2907,7 +2908,7 @@ export default function ImportReceipts({ user }) {
                           ? (activeReceiptForPrint.status === 'Đã nhập kho' || activeReceiptForPrint.status === 'Đã kiểm' || activeReceiptForPrint.status === 'Approved'
                             ? 'PGS.TS. Lê Minh Trí'
                             : 'Ban Giám Đốc') 
-                          : 'Dược sĩ Hà Lâm Đình Phú'}
+                          : (activeReceiptForPrint.approverName || 'Dược sĩ Hà Lâm Đình Phú')}
                       </p>
                     </div>
                   </div>

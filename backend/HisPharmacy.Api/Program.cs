@@ -54,6 +54,8 @@ using (var scope = app.Services.CreateScope())
     {
         db.Database.ExecuteSqlRaw("IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('MedicineRequisitions') AND name = 'ProposerName') ALTER TABLE MedicineRequisitions ADD ProposerName NVARCHAR(250) NULL;");
         db.Database.ExecuteSqlRaw("IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('MedicineRequisitions') AND name = 'ApproverName') ALTER TABLE MedicineRequisitions ADD ApproverName NVARCHAR(250) NULL;");
+        db.Database.ExecuteSqlRaw("IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('MedicineRequisitions') AND name = 'WitnessName') ALTER TABLE MedicineRequisitions ADD WitnessName NVARCHAR(250) NULL;");
+        db.Database.ExecuteSqlRaw("IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('MedicineRequisitions') AND name = 'WitnessSignature') ALTER TABLE MedicineRequisitions ADD WitnessSignature NVARCHAR(MAX) NULL;");
         
         db.Database.ExecuteSqlRaw("IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('RecallLogs') AND name = 'Status') ALTER TABLE RecallLogs ADD Status NVARCHAR(50) NULL;");
         db.Database.ExecuteSqlRaw("IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('RecallLogs') AND name = 'ApprovedBy') ALTER TABLE RecallLogs ADD ApprovedBy NVARCHAR(250) NULL;");
@@ -63,7 +65,12 @@ using (var scope = app.Services.CreateScope())
         db.Database.ExecuteSqlRaw("IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('ReturnReceipts') AND name = 'ApproverName') ALTER TABLE ReturnReceipts ADD ApproverName NVARCHAR(250) NULL;");
         db.Database.ExecuteSqlRaw("IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('ReturnReceipts') AND name = 'ProposerName') ALTER TABLE ReturnReceipts ADD ProposerName NVARCHAR(250) NULL;");
         db.Database.ExecuteSqlRaw("IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('ImportReceipts') AND name = 'DeliveryPersonName') ALTER TABLE ImportReceipts ADD DeliveryPersonName NVARCHAR(250) NULL;");
+        db.Database.ExecuteSqlRaw("IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('ImportReceipts') AND name = 'ApproverName') ALTER TABLE ImportReceipts ADD ApproverName NVARCHAR(250) NULL;");
         
+        db.Database.ExecuteSqlRaw("IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('LiquidationReceipts') AND name = 'CheckerName') ALTER TABLE LiquidationReceipts ADD CheckerName NVARCHAR(250) NULL;");
+        db.Database.ExecuteSqlRaw("IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('LiquidationReceipts') AND name = 'CheckerSignature') ALTER TABLE LiquidationReceipts ADD CheckerSignature NVARCHAR(MAX) NULL;");
+        db.Database.ExecuteSqlRaw("UPDATE LiquidationReceipts SET CheckerName = N'DS. Lê Văn Chương' WHERE CheckerName IS NULL AND (Status = N'Đã duyệt' OR Status = N'Đã thanh lý' OR Status = N'Đã tiêu hủy');");
+
         // Data patches for historical return receipts
         db.Database.ExecuteSqlRaw("UPDATE ReturnReceipts SET ProposerName = N'Điều dưỡng trưởng Trần Trung Nam' WHERE DepartmentID = 1 AND (ProposerName IS NULL OR ProposerName = N'ĐDT. Tạ Thị Hồng');");
         db.Database.ExecuteSqlRaw("UPDATE ReturnReceipts SET ProposerName = N'Điều dưỡng trưởng Trần Vỹ Khang' WHERE DepartmentID = 2 AND (ProposerName IS NULL OR ProposerName = N'ĐDT. Phan Thị Cẩm Tú');");
@@ -71,6 +78,8 @@ using (var scope = app.Services.CreateScope())
         db.Database.ExecuteSqlRaw("UPDATE ReturnReceipts SET ProposerName = N'Điều dưỡng trưởng Nguyễn Trần Gia Khang' WHERE DepartmentID = 4 AND (ProposerName IS NULL OR ProposerName = N'ĐDT. Lê Thị Ngọc');");
         db.Database.ExecuteSqlRaw("UPDATE ReturnReceipts SET ProposerName = N'Điều dưỡng trưởng Nguyễn Thái Bình Dương' WHERE DepartmentID = 5 AND (ProposerName IS NULL OR ProposerName = N'ĐDT. Phạm Hoàng Yến');");
         db.Database.ExecuteSqlRaw("UPDATE ReturnReceipts SET ApproverName = N'DS. Hà Lâm Đình Phú' WHERE ApproverSignature IS NOT NULL AND ApproverName IS NULL;");
+        db.Database.ExecuteSqlRaw("UPDATE ImportReceipts SET ApproverName = N'Dược sĩ Hà Lâm Đình Phú' WHERE ApproverSignature IS NOT NULL AND ApproverName IS NULL;");
+        db.Database.ExecuteSqlRaw("UPDATE MedicineRequisitions SET ApproverName = N'Dược sĩ Hà Lâm Đình Phú' WHERE ApproverSignature IS NOT NULL AND ApproverName IS NULL;");
     }
     catch (Exception ex)
     {
