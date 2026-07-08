@@ -80,6 +80,43 @@ using (var scope = app.Services.CreateScope())
         db.Database.ExecuteSqlRaw("UPDATE ReturnReceipts SET ApproverName = N'DS. Hà Lâm Đình Phú' WHERE ApproverSignature IS NOT NULL AND ApproverName IS NULL;");
         db.Database.ExecuteSqlRaw("UPDATE ImportReceipts SET ApproverName = N'Dược sĩ Hà Lâm Đình Phú' WHERE ApproverSignature IS NOT NULL AND ApproverName IS NULL;");
         db.Database.ExecuteSqlRaw("UPDATE MedicineRequisitions SET ApproverName = N'Dược sĩ Hà Lâm Đình Phú' WHERE ApproverSignature IS NOT NULL AND ApproverName IS NULL;");
+
+        // Upgrade SupplierMedicines table schema if missing columns
+        db.Database.ExecuteSqlRaw(@"
+            IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('SupplierMedicines') AND name = 'ContractNumber')
+            BEGIN
+                ALTER TABLE SupplierMedicines ADD ContractNumber NVARCHAR(100) NULL;
+                ALTER TABLE SupplierMedicines ADD ContractQuantity INT NULL;
+                ALTER TABLE SupplierMedicines ADD ImportedQuantity INT NOT NULL DEFAULT 0;
+                ALTER TABLE SupplierMedicines ADD StartDate DATE NULL;
+                ALTER TABLE SupplierMedicines ADD EndDate DATE NULL;
+                ALTER TABLE SupplierMedicines ADD IsActive BIT NOT NULL DEFAULT 1;
+                ALTER TABLE SupplierMedicines ADD Status NVARCHAR(50) NULL;
+            END
+        ");
+
+        // Seed default values for existing 297 rows in SupplierMedicines
+        db.Database.ExecuteSqlRaw(@"
+            UPDATE sm
+            SET sm.ContractNumber = s.ContractNumber,
+                sm.ContractQuantity = 10000,
+                sm.StartDate = '2026-01-01',
+                sm.EndDate = '2027-12-31',
+                sm.IsActive = 1,
+                sm.Status = 'Active'
+            FROM SupplierMedicines sm
+            INNER JOIN Suppliers s ON sm.SupplierID = s.SupplierID
+            WHERE sm.ContractNumber IS NULL;
+        ");
+
+        // Upgrade ImportReceiptDetails table to store ContractPrice and ActualImportPrice
+        db.Database.ExecuteSqlRaw(@"
+            IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('ImportReceiptDetails') AND name = 'ContractPrice')
+            BEGIN
+                ALTER TABLE ImportReceiptDetails ADD ContractPrice DECIMAL(18,2) NULL;
+                ALTER TABLE ImportReceiptDetails ADD ActualImportPrice DECIMAL(18,2) NULL;
+            END
+        ");
     }
     catch (Exception ex)
     {

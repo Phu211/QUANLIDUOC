@@ -51,6 +51,8 @@ const RedStamp = ({ name }) => (
 );
 
 export default function ImportReceipts({ user }) {
+  const canOverridePrice = user?.role === 'director' || user?.role === 'pharmacist_admin' || user?.username === 'phu';
+  
   const [imports, setImports] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
   const [medicines, setMedicines] = useState([]);
@@ -202,6 +204,11 @@ export default function ImportReceipts({ user }) {
 
   // 2. Xử lý tải lên và phân tích file Excel
   const handleExcelUpload = (e) => {
+    if (!selectedSupplier) {
+      alert("Vui lòng chọn Nhà cung cấp trước khi tải lên file Excel!");
+      e.target.value = null;
+      return;
+    }
     const file = e.target.files[0];
     if (!file) return;
 
@@ -336,15 +343,29 @@ export default function ImportReceipts({ user }) {
             return;
           }
 
-          const importPrice = parseFloat(importPriceRaw);
+          let importPrice = parseFloat(importPriceRaw);
           if (isNaN(importPrice) || importPrice <= 0) {
             errors.push(`Dòng ${rowNum}: Đơn giá nhập "${importPriceRaw}" phải là số lớn hơn 0.`);
             return;
           }
 
+          // Price override check
+          if (matchedMed.contractPrice && importPrice !== matchedMed.contractPrice) {
+            if (!canOverridePrice) {
+              importPrice = matchedMed.contractPrice; // Auto fallback to contract price
+            }
+          }
+
           const quantity = parseInt(quantityRaw);
           if (isNaN(quantity) || quantity <= 0) {
             errors.push(`Dòng ${rowNum}: Số lượng nhập "${quantityRaw}" phải là số nguyên lớn hơn 0.`);
+            return;
+          }
+
+          // Quantity override check
+          const remainingQty = (matchedMed.contractQuantity || 999999) - (matchedMed.importedQuantity || 0);
+          if (quantity > remainingQty && !canOverridePrice) {
+            errors.push(`Dòng ${rowNum}: Số lượng nhập (${quantity}) vượt quá số lượng thầu còn lại (${remainingQty}) cho thuốc "${matchedMed.medicineName}".`);
             return;
           }
 
@@ -421,11 +442,18 @@ export default function ImportReceipts({ user }) {
   const fetchInitialData = () => {
     setLoading(true);
     const t = Date.now();
-    Promise.all([
+    const fetchPromises = [
       fetch(`/api/import?_t=${t}`).then(res => res.json()),
-      fetch(`/api/import/suppliers?_t=${t}`).then(res => res.json()),
-      fetch(`/api/import/medicines?_t=${t}`).then(res => res.json())
-    ])
+      fetch(`/api/import/suppliers?_t=${t}`).then(res => res.json())
+    ];
+
+    if (selectedSupplier) {
+      fetchPromises.push(fetch(`/api/import/medicines?supplierId=${selectedSupplier}&_t=${t}`).then(res => res.json()));
+    } else {
+      fetchPromises.push(Promise.resolve([]));
+    }
+
+    Promise.all(fetchPromises)
       .then(([importsData, suppliersData, medicinesData]) => {
         setImports(importsData);
         setSuppliers(suppliersData);
@@ -449,6 +477,19 @@ export default function ImportReceipts({ user }) {
     window.addEventListener('pharmacy-update', handleUpdate);
     return () => window.removeEventListener('pharmacy-update', handleUpdate);
   }, []);
+
+  useEffect(() => {
+    if (selectedSupplier) {
+      fetch(`/api/import/medicines?supplierId=${selectedSupplier}&_t=${Date.now()}`)
+        .then(res => res.json())
+        .then(data => {
+          setMedicines(data);
+        })
+        .catch(err => console.error("Error loading medicines: ", err));
+    } else {
+      setMedicines([]);
+    }
+  }, [selectedSupplier]);
 
   useEffect(() => {
     if (user?.fullName) {
@@ -635,6 +676,7 @@ export default function ImportReceipts({ user }) {
     } else {
       setContractNumber('');
     }
+    setItems([{ medicineID: '', batchNumber: '', productionDate: '', expiryDate: '', importPrice: '', quantity: '' }]);
   };
 
   const handleAddItemRow = () => {
@@ -657,6 +699,16 @@ export default function ImportReceipts({ user }) {
       if (val < 1) value = '1';
     }
     newItems[index][field] = value;
+
+    if (field === 'medicineID') {
+      const selectedMed = medicines.find(m => m.medicineID.toString() === value.toString());
+      if (selectedMed && selectedMed.contractPrice) {
+        newItems[index].importPrice = selectedMed.contractPrice.toString();
+      } else {
+        newItems[index].importPrice = '';
+      }
+    }
+
     setItems(newItems);
   };
 
@@ -720,9 +772,26 @@ export default function ImportReceipts({ user }) {
   };
 
   const isStep2Valid = () => {
-    const itemsValid = items.length > 0 && items.every(item =>
-      item.medicineID && item.batchNumber && item.expiryDate && item.importPrice && item.quantity
-    );
+    const itemsValid = items.length > 0 && items.every(item => {
+      const basicValid = item.medicineID && item.batchNumber && item.expiryDate && item.importPrice && item.quantity;
+      if (!basicValid) return false;
+
+      const med = medicines.find(m => m.medicineID.toString() === item.medicineID.toString());
+      if (!med) return false;
+
+      const price = parseFloat(item.importPrice);
+      if (med.contractPrice && price !== med.contractPrice && !canOverridePrice) {
+        return false;
+      }
+
+      const qty = parseInt(item.quantity, 10);
+      const remainingQty = (med.contractQuantity || 999999) - (med.importedQuantity || 0);
+      if (qty > remainingQty && !canOverridePrice) {
+        return false;
+      }
+
+      return true;
+    });
     return itemsValid;
   };
 
@@ -1812,6 +1881,17 @@ export default function ImportReceipts({ user }) {
                       const qty = parseInt(item.quantity) || 0;
                       const total = price * qty;
 
+                      let priceError = '';
+                      if (selectedMed && selectedMed.contractPrice && price !== selectedMed.contractPrice && !canOverridePrice) {
+                        priceError = `Giá thầu bắt buộc: ${selectedMed.contractPrice.toLocaleString('vi-VN')} đ`;
+                      }
+
+                      let qtyError = '';
+                      const remainingQty = selectedMed ? (selectedMed.contractQuantity - selectedMed.importedQuantity) : 999999;
+                      if (selectedMed && qty > remainingQty && !canOverridePrice) {
+                        qtyError = `Vượt thầu còn lại: ${remainingQty.toLocaleString('vi-VN')}`;
+                      }
+
                       return (
                         <div key={idx} style={{
                           borderBottom: idx < items.length - 1 ? '1px solid var(--border-glass)' : 'none',
@@ -1829,9 +1909,22 @@ export default function ImportReceipts({ user }) {
                               >
                                 <option value="">-- Chọn dược phẩm --</option>
                                 {medicines.map(m => (
-                                  <option key={m.medicineID} value={m.medicineID}>{m.medicineName}</option>
+                                  <option key={m.medicineID} value={m.medicineID}>
+                                    {m.medicineName} (Tồn kho chẵn: {m.currentStock || 0})
+                                  </option>
                                 ))}
                               </select>
+                              {selectedMed && (
+                                <div style={{ fontSize: '0.63rem', color: 'var(--color-primary-light)', marginTop: '0.15rem', display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                                  <span>HĐ: <strong>{selectedMed.contractNumber || contractNumber}</strong></span>
+                                  <span>Giá thầu: <strong>{selectedMed.contractPrice?.toLocaleString('vi-VN')} đ</strong></span>
+                                  <span>Còn lại: <strong style={{ color: remainingQty <= 0 ? '#ef4444' : 'inherit' }}>{remainingQty?.toLocaleString('vi-VN')}</strong> / {selectedMed.contractQuantity?.toLocaleString('vi-VN')}</span>
+                                  <span>Tồn kho chẵn: <strong style={{ color: selectedMed.currentStock > 0 ? 'var(--color-secondary)' : '#ef4444' }}>{selectedMed.currentStock || 0}</strong></span>
+                                  {selectedMed.contractQuantity > 0 && selectedMed.importedQuantity >= 0.9 * selectedMed.contractQuantity && (
+                                    <span style={{ color: '#f59e0b', fontWeight: 'bold', background: 'rgba(245,158,11,0.1)', padding: '1px 4px', borderRadius: '3px' }}>⚠️ Đã dùng {((selectedMed.importedQuantity / selectedMed.contractQuantity) * 100).toFixed(0)}% thầu!</span>
+                                  )}
+                                </div>
+                              )}
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
                               <label style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: '600', margin: 0 }}>Số lô thầu (*)</label>
@@ -1877,7 +1970,7 @@ export default function ImportReceipts({ user }) {
                                 style={{ height: '33px', fontSize: '0.78rem', padding: '0 0.5rem' }}
                               />
                             </div>
-                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
                               <label style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: '600', margin: 0 }}>Đơn giá nhập</label>
                               <input
                                 type="number"
@@ -1886,8 +1979,12 @@ export default function ImportReceipts({ user }) {
                                 min="0"
                                 value={item.importPrice}
                                 onChange={e => handleItemChange(idx, 'importPrice', e.target.value)}
-                                style={{ height: '33px', fontSize: '0.78rem', padding: '0 0.5rem' }}
+                                readOnly={!canOverridePrice}
+                                style={{ height: '33px', fontSize: '0.78rem', padding: '0 0.5rem', background: !canOverridePrice ? 'rgba(255,255,255,0.05)' : 'inherit', color: !canOverridePrice ? 'var(--text-muted)' : 'inherit' }}
                               />
+                              {priceError && (
+                                <span style={{ color: '#ef4444', fontSize: '0.6rem', marginTop: '0.15rem', display: 'block', fontWeight: 'bold' }}>{priceError}</span>
+                              )}
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
                               <label style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: '600', margin: 0 }}>Số lượng (SL)</label>
@@ -1900,6 +1997,9 @@ export default function ImportReceipts({ user }) {
                                 onChange={e => handleItemChange(idx, 'quantity', e.target.value)}
                                 style={{ height: '33px', fontSize: '0.78rem', padding: '0 0.5rem' }}
                               />
+                              {qtyError && (
+                                <span style={{ color: '#ef4444', fontSize: '0.6rem', marginTop: '0.15rem', display: 'block', fontWeight: 'bold' }}>{qtyError}</span>
+                              )}
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
                               <label style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: '600', margin: 0 }}>Thành tiền</label>

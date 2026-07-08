@@ -9,6 +9,7 @@ public class HisDbContext : DbContext
     public DbSet<Supplier> Suppliers => Set<Supplier>();
     public DbSet<User> Users => Set<User>();
     public DbSet<Medicine> Medicines => Set<Medicine>();
+    public DbSet<SupplierMedicine> SupplierMedicines => Set<SupplierMedicine>();
     public DbSet<Department> Departments => Set<Department>();
     public DbSet<Batch> Batches => Set<Batch>();
     public DbSet<InventoryStock> InventoryStocks => Set<InventoryStock>();
@@ -49,6 +50,8 @@ public class HisDbContext : DbContext
         // Primary keys configuration mapping
         modelBuilder.Entity<Supplier>().HasKey(e => e.SupplierID);
         modelBuilder.Entity<Supplier>().Property(e => e.SupplierID).ValueGeneratedOnAdd();
+        modelBuilder.Entity<SupplierMedicine>().HasKey(e => e.SupplierMedicineID);
+        modelBuilder.Entity<SupplierMedicine>().Property(e => e.SupplierMedicineID).ValueGeneratedOnAdd();
         modelBuilder.Entity<User>().HasKey(e => e.UserID);
         modelBuilder.Entity<User>().Property(e => e.UserID).ValueGeneratedOnAdd();
         modelBuilder.Entity<Medicine>().HasKey(e => e.MedicineID);
@@ -97,7 +100,7 @@ public class HisDbContext : DbContext
             .HasForeignKey(s => s.BatchID);
 
         modelBuilder.Entity<ImportReceiptDetail>()
-            .HasOne<ImportReceipt>()
+            .HasOne(d => d.ImportReceipt)
             .WithMany(r => r.Details)
             .HasForeignKey(d => d.ImportID)
             .OnDelete(DeleteBehavior.Cascade);
@@ -367,9 +370,12 @@ public class ImportReceiptDetail
     public int ImportID { get; set; }
     public int BatchID { get; set; }
     public int Quantity { get; set; }
+    public decimal? ContractPrice { get; set; }
+    public decimal? ActualImportPrice { get; set; }
 
     // Navigation
     public Batch? Batch { get; set; }
+    public ImportReceipt? ImportReceipt { get; set; }
 }
 
 public class InternalTransfer
@@ -628,4 +634,19 @@ public class QuarantineStock
 
     // Navigation
     public Batch? Batch { get; set; }
+}
+
+public class SupplierMedicine
+{
+    public int SupplierMedicineID { get; set; }
+    public int SupplierID { get; set; }
+    public int MedicineID { get; set; }
+    public string? ContractNumber { get; set; }
+    public decimal ContractPrice { get; set; }
+    public int? ContractQuantity { get; set; }
+    public int ImportedQuantity { get; set; } = 0;
+    public DateTime? StartDate { get; set; }
+    public DateTime? EndDate { get; set; }
+    public bool IsActive { get; set; } = true;
+    public string? Status { get; set; }
 }

@@ -317,6 +317,45 @@ public class StockService
 
 
     // Luồng 1: Nhập kho chẵn và Kiểm nhập
+    public async Task RecalculateForReceiptAsync(int importID)
+    {
+        var import = await _context.ImportReceipts
+            .Include(i => i.Details)!.ThenInclude(d => d.Batch)
+            .FirstOrDefaultAsync(i => i.ImportID == importID);
+        
+        if (import != null)
+        {
+            var supplierId = import.SupplierID;
+            var medicineIds = import.Details?
+                .Where(d => d.Batch != null)
+                .Select(d => d.Batch!.MedicineID)
+                .Distinct()
+                .ToList() ?? new List<int>();
+
+            foreach (var medId in medicineIds)
+            {
+                var sm = await _context.SupplierMedicines
+                    .FirstOrDefaultAsync(x => x.SupplierID == supplierId && x.MedicineID == medId);
+                
+                if (sm != null)
+                {
+                    var totalImported = await _context.ImportReceiptDetails
+                        .Where(d => d.ImportReceipt!.SupplierID == supplierId 
+                                 && d.Batch!.MedicineID == medId
+                                 && (d.ImportReceipt.Status == "Đã nhập kho" 
+                                  || d.ImportReceipt.Status == "Đã kiểm" 
+                                  || d.ImportReceipt.Status == "Thiếu hàng" 
+                                  || d.ImportReceipt.Status == "Approved" 
+                                  || d.ImportReceipt.Status == "Shortage"))
+                        .SumAsync(d => d.Quantity);
+                    
+                    sm.ImportedQuantity = totalImported;
+                }
+            }
+            await _context.SaveChangesAsync();
+        }
+    }
+
     public async Task<ImportReceipt> CreateImportAsync(
         int supplierID, 
         string? contractNumber, 
@@ -333,7 +372,8 @@ public class StockService
         string? secondInspectorSignature,
         string? deliveryPersonSignature,
         List<ImportItemDto> items,
-        string? deliveryPersonName = null)
+        string? deliveryPersonName = null,
+        string? userRole = null)
     {
         using var transaction = await _context.Database.BeginTransactionAsync();
         try
@@ -387,6 +427,11 @@ public class StockService
             };
             _context.ImportReceipts.Add(import);
 
+            var today = DateTime.Today.Date;
+            var supplierMedicines = await _context.SupplierMedicines
+                .Where(sm => sm.SupplierID == supplierID)
+                .ToListAsync();
+
             foreach (var item in items)
             {
                 if (item.ImportPrice < 0)
@@ -396,6 +441,50 @@ public class StockService
                 if (item.Quantity <= 0)
                 {
                     throw new ArgumentException("Số lượng nhập phải lớn hơn 0.");
+                }
+
+                var sm = supplierMedicines.FirstOrDefault(x => x.MedicineID == item.MedicineID);
+                if (sm == null)
+                {
+                    var medicineName = await _context.Medicines
+                        .Where(m => m.MedicineID == item.MedicineID)
+                        .Select(m => m.MedicineName)
+                        .FirstOrDefaultAsync() ?? $"ID {item.MedicineID}";
+                    throw new ArgumentException($"Dược phẩm '{medicineName}' không thuộc danh mục ký kết với nhà cung cấp này.");
+                }
+
+                if (!sm.IsActive || sm.StartDate > today || sm.EndDate < today || sm.Status == "Expired" || sm.Status == "Suspended")
+                {
+                    var medicineName = await _context.Medicines
+                        .Where(m => m.MedicineID == item.MedicineID)
+                        .Select(m => m.MedicineName)
+                        .FirstOrDefaultAsync() ?? $"ID {item.MedicineID}";
+                    throw new ArgumentException($"Dược phẩm '{medicineName}' đã hết hiệu lực hợp đồng với nhà cung cấp này.");
+                }
+
+                if (item.ImportPrice != sm.ContractPrice)
+                {
+                    if (userRole != "director" && userRole != "pharmacist_admin" && createdBy != "phu")
+                    {
+                        var medicineName = await _context.Medicines
+                            .Where(m => m.MedicineID == item.MedicineID)
+                            .Select(m => m.MedicineName)
+                            .FirstOrDefaultAsync() ?? $"ID {item.MedicineID}";
+                        throw new ArgumentException($"Đơn giá nhập của dược phẩm '{medicineName}' ({item.ImportPrice:N0}đ) không khớp với đơn giá ký kết hợp đồng ({sm.ContractPrice:N0}đ). Bạn không có quyền ghi đè đơn giá.");
+                    }
+                }
+
+                int remainingQty = sm.ContractQuantity.GetValueOrDefault(999999) - sm.ImportedQuantity;
+                if (item.Quantity > remainingQty)
+                {
+                    if (userRole != "director" && userRole != "pharmacist_admin" && createdBy != "phu")
+                    {
+                        var medicineName = await _context.Medicines
+                            .Where(m => m.MedicineID == item.MedicineID)
+                            .Select(m => m.MedicineName)
+                            .FirstOrDefaultAsync() ?? $"ID {item.MedicineID}";
+                        throw new ArgumentException($"Số lượng nhập của dược phẩm '{medicineName}' ({item.Quantity}) vượt quá số lượng hợp đồng còn lại ({remainingQty}). Bạn không có quyền vượt số lượng gói thầu.");
+                    }
                 }
 
                 // Create a new batch entry for this medicine shipment
@@ -415,11 +504,14 @@ public class StockService
                 import.Details.Add(new ImportReceiptDetail
                 {
                     BatchID = batch.BatchID,
-                    Quantity = item.Quantity
+                    Quantity = item.Quantity,
+                    ContractPrice = sm.ContractPrice,
+                    ActualImportPrice = item.ImportPrice
                 });
             }
 
             await _context.SaveChangesAsync();
+            await RecalculateForReceiptAsync(import.ImportID);
             await transaction.CommitAsync();
 
             return import;
@@ -451,6 +543,7 @@ public class StockService
             import.ApproverName = approverName;
         }
         await _context.SaveChangesAsync();
+        await RecalculateForReceiptAsync(import.ImportID);
     }
 
     // Luồng 1.2: Hoàn tất kiểm nhận cảm quan thực tế cho phiếu đã Tiếp nhận (Chờ kiểm nhập)
@@ -464,7 +557,8 @@ public class StockService
         string? secondInspectorSignature,
         string? deliveryPersonSignature,
         List<ImportItemDto> items,
-        string? deliveryPersonName = null)
+        string? deliveryPersonName = null,
+        string? userRole = null)
     {
         using var transaction = await _context.Database.BeginTransactionAsync();
         try
@@ -505,8 +599,76 @@ public class StockService
                 import.DocumentsJson = documentsJson;
             }
 
+            var today = DateTime.Today.Date;
+            var supplierMedicines = await _context.SupplierMedicines
+                .Where(sm => sm.SupplierID == import.SupplierID)
+                .ToListAsync();
+
+            // Clear old details and batches (as they are draft items) to prevent duplicates
+            if (import.Details != null && import.Details.Any())
+            {
+                foreach (var detail in import.Details)
+                {
+                    if (detail.Batch != null)
+                    {
+                        var invStock = await _context.InventoryStocks.FirstOrDefaultAsync(s => s.BatchID == detail.BatchID);
+                        if (invStock != null)
+                        {
+                            _context.InventoryStocks.Remove(invStock);
+                        }
+                        _context.Batches.Remove(detail.Batch);
+                    }
+                    _context.ImportReceiptDetails.Remove(detail);
+                }
+                import.Details.Clear();
+            }
+
             foreach (var item in items)
             {
+                var sm = supplierMedicines.FirstOrDefault(x => x.MedicineID == item.MedicineID);
+                if (sm == null)
+                {
+                    var medicineName = await _context.Medicines
+                        .Where(m => m.MedicineID == item.MedicineID)
+                        .Select(m => m.MedicineName)
+                        .FirstOrDefaultAsync() ?? $"ID {item.MedicineID}";
+                    throw new ArgumentException($"Dược phẩm '{medicineName}' không thuộc danh mục ký kết với nhà cung cấp này.");
+                }
+
+                if (!sm.IsActive || sm.StartDate > today || sm.EndDate < today || sm.Status == "Expired" || sm.Status == "Suspended")
+                {
+                    var medicineName = await _context.Medicines
+                        .Where(m => m.MedicineID == item.MedicineID)
+                        .Select(m => m.MedicineName)
+                        .FirstOrDefaultAsync() ?? $"ID {item.MedicineID}";
+                    throw new ArgumentException($"Dược phẩm '{medicineName}' đã hết hiệu lực hợp đồng với nhà cung cấp này.");
+                }
+
+                if (item.ImportPrice != sm.ContractPrice)
+                {
+                    if (userRole != "director" && userRole != "pharmacist_admin")
+                    {
+                        var medicineName = await _context.Medicines
+                            .Where(m => m.MedicineID == item.MedicineID)
+                            .Select(m => m.MedicineName)
+                            .FirstOrDefaultAsync() ?? $"ID {item.MedicineID}";
+                        throw new ArgumentException($"Đơn giá nhập của dược phẩm '{medicineName}' ({item.ImportPrice:N0}đ) không khớp với đơn giá ký kết hợp đồng ({sm.ContractPrice:N0}đ). Bạn không có quyền ghi đè đơn giá.");
+                    }
+                }
+
+                int remainingQty = sm.ContractQuantity.GetValueOrDefault(999999) - sm.ImportedQuantity;
+                if (item.Quantity > remainingQty)
+                {
+                    if (userRole != "director" && userRole != "pharmacist_admin")
+                    {
+                        var medicineName = await _context.Medicines
+                            .Where(m => m.MedicineID == item.MedicineID)
+                            .Select(m => m.MedicineName)
+                            .FirstOrDefaultAsync() ?? $"ID {item.MedicineID}";
+                        throw new ArgumentException($"Số lượng nhập của dược phẩm '{medicineName}' ({item.Quantity}) vượt quá số lượng hợp đồng còn lại ({remainingQty}). Bạn không có quyền vượt số lượng gói thầu.");
+                    }
+                }
+
                 // Create a new batch entry
                 var batch = new Batch
                 {
@@ -524,11 +686,14 @@ public class StockService
                 import.Details.Add(new ImportReceiptDetail
                 {
                     BatchID = batch.BatchID,
-                    Quantity = item.Quantity
+                    Quantity = item.Quantity,
+                    ContractPrice = sm.ContractPrice,
+                    ActualImportPrice = item.ImportPrice
                 });
             }
 
             await _context.SaveChangesAsync();
+            await RecalculateForReceiptAsync(import.ImportID);
             await transaction.CommitAsync();
 
             return import;
@@ -557,6 +722,9 @@ public class StockService
             // Kiểm tra bảo mật: Chỉ cho phép điều chỉnh khi phiếu ở trạng thái Chờ kiểm nhập (Nháp)
             if (import.Status != "Chờ kiểm nhập" && import.Status != "Pending")
                 throw new InvalidOperationException("Phiếu đã hoàn tất kiểm nhận và đang chờ duyệt hoặc đã hoàn thành, không được phép điều chỉnh.");
+
+            int oldSupplierId = import.SupplierID;
+            var oldMedicineIds = import.Details?.Where(d => d.Batch != null).Select(d => d.Batch!.MedicineID).Distinct().ToList() ?? new List<int>();
 
             // --- Ghi nhận lịch sử điều chỉnh ---
             var changes = new List<string>();
@@ -703,9 +871,58 @@ public class StockService
                 import.Details.Clear();
             }
 
+            var today = DateTime.Today.Date;
+            var supplierMedicines = await _context.SupplierMedicines
+                .Where(sm => sm.SupplierID == request.SupplierID)
+                .ToListAsync();
+
             // Thêm mới các mặt hàng và lô thuốc điều chỉnh
             foreach (var item in request.Items)
             {
+                var sm = supplierMedicines.FirstOrDefault(x => x.MedicineID == item.MedicineID);
+                if (sm == null)
+                {
+                    var medicineName = await _context.Medicines
+                        .Where(m => m.MedicineID == item.MedicineID)
+                        .Select(m => m.MedicineName)
+                        .FirstOrDefaultAsync() ?? $"ID {item.MedicineID}";
+                    throw new ArgumentException($"Dược phẩm '{medicineName}' không thuộc danh mục ký kết với nhà cung cấp này.");
+                }
+
+                if (!sm.IsActive || sm.StartDate > today || sm.EndDate < today || sm.Status == "Expired" || sm.Status == "Suspended")
+                {
+                    var medicineName = await _context.Medicines
+                        .Where(m => m.MedicineID == item.MedicineID)
+                        .Select(m => m.MedicineName)
+                        .FirstOrDefaultAsync() ?? $"ID {item.MedicineID}";
+                    throw new ArgumentException($"Dược phẩm '{medicineName}' đã hết hiệu lực hợp đồng với nhà cung cấp này.");
+                }
+
+                if (item.ImportPrice != sm.ContractPrice)
+                {
+                    if (request.UserRole != "director" && request.UserRole != "pharmacist_admin" && request.CreatedBy != "phu")
+                    {
+                        var medicineName = await _context.Medicines
+                            .Where(m => m.MedicineID == item.MedicineID)
+                            .Select(m => m.MedicineName)
+                            .FirstOrDefaultAsync() ?? $"ID {item.MedicineID}";
+                        throw new ArgumentException($"Đơn giá nhập của dược phẩm '{medicineName}' ({item.ImportPrice:N0}đ) không khớp với đơn giá ký kết hợp đồng ({sm.ContractPrice:N0}đ). Bạn không có quyền ghi đè đơn giá.");
+                    }
+                }
+
+                int remainingQty = sm.ContractQuantity.GetValueOrDefault(999999) - sm.ImportedQuantity;
+                if (item.Quantity > remainingQty)
+                {
+                    if (request.UserRole != "director" && request.UserRole != "pharmacist_admin" && request.CreatedBy != "phu")
+                    {
+                        var medicineName = await _context.Medicines
+                            .Where(m => m.MedicineID == item.MedicineID)
+                            .Select(m => m.MedicineName)
+                            .FirstOrDefaultAsync() ?? $"ID {item.MedicineID}";
+                        throw new ArgumentException($"Số lượng nhập của dược phẩm '{medicineName}' ({item.Quantity}) vượt quá số lượng hợp đồng còn lại ({remainingQty}). Bạn không có quyền vượt số lượng gói thầu.");
+                    }
+                }
+
                 var batch = new Batch
                 {
                     MedicineID = item.MedicineID,
@@ -721,11 +938,41 @@ public class StockService
                 import.Details.Add(new ImportReceiptDetail
                 {
                     BatchID = batch.BatchID,
-                    Quantity = item.Quantity
+                    Quantity = item.Quantity,
+                    ContractPrice = sm.ContractPrice,
+                    ActualImportPrice = item.ImportPrice
                 });
             }
 
             await _context.SaveChangesAsync();
+            await RecalculateForReceiptAsync(import.ImportID);
+
+            // Recalculate old supplier & items if supplier changed
+            if (oldSupplierId != request.SupplierID)
+            {
+                foreach (var medId in oldMedicineIds)
+                {
+                    var sm = await _context.SupplierMedicines
+                        .FirstOrDefaultAsync(x => x.SupplierID == oldSupplierId && x.MedicineID == medId);
+                    
+                    if (sm != null)
+                    {
+                        var totalImported = await _context.ImportReceiptDetails
+                            .Where(d => d.ImportReceipt!.SupplierID == oldSupplierId 
+                                     && d.Batch!.MedicineID == medId
+                                     && (d.ImportReceipt.Status == "Đã nhập kho" 
+                                      || d.ImportReceipt.Status == "Đã kiểm" 
+                                      || d.ImportReceipt.Status == "Thiếu hàng" 
+                                      || d.ImportReceipt.Status == "Approved" 
+                                      || d.ImportReceipt.Status == "Shortage"))
+                            .SumAsync(d => d.Quantity);
+                        
+                        sm.ImportedQuantity = totalImported;
+                    }
+                }
+                await _context.SaveChangesAsync();
+            }
+
             await transaction.CommitAsync();
 
             // Trả về đối tượng phiếu nhập đầy đủ thông tin sau khi cập nhật
@@ -759,6 +1006,7 @@ public class UpdateImportRequestDto
     public string? SecondInspectorSignature { get; set; }
     public string? DeliveryPersonSignature { get; set; }
     public string? DeliveryPersonName { get; set; }
+    public string? UserRole { get; set; }
     public List<ImportItemDto> Items { get; set; } = new();
 }
 

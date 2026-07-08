@@ -252,7 +252,7 @@ public class ImportController : ControllerBase
     public async Task<IActionResult> CreateImport([FromBody] CreateImportRequest request)
     {
         var userRole = Request.Headers["X-User-Role"].ToString();
-        if (userRole != "pharmacist")
+        if (userRole != "pharmacist" && userRole != "director" && userRole != "pharmacist_admin")
             return BadRequest(new { Error = "Quyền truy cập bị từ chối. Chỉ Thủ kho Dược mới có quyền thực hiện nhập kho." });
 
         if (request == null || (request.Status != "Chờ kiểm nhập" && !request.Items.Any()))
@@ -276,7 +276,8 @@ public class ImportController : ControllerBase
                 request.SecondInspectorSignature,
                 request.DeliveryPersonSignature,
                 request.Items,
-                request.DeliveryPersonName);
+                request.DeliveryPersonName,
+                userRole);
             
             // Fetch populated import object to return
             var result = await _context.ImportReceipts
@@ -385,17 +386,110 @@ public class ImportController : ControllerBase
     }
 
     [HttpGet("medicines")]
-    public async Task<IActionResult> GetMedicines()
+    public async Task<IActionResult> GetMedicines([FromQuery] int? supplierId)
     {
-        var medicines = await _context.Medicines.ToListAsync();
-        return Ok(medicines);
+        if (supplierId.HasValue)
+        {
+            var today = DateTime.Today.Date;
+            var medicines = await _context.SupplierMedicines
+                .Where(sm => sm.SupplierID == supplierId.Value 
+                          && sm.IsActive 
+                          && sm.StartDate <= today 
+                          && sm.EndDate >= today)
+                .Join(_context.Medicines,
+                    sm => sm.MedicineID,
+                    m => m.MedicineID,
+                    (sm, m) => new {
+                        m.MedicineID,
+                        m.MedicineCode,
+                        m.MedicineName,
+                        m.GenericName,
+                        m.Specification,
+                        m.Manufacturer,
+                        m.Unit,
+                        m.MinInventory,
+                        m.MedicineGroup,
+                        ContractPrice = sm.ContractPrice,
+                        ContractNumber = sm.ContractNumber,
+                        ContractQuantity = sm.ContractQuantity,
+                        ImportedQuantity = sm.ImportedQuantity,
+                        StartDate = sm.StartDate,
+                        EndDate = sm.EndDate,
+                        IsActive = sm.IsActive,
+                        Status = sm.Status
+                    })
+                .ToListAsync();
+
+            var medicineIds = medicines.Select(m => m.MedicineID).ToList();
+            var stocks = await _context.InventoryStocks
+                .Where(s => medicineIds.Contains(s.Batch!.MedicineID))
+                .GroupBy(s => s.Batch!.MedicineID)
+                .Select(g => new {
+                    MedicineID = g.Key,
+                    CurrentStock = g.Sum(s => s.CurrentQuantity)
+                })
+                .ToListAsync();
+
+            var stockDict = stocks.ToDictionary(s => s.MedicineID, s => s.CurrentStock);
+
+            var result = medicines.Select(m => new {
+                m.MedicineID,
+                m.MedicineCode,
+                m.MedicineName,
+                m.GenericName,
+                m.Specification,
+                m.Manufacturer,
+                m.Unit,
+                m.MinInventory,
+                m.MedicineGroup,
+                m.ContractPrice,
+                m.ContractNumber,
+                m.ContractQuantity,
+                m.ImportedQuantity,
+                m.StartDate,
+                m.EndDate,
+                m.IsActive,
+                m.Status,
+                CurrentStock = stockDict.TryGetValue(m.MedicineID, out var stockQty) ? stockQty : 0
+            }).ToList();
+
+            return Ok(result);
+        }
+        else
+        {
+            var medicines = await _context.Medicines.ToListAsync();
+            var stocks = await _context.InventoryStocks
+                .GroupBy(s => s.Batch!.MedicineID)
+                .Select(g => new {
+                    MedicineID = g.Key,
+                    CurrentStock = g.Sum(s => s.CurrentQuantity)
+                })
+                .ToListAsync();
+
+            var stockDict = stocks.ToDictionary(s => s.MedicineID, s => s.CurrentStock);
+
+            var result = medicines.Select(m => new {
+                m.MedicineID,
+                m.MedicineCode,
+                m.MedicineName,
+                m.GenericName,
+                m.Specification,
+                m.Manufacturer,
+                m.Unit,
+                m.MinInventory,
+                m.MedicineGroup,
+                CurrentStock = stockDict.TryGetValue(m.MedicineID, out var stockQty) ? stockQty : 0
+            }).ToList();
+
+            return Ok(result);
+        }
     }
 
     [HttpPost("{id}/complete-inspection")]
     public async Task<IActionResult> CompleteInspection(int id, [FromBody] CompleteInspectionRequest request)
     {
         var userRole = Request.Headers["X-User-Role"].ToString();
-        if (userRole != "pharmacist")
+        if (userRole != "pharmacist" && userRole != "director" && userRole != "pharmacist_admin")
             return BadRequest(new { Error = "Quyền truy cập bị từ chối. Chỉ Thủ kho Dược mới có quyền thực hiện kiểm nhận." });
 
         if (request == null || !request.Items.Any())
@@ -413,7 +507,8 @@ public class ImportController : ControllerBase
                 request.SecondInspectorSignature,
                 request.DeliveryPersonSignature,
                 request.Items,
-                request.DeliveryPersonName);
+                request.DeliveryPersonName,
+                userRole);
 
             var result = await _context.ImportReceipts
                 .Include(i => i.Supplier)
@@ -437,7 +532,7 @@ public class ImportController : ControllerBase
     public async Task<IActionResult> UpdateImport(int id, [FromBody] CreateImportRequest request)
     {
         var userRole = Request.Headers["X-User-Role"].ToString();
-        if (userRole != "pharmacist")
+        if (userRole != "pharmacist" && userRole != "director" && userRole != "pharmacist_admin")
             return BadRequest(new { Error = "Quyền truy cập bị từ chối. Chỉ Dược sĩ mới có quyền điều chỉnh phiếu." });
 
         if (request == null)
@@ -462,7 +557,8 @@ public class ImportController : ControllerBase
                 SecondInspectorSignature = request.SecondInspectorSignature,
                 DeliveryPersonSignature = request.DeliveryPersonSignature,
                 DeliveryPersonName = request.DeliveryPersonName,
-                Items = request.Items
+                Items = request.Items,
+                UserRole = userRole
             };
 
             var result = await _stockService.UpdateImportReceiptAsync(id, dto);
