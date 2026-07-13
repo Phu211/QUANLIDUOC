@@ -271,6 +271,13 @@ export default function App() {
                 <ClipboardList className="nav-icon" />
                 <span>Kiểm kê tủ trực</span>
               </a>
+              <a 
+                className={`nav-item ${page === 'recall' ? 'active' : ''}`}
+                onClick={() => setPage('recall')}
+              >
+                <ShieldAlert className="nav-icon" />
+                <span>Truy vết thuốc thu hồi</span>
+              </a>
             </>
           )}
 

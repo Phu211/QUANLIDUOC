@@ -370,6 +370,169 @@ public class RecallController : ControllerBase
             return BadRequest(new { Error = ex.Message });
         }
     }
+
+    [HttpGet("batch/{batchId}/patients")]
+    public async Task<IActionResult> GetPatientsByBatch(int batchId)
+    {
+        var userRole = Request.Headers["X-User-Role"].ToString();
+        var userDeptIdStr = Request.Headers["X-User-DepartmentID"].ToString();
+        var userFullName = System.Net.WebUtility.UrlDecode(Request.Headers["X-User-FullName"].ToString());
+
+        if (string.IsNullOrEmpty(userRole))
+        {
+            return BadRequest(new { Error = "Quyền truy cập bị từ chối." });
+        }
+
+        if (userRole == "admin")
+        {
+            return Unauthorized(new { Error = "Nhân viên hành chính không có quyền truy cập thông tin truy vết lô thuốc." });
+        }
+
+        try
+        {
+            var query = _context.CabinetTransactions
+                .Include(ct => ct.Department)
+                .Where(ct => ct.BatchID == batchId && ct.PatientCode != null && ct.PatientCode != "");
+
+            if (userRole == "head" || userRole == "head_nurse" || userRole == "nurse")
+            {
+                if (int.TryParse(userDeptIdStr, out var deptId))
+                {
+                    query = query.Where(ct => ct.DepartmentID == deptId);
+                }
+                else
+                {
+                    return BadRequest(new { Error = "Thiếu thông tin khoa phòng của người dùng." });
+                }
+
+                if (userRole == "nurse")
+                {
+                    query = query.Where(ct => ct.DispensedBy == userFullName);
+                }
+            }
+
+            var patients = await query
+                .OrderByDescending(ct => ct.TransactionDate)
+                .Select(ct => new {
+                    PatientCode = ct.PatientCode,
+                    PatientName = ct.PatientName,
+                    DepartmentName = ct.Department != null ? ct.Department.DepartmentName : "N/A",
+                    Quantity = ct.Quantity,
+                    TransactionDate = ct.TransactionDate.ToString("dd/MM/yyyy HH:mm"),
+                    DispensedBy = ct.DispensedBy ?? "N/A"
+                })
+                .ToListAsync();
+
+            var batch = await _context.Batches
+                .Include(b => b.Medicine)
+                .FirstOrDefaultAsync(b => b.BatchID == batchId);
+
+            if (batch == null)
+            {
+                return NotFound(new { Error = "Không tìm thấy thông tin lô thuốc." });
+            }
+
+            int quantityOriginal = batch.QuantityOriginal;
+
+            var invStock = await _context.InventoryStocks
+                .FirstOrDefaultAsync(s => s.BatchID == batchId);
+            int quantityMainStore = invStock?.CurrentQuantity ?? 0;
+
+            var transfersQty = await _context.InternalTransferDetails
+                .Where(d => d.BatchID == batchId)
+                .SumAsync(d => d.Quantity);
+
+            return Ok(new {
+                BatchNumber = batch.BatchNumber,
+                MedicineName = batch.Medicine?.MedicineName ?? "N/A",
+                Unit = batch.Medicine?.Unit ?? "N/A",
+                QuantityOriginal = quantityOriginal,
+                QuantityMainStore = quantityMainStore,
+                QuantityDepartment = transfersQty,
+                Patients = patients
+            });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { Error = ex.Message });
+        }
+    }
+
+    [HttpGet("trace/search")]
+    public async Task<IActionResult> SearchTrace([FromQuery] string type, [FromQuery] string query)
+    {
+        var userRole = Request.Headers["X-User-Role"].ToString();
+        if (userRole != "pharmacist" && userRole != "pharmacist_admin" && userRole != "director")
+        {
+            return Unauthorized(new { Error = "Chỉ Dược sĩ hoặc Ban Giám đốc mới có quyền tìm kiếm truy vết toàn viện." });
+        }
+
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return Ok(new List<object>());
+        }
+
+        try
+        {
+            query = query.Trim().ToLower();
+
+            if (type == "batch")
+            {
+                var batches = await _context.Batches
+                    .Include(b => b.Medicine)
+                    .Where(b => b.BatchNumber.ToLower().Contains(query))
+                    .Select(b => new {
+                        b.BatchID,
+                        b.BatchNumber,
+                        MedicineName = b.Medicine != null ? b.Medicine.MedicineName : "N/A",
+                        Unit = b.Medicine != null ? b.Medicine.Unit : "viên"
+                    })
+                    .ToListAsync();
+                return Ok(batches);
+            }
+            else if (type == "patient")
+            {
+                var batchIds = await _context.CabinetTransactions
+                    .Where(ct => (ct.PatientCode != null && ct.PatientCode.ToLower().Contains(query)) || 
+                                 (ct.PatientName != null && ct.PatientName.ToLower().Contains(query)))
+                    .Select(ct => ct.BatchID)
+                    .Distinct()
+                    .ToListAsync();
+
+                var batches = await _context.Batches
+                    .Include(b => b.Medicine)
+                    .Where(b => batchIds.Contains(b.BatchID))
+                    .Select(b => new {
+                        b.BatchID,
+                        b.BatchNumber,
+                        MedicineName = b.Medicine != null ? b.Medicine.MedicineName : "N/A",
+                        Unit = b.Medicine != null ? b.Medicine.Unit : "viên"
+                    })
+                    .ToListAsync();
+                return Ok(batches);
+            }
+            else if (type == "medicine")
+            {
+                var batches = await _context.Batches
+                    .Include(b => b.Medicine)
+                    .Where(b => b.Medicine != null && (b.Medicine.MedicineName.ToLower().Contains(query) || (b.Medicine.GenericName != null && b.Medicine.GenericName.ToLower().Contains(query))))
+                    .Select(b => new {
+                        b.BatchID,
+                        b.BatchNumber,
+                        MedicineName = b.Medicine != null ? b.Medicine.MedicineName : "N/A",
+                        Unit = b.Medicine != null ? b.Medicine.Unit : "viên"
+                    })
+                    .ToListAsync();
+                return Ok(batches);
+            }
+
+            return BadRequest(new { Error = "Loại tìm kiếm không hợp lệ." });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { Error = ex.Message });
+        }
+    }
 }
 
 public class CreateRecallRequest

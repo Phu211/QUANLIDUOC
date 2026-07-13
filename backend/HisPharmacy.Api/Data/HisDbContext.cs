@@ -328,6 +328,7 @@ public class CabinetTransaction
     public DateTime TransactionDate { get; set; } = DateTime.Now;
     public bool IsRefilled { get; set; } = false;
     public int? RequisitionID { get; set; }
+    public string? DispensedBy { get; set; }
 
     // Navigation
     public Batch? Batch { get; set; }

@@ -13,7 +13,7 @@ public class CabinetService
     }
 
     // Luồng 3: Xuất thuốc tủ trực cho Bệnh nhân
-    public async Task<CabinetTransaction> ExportFromCabinetAsync(int departmentID, int batchID, string patientCode, string patientName, int quantity)
+    public async Task<CabinetTransaction> ExportFromCabinetAsync(int departmentID, int batchID, string patientCode, string patientName, int quantity, string? dispensedBy = null)
     {
         using var transaction = await _context.Database.BeginTransactionAsync();
         try
@@ -51,7 +51,8 @@ public class CabinetService
                 Quantity = quantity,
                 TransactionDate = DateTime.Now,
                 IsRefilled = false,
-                RequisitionID = null
+                RequisitionID = null,
+                DispensedBy = dispensedBy
             };
 
             _context.CabinetTransactions.Add(cabTx);
@@ -68,7 +69,7 @@ public class CabinetService
     }
 
     // Luồng 2b: Xuất nhiều loại thuốc từ tủ trực cấp phát cho bệnh nhân
-    public async Task<List<CabinetTransaction>> ExportMultipleFromCabinetAsync(int departmentID, string patientCode, string patientName, List<CabinetExportItem> items)
+    public async Task<List<CabinetTransaction>> ExportMultipleFromCabinetAsync(int departmentID, string patientCode, string patientName, List<CabinetExportItem> items, string? dispensedBy = null)
     {
         using var transaction = await _context.Database.BeginTransactionAsync();
         try
@@ -110,7 +111,8 @@ public class CabinetService
                     Quantity = item.Quantity,
                     TransactionDate = DateTime.Now,
                     IsRefilled = false,
-                    RequisitionID = null
+                    RequisitionID = null,
+                    DispensedBy = dispensedBy
                 };
 
                 _context.CabinetTransactions.Add(cabTx);

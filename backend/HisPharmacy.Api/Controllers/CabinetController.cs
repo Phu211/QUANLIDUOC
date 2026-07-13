@@ -75,11 +75,15 @@ public class CabinetController : ControllerBase
             if (isCabinetLocked)
                 return BadRequest(new { Error = "Tủ trực của khoa đang tiến hành kiểm kê và bị khóa mọi giao dịch xuất tủ." });
 
+            var userFullName = System.Net.WebUtility.UrlDecode(Request.Headers["X-User-FullName"].ToString());
+            if (string.IsNullOrEmpty(userFullName)) userFullName = "Điều dưỡng lâm sàng";
+
             var txs = await _cabinetService.ExportMultipleFromCabinetAsync(
                 request.DepartmentID, 
                 request.PatientCode, 
                 request.PatientName, 
-                items
+                items,
+                userFullName
             );
 
             // Broadcast real-time updates

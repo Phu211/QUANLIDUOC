@@ -67,12 +67,86 @@ export default function Recall({ user }) {
 
   // Print States
   const [activeRecallForPrint, setActiveRecallForPrint] = useState(null);
+  const [activeTraceForPrint, setActiveTraceForPrint] = useState(null);
 
   // Digital Signature States
   const [showSignatureModal, setShowSignatureModal] = useState(false);
   const [signatureTarget, setSignatureTarget] = useState(null); // { action: 'create' } or { action: 'approve', id: 123 }
   const [isDrawing, setIsDrawing] = useState(false);
+  // Tracing States
+  const [tracingBatch, setTracingBatch] = useState(null);
+  const [patientsUsed, setPatientsUsed] = useState([]);
+  const [loadingTrace, setLoadingTrace] = useState(false);
+  const [tracingDetails, setTracingDetails] = useState(null);
+
+  // Search Traceability States
+  const [activeTab, setActiveTab] = useState('list'); // 'list' or 'search'
+  const [searchType, setSearchType] = useState('batch'); // 'batch', 'patient', 'medicine'
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [searching, setSearching] = useState(false);
   const canvasRef = useRef(null);
+
+  const handleTraceBatch = (batchID, batchNumber, medicineName) => {
+    setTracingBatch({ batchID, batchNumber, medicineName });
+    setLoadingTrace(true);
+    setTracingDetails(null);
+    setPatientsUsed([]);
+
+    fetch(`/api/recall/batch/${batchID}/patients`, {
+      headers: {
+        'X-User-Role': user?.role || '',
+        'X-User-DepartmentID': user?.departmentID?.toString() || '',
+        'X-User-FullName': encodeURIComponent(user?.fullName || '')
+      }
+    })
+      .then(res => {
+        if (!res.ok) {
+          return res.json().then(errData => { throw new Error(errData.error || "Không có quyền truy cập dữ liệu truy vết."); });
+        }
+        return res.json();
+      })
+      .then(data => {
+        setPatientsUsed(data.patients || []);
+        setTracingDetails(data);
+        setLoadingTrace(false);
+      })
+      .catch(err => {
+        alert(err.message);
+        setTracingBatch(null);
+        setLoadingTrace(false);
+      });
+  };
+
+  const handleSearchTrace = (e) => {
+    if (e) e.preventDefault();
+    if (!searchQuery.trim()) {
+      setSearchResults([]);
+      return;
+    }
+    setSearching(true);
+    fetch(`/api/recall/trace/search?type=${searchType}&query=${encodeURIComponent(searchQuery)}`, {
+      headers: {
+        'X-User-Role': user?.role || '',
+        'X-User-DepartmentID': user?.departmentID?.toString() || '',
+        'X-User-FullName': encodeURIComponent(user?.fullName || '')
+      }
+    })
+      .then(res => {
+        if (!res.ok) {
+          return res.json().then(errData => { throw new Error(errData.error || "Không có quyền truy cập."); });
+        }
+        return res.json();
+      })
+      .then(data => {
+        setSearchResults(data);
+        setSearching(false);
+      })
+      .catch(err => {
+        alert(err.message);
+        setSearching(false);
+      });
+  };
 
   // Canvas drawing setup for digital signature
   useEffect(() => {
@@ -318,264 +392,402 @@ export default function Recall({ user }) {
 
   if (loading) return <div style={{ color: '#fff', padding: '2rem' }}>Đang tải dữ liệu nghiệp vụ thu hồi...</div>;
 
+  const isPharmacist = user?.role === 'pharmacist' || user?.role === 'pharmacist_admin';
+
   return (
     <div>
-      <h1 className="page-title">Thu Hồi & Cách Ly Thuốc</h1>
-      <p className="page-subtitle">Quản lý cách ly khẩn cấp, đình chỉ phát hành hoặc hủy bỏ/trả NCC các lô thuốc không đạt tiêu chuẩn GSP.</p>
+      <h1 className="page-title">
+        {isPharmacist || user?.role === 'director' ? "Thu Hồi & Cách Ly Thuốc" : "Truy Vết Thuốc Thu Hồi"}
+      </h1>
+      <p className="page-subtitle">
+        {isPharmacist || user?.role === 'director' 
+          ? "Quản lý cách ly khẩn cấp, đình chỉ phát hành hoặc hủy bỏ/trả NCC các lô thuốc không đạt tiêu chuẩn GSP."
+          : "Theo dõi các lô thuốc bị đình chỉ phát hành hoặc thu hồi để kịp thời truy vết bệnh nhân đã sử dụng."
+        }
+      </p>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1.5rem' }}>
         {/* Left Side: Create recall command */}
-        <div>
-          <div className="glass-card">
-            <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--color-danger)', marginBottom: '1.25rem', fontSize: '1.1rem' }}>
-              <ShieldAlert size={20} /> Lập Lệnh Đình Chỉ / Thu Hồi Lô Thuốc
-            </h3>
+        {isPharmacist && (
+          <div>
+            <div className="glass-card">
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--color-danger)', marginBottom: '1.25rem', fontSize: '1.1rem' }}>
+                <ShieldAlert size={20} /> Lập Lệnh Đình Chỉ / Thu Hồi Lô Thuốc
+              </h3>
 
-            <form onSubmit={handleCreateRecall}>
-              <div className="form-group" style={{ marginBottom: '1rem' }}>
-                <label className="form-label">Tìm kiếm lô thuốc đang hoạt động</label>
-                <div style={{ position: 'relative' }}>
-                  <input 
-                    type="text" 
-                    className="form-input" 
-                    placeholder="Nhập tên thuốc hoặc số lô để tìm..."
-                    value={searchTerm}
-                    onChange={e => setSearchTerm(e.target.value)}
-                    style={{ paddingLeft: '2.2rem' }}
-                  />
-                  <Search size={16} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+              <form onSubmit={handleCreateRecall}>
+                <div className="form-group" style={{ marginBottom: '1rem' }}>
+                  <label className="form-label">Tìm kiếm lô thuốc đang hoạt động</label>
+                  <div style={{ position: 'relative' }}>
+                    <input 
+                      type="text" 
+                      className="form-input" 
+                      placeholder="Nhập tên thuốc hoặc số lô để tìm..."
+                      value={searchTerm}
+                      onChange={e => setSearchTerm(e.target.value)}
+                      style={{ paddingLeft: '2.2rem' }}
+                    />
+                    <Search size={16} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                  </div>
                 </div>
-              </div>
 
-              <div className="form-group" style={{ marginBottom: '1rem' }}>
-                <label className="form-label">Chọn lô thuốc cần xử lý (Tìm thấy {filteredBatches.length} lô)</label>
-                <select 
-                  className="form-input"
-                  value={selectedBatchID}
-                  onChange={e => setSelectedBatchID(e.target.value)}
-                  style={{ background: 'var(--bg-secondary)', color: 'var(--text-main)', border: '1px solid var(--border-glass)', borderRadius: '8px' }}
-                >
-                  <option value="">-- Chọn lô thuốc --</option>
-                  {filteredBatches.map(b => (
-                    <option key={`${b.batchID}-${b.location}`} value={b.batchID}>
-                      {b.medicineName} (Lô: {b.batchNumber} - Tồn: {b.quantity} - {b.location})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="form-group" style={{ marginBottom: '1rem' }}>
-                <label className="form-label">Lý do thu hồi / cách ly</label>
-                <select 
-                  className="form-input"
-                  value={reason}
-                  onChange={e => setReason(e.target.value)}
-                  style={{ background: 'var(--bg-secondary)', color: 'var(--text-main)', border: '1px solid var(--border-glass)', borderRadius: '8px' }}
-                >
-                  <option value="Lỗi bao bì / đóng gói sản phẩm">Lỗi bao bì / đóng gói sản phẩm</option>
-                  <option value="Vaccine / thuốc bảo quản sai nhiệt độ chuẩn">Vaccine / thuốc bảo quản sai nhiệt độ chuẩn</option>
-                  <option value="Thuốc có dấu hiệu ẩm mốc, biến dạng màu sắc">Thuốc có dấu hiệu ẩm mốc, biến dạng màu sắc</option>
-                  <option value="Quyết định thu hồi chính thức từ nhà sản xuất / Bộ Y tế">Quyết định thu hồi chính thức từ nhà sản xuất / Bộ Y tế</option>
-                  <option value="Lô thuốc quá hạn bảo quản hoặc mất hồ sơ tem nhãn">Lô thuốc quá hạn bảo quản hoặc mất hồ sơ tem nhãn</option>
-                </select>
-              </div>
-
-              <div className="form-group" style={{ marginBottom: '1.5rem' }}>
-                <label className="form-label">Hướng xử lý y tế</label>
-                <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer', color: 'var(--text-main)', fontSize: '0.88rem' }}>
-                    <input 
-                      type="radio" 
-                      name="actionType" 
-                      value="Cách ly" 
-                      checked={actionType === 'Cách ly'} 
-                      onChange={() => setActionType('Cách ly')}
-                    />
-                    Cách ly tạm thời (Khóa cấp phát)
-                  </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer', color: 'var(--text-main)', fontSize: '0.88rem' }}>
-                    <input 
-                      type="radio" 
-                      name="actionType" 
-                      value="Trả NCC" 
-                      checked={actionType === 'Trả NCC'} 
-                      onChange={() => setActionType('Trả NCC')}
-                    />
-                    Trả nhà cung cấp (Trừ tồn kho về 0)
-                  </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer', color: 'var(--text-main)', fontSize: '0.88rem' }}>
-                    <input 
-                      type="radio" 
-                      name="actionType" 
-                      value="Tiêu hủy" 
-                      checked={actionType === 'Tiêu hủy'} 
-                      onChange={() => setActionType('Tiêu hủy')}
-                    />
-                    Tiêu hủy kho hoàn toàn
-                  </label>
+                <div className="form-group" style={{ marginBottom: '1rem' }}>
+                  <label className="form-label">Chọn lô thuốc cần xử lý (Tìm thấy {filteredBatches.length} lô)</label>
+                  <select 
+                    className="form-input"
+                    value={selectedBatchID}
+                    onChange={e => setSelectedBatchID(e.target.value)}
+                    style={{ background: 'var(--bg-secondary)', color: 'var(--text-main)', border: '1px solid var(--border-glass)', borderRadius: '8px' }}
+                  >
+                    <option value="">-- Chọn lô thuốc --</option>
+                    {filteredBatches.map(b => (
+                      <option key={`${b.batchID}-${b.location}`} value={b.batchID}>
+                        {b.medicineName} (Lô: {b.batchNumber} - Tồn: {b.quantity} - {b.location})
+                      </option>
+                    ))}
+                  </select>
                 </div>
-              </div>
 
-              <button 
-                type="submit" 
-                className="btn-premium" 
-                style={{ 
-                  width: '100%', 
-                  justifyContent: 'center', 
-                  background: actionType === 'Cách ly' ? 'linear-gradient(90deg, #f59e0b, #d97706)' : actionType === 'Trả NCC' ? 'linear-gradient(90deg, #3b82f6, #2563eb)' : 'linear-gradient(90deg, #ef4444, #dc2626)'
-                }}
-              >
-                <ShieldAlert size={16} /> Thực hiện Thu hồi / Cách ly
-              </button>
-            </form>
+                <div className="form-group" style={{ marginBottom: '1rem' }}>
+                  <label className="form-label">Lý do thu hồi / cách ly</label>
+                  <select 
+                    className="form-input"
+                    value={reason}
+                    onChange={e => setReason(e.target.value)}
+                    style={{ background: 'var(--bg-secondary)', color: 'var(--text-main)', border: '1px solid var(--border-glass)', borderRadius: '8px' }}
+                  >
+                    <option value="Lỗi bao bì / đóng gói sản phẩm">Lỗi bao bì / đóng gói sản phẩm</option>
+                    <option value="Vaccine / thuốc bảo quan sai nhiệt độ chuẩn">Vaccine / thuốc bảo quản sai nhiệt độ chuẩn</option>
+                    <option value="Thuốc có dấu hiệu ẩm mốc, biến dạng màu sắc">Thuốc có dấu hiệu ẩm mốc, biến dạng màu sắc</option>
+                    <option value="Quyết định thu hồi chính thức từ nhà sản xuất / Bộ Y tế">Quyết định thu hồi chính thức từ nhà sản xuất / Bộ Y tế</option>
+                    <option value="Lô thuốc quá hạn bảo quản hoặc mất hồ sơ tem nhãn">Lô thuốc quá hạn bảo quản hoặc mất hồ sơ tem nhãn</option>
+                  </select>
+                </div>
+
+                <div className="form-group" style={{ marginBottom: '1.5rem' }}>
+                  <label className="form-label">Hướng xử lý y tế</label>
+                  <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer', color: 'var(--text-main)', fontSize: '0.88rem' }}>
+                      <input 
+                        type="radio" 
+                        name="actionType" 
+                        value="Cách ly" 
+                        checked={actionType === 'Cách ly'} 
+                        onChange={() => setActionType('Cách ly')}
+                      />
+                      Cách ly tạm thời (Khóa cấp phát)
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer', color: 'var(--text-main)', fontSize: '0.88rem' }}>
+                      <input 
+                        type="radio" 
+                        name="actionType" 
+                        value="Trả NCC" 
+                        checked={actionType === 'Trả NCC'} 
+                        onChange={() => setActionType('Trả NCC')}
+                      />
+                      Trả nhà cung cấp (Trừ tồn kho về 0)
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer', color: 'var(--text-main)', fontSize: '0.88rem' }}>
+                      <input 
+                        type="radio" 
+                        name="actionType" 
+                        value="Tiêu hủy" 
+                        checked={actionType === 'Tiêu hủy'} 
+                        onChange={() => setActionType('Tiêu hủy')}
+                      />
+                      Tiêu hủy kho hoàn toàn
+                    </label>
+                  </div>
+                </div>
+
+                <button 
+                  type="submit" 
+                  className="btn-premium" 
+                  style={{ 
+                    width: '100%', 
+                    justifyContent: 'center', 
+                    background: actionType === 'Cách ly' ? 'linear-gradient(90deg, #f59e0b, #d97706)' : actionType === 'Trả NCC' ? 'linear-gradient(90deg, #3b82f6, #2563eb)' : 'linear-gradient(90deg, #ef4444, #dc2626)'
+                  }}
+                >
+                  <ShieldAlert size={16} /> Thực hiện Thu hồi / Cách ly
+                </button>
+              </form>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Right Side: Recall log list */}
         <div>
           <div className="glass-card">
-            <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--color-secondary)', marginBottom: '1.25rem', fontSize: '1.1rem' }}>
-              <FileText size={20} /> Lịch Sử Lệnh Thu Hồi & Biện Pháp
-            </h3>
+            {/* Tab Headers */}
+            {(isPharmacist || user?.role === 'director') && (
+              <div style={{ display: 'flex', gap: '1rem', borderBottom: '1px solid var(--border-glass)', marginBottom: '1.25rem', paddingBottom: '0.5rem' }}>
+                <button 
+                  type="button"
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: activeTab === 'list' ? 'var(--color-secondary)' : 'var(--text-muted)',
+                    borderBottom: activeTab === 'list' ? '2px solid var(--color-secondary)' : 'none',
+                    paddingBottom: '0.25rem',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    fontSize: '0.85rem'
+                  }}
+                  onClick={() => setActiveTab('list')}
+                >
+                  Quyết định Thu hồi & Cách ly
+                </button>
+                <button 
+                  type="button"
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: activeTab === 'search' ? 'var(--color-secondary)' : 'var(--text-muted)',
+                    borderBottom: activeTab === 'search' ? '2px solid var(--color-secondary)' : 'none',
+                    paddingBottom: '0.25rem',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    fontSize: '0.85rem'
+                  }}
+                  onClick={() => setActiveTab('search')}
+                >
+                  Tra cứu & Truy vết toàn viện (ADR/Thất thoát)
+                </button>
+              </div>
+            )}
 
-            <div style={{ maxHeight: '550px', overflowY: 'auto', paddingRight: '0.5rem' }}>
-              {recalls.length === 0 ? (
-                <p style={{ color: 'var(--text-muted)' }}>Chưa có lệnh thu hồi hoặc cách ly dược phẩm nào được thiết lập.</p>
-              ) : (
-                recalls.map(log => (
-                  <div key={log.recallID} style={{
-                    background: 'rgba(255,255,255,0.02)',
-                    border: '1px solid var(--border-glass)',
-                    borderRadius: '12px',
-                    padding: '1.25rem',
-                    marginBottom: '1rem',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '0.5rem'
-                  }}>
-                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontWeight: '700' }}>Quyết định #{formatRecallCode(log)}</span>
-                      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                        <button 
-                          className="btn-secondary" 
-                          title="In quyết định thu hồi"
-                          style={{ padding: '0.25rem 0.5rem', display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.75rem', height: '28px' }}
-                          onClick={() => setActiveRecallForPrint(log)}
-                        >
-                          <Printer size={12} /> In biên bản
-                        </button>
-                        <span className="badge-status" style={{ 
-                          fontSize: '0.72rem', 
-                          padding: '0.2rem 0.5rem', 
-                          borderRadius: '6px', 
-                          fontWeight: '600',
-                          textTransform: 'none',
-                          background: log.status === 'Approved' ? 'rgba(16, 185, 129, 0.12)' : log.status === 'Rejected' ? 'rgba(100, 116, 139, 0.12)' : 'rgba(245, 158, 11, 0.12)',
-                          color: log.status === 'Approved' ? '#10b981' : log.status === 'Rejected' ? '#64748b' : '#f59e0b',
-                          border: log.status === 'Approved' ? '1px solid rgba(16, 185, 129, 0.2)' : log.status === 'Rejected' ? '1px solid rgba(100, 116, 139, 0.2)' : '1px solid rgba(245, 158, 11, 0.2)'
-                        }}>
-                          {log.status === 'Approved' ? 'Đã duyệt quyết định' : log.status === 'Rejected' ? 'Đã từ chối' : 'Chờ Lãnh đạo duyệt'}
-                        </span>
-                      </div>
-                    </div>
-                    <div style={{ fontSize: '0.85rem' }}>
-                      <p style={{ margin: '0 0 0.35rem 0' }}><strong>Thuốc thu hồi:</strong> <span style={{ color: 'var(--color-secondary)', fontWeight: '600' }}>{log.batch?.medicine?.medicineName}</span></p>
-                      <p style={{ margin: '0 0 0.35rem 0' }}><strong>Số lô:</strong> {log.batch?.batchNumber} - <strong>Hạn dùng:</strong> {log.batch ? new Date(log.batch.expiryDate).toLocaleDateString('vi-VN') : ''}</p>
-                      <p style={{ margin: '0 0 0.35rem 0' }}><strong>Biện pháp:</strong> {log.actionType === 'Cách ly' ? 'Cách ly tạm thời' : log.actionType === 'Trả NCC' ? 'Trả Nhà cung cấp' : 'Tiêu hủy kho'}</p>
-                      <p style={{ margin: '0 0 0.35rem 0' }}><strong>Lý do:</strong> {log.reason}</p>
-                      <p style={{ margin: '0 0 0.35rem 0', color: 'var(--text-muted)', fontSize: '0.8rem' }}><strong>Người đề xuất:</strong> {log.createdBy}</p>
-                      {log.status === 'Approved' && (
-                        <p style={{ margin: '0 0 0.35rem 0', color: 'var(--text-muted)', fontSize: '0.8rem' }}><strong>Lãnh đạo duyệt:</strong> {log.approvedBy || 'PGS.TS. Lê Minh Trí'}</p>
-                      )}
-                      <p style={{ margin: '0 0 0.35rem 0' }}><strong>Ngày tạo lệnh:</strong> {new Date(log.recallDate).toLocaleString('vi-VN')}</p>
+            {activeTab === 'list' ? (
+              <>
+                <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--color-secondary)', marginBottom: '1.25rem', fontSize: '1.1rem' }}>
+                  <FileText size={20} /> Lịch Sử Lệnh Thu Hồi & Biện Pháp
+                </h3>
 
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.75rem', borderTop: '1px dashed var(--border-glass)', paddingTop: '0.75rem' }}>
-                        {log.status === 'Pending' && user?.role === 'director' && (
-                          <>
-                            <button
-                              type="button"
-                              className="btn-premium"
-                              style={{ 
-                                padding: '0.25rem 0.75rem', 
-                                fontSize: '0.74rem', 
-                                height: '28px', 
-                                background: 'linear-gradient(135deg, #10b981, #059669)', 
-                                display: 'flex', 
-                                alignItems: 'center', 
-                                gap: '0.2rem', 
-                                fontWeight: '600' 
-                              }}
-                              onClick={() => handleStartApproveRecall(log.recallID)}
+                <div style={{ maxHeight: '550px', overflowY: 'auto', paddingRight: '0.5rem' }}>
+                  {recalls.length === 0 ? (
+                    <p style={{ color: 'var(--text-muted)' }}>Chưa có lệnh thu hồi hoặc cách ly dược phẩm nào được thiết lập.</p>
+                  ) : (
+                    recalls.map(log => (
+                      <div key={log.recallID} style={{
+                        background: 'rgba(255,255,255,0.02)',
+                        border: '1px solid var(--border-glass)',
+                        borderRadius: '12px',
+                        padding: '1.25rem',
+                        marginBottom: '1rem',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '0.5rem'
+                      }}>
+                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontWeight: '700' }}>Quyết định #{formatRecallCode(log)}</span>
+                          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                            <button 
+                              className="btn-secondary" 
+                              title="In quyết định thu hồi"
+                              style={{ padding: '0.25rem 0.5rem', display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.75rem', height: '28px' }}
+                              onClick={() => setActiveRecallForPrint(log)}
                             >
-                              <Check size={12} /> Ký Duyệt Quyết Định
+                              <Printer size={12} /> In biên bản
                             </button>
-                            <button
+                            <button 
                               type="button"
-                              className="btn-secondary"
-                              style={{ 
-                                padding: '0.25rem 0.75rem', 
-                                fontSize: '0.74rem', 
-                                height: '28px', 
-                                color: '#ef4444', 
-                                borderColor: 'rgba(239, 68, 68, 0.4)', 
-                                display: 'flex', 
-                                alignItems: 'center', 
-                                gap: '0.2rem', 
-                                background: 'none' 
-                              }}
-                              onClick={() => handleRejectRecall(log.recallID)}
+                              className="btn-secondary" 
+                              title="Truy vết bệnh nhân đã dùng lô này"
+                              style={{ padding: '0.25rem 0.5rem', display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.75rem', height: '28px', background: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', borderColor: 'rgba(59, 130, 246, 0.2)' }}
+                              onClick={() => handleTraceBatch(log.batchID, log.batch?.batchNumber, log.batch?.medicine?.medicineName)}
                             >
-                              <X size={12} /> Từ chối
+                              <Search size={12} /> Truy vết BN
                             </button>
-                          </>
-                        )}
-                        {log.actionType === 'Cách ly' && (user?.role === 'pharmacist' || user?.role === 'director') && (
-                          log.status === 'Approved' ? (
-                            <button
-                              type="button"
-                              className="btn-premium"
-                              style={{ 
-                                padding: '0.25rem 0.75rem', 
-                                fontSize: '0.74rem', 
-                                height: '28px', 
-                                background: 'linear-gradient(135deg, #10b981, #059669)', 
-                                display: 'flex', 
-                                alignItems: 'center', 
-                                gap: '0.2rem', 
-                                fontWeight: '600' 
-                              }}
-                              onClick={() => handleRestoreRecall(log.recallID)}
-                            >
-                              <RotateCcw size={12} /> Giải phóng cách ly (Bình thường)
-                            </button>
-                          ) : log.status === 'Pending' ? (
-                            <button
-                              type="button"
-                              className="btn-secondary"
-                              style={{ 
-                                padding: '0.25rem 0.75rem', 
-                                fontSize: '0.74rem', 
-                                height: '28px', 
-                                color: '#ef4444', 
-                                borderColor: 'rgba(239, 68, 68, 0.4)', 
-                                display: 'flex', 
-                                alignItems: 'center', 
-                                gap: '0.2rem', 
-                                background: 'none' 
-                              }}
-                              onClick={() => handleRestoreRecall(log.recallID)}
-                              title="Hủy đề xuất cách ly khi chưa phê duyệt"
-                            >
-                              <X size={12} /> Hủy đề xuất cách ly
-                            </button>
-                          ) : null
-                        )}
+                            <span className="badge-status" style={{ 
+                              fontSize: '0.72rem', 
+                              padding: '0.2rem 0.5rem', 
+                              borderRadius: '6px', 
+                              fontWeight: '600',
+                              textTransform: 'none',
+                              background: log.status === 'Approved' ? 'rgba(16, 185, 129, 0.12)' : log.status === 'Rejected' ? 'rgba(100, 116, 139, 0.12)' : 'rgba(245, 158, 11, 0.12)',
+                              color: log.status === 'Approved' ? '#10b981' : log.status === 'Rejected' ? '#64748b' : '#f59e0b',
+                              border: log.status === 'Approved' ? '1px solid rgba(16, 185, 129, 0.2)' : log.status === 'Rejected' ? '1px solid rgba(100, 116, 139, 0.2)' : '1px solid rgba(245, 158, 11, 0.2)'
+                            }}>
+                              {log.status === 'Approved' ? 'Đã duyệt quyết định' : log.status === 'Rejected' ? 'Đã từ chối' : 'Chờ Lãnh đạo duyệt'}
+                            </span>
+                          </div>
+                        </div>
+                        <div style={{ fontSize: '0.85rem' }}>
+                          <p style={{ margin: '0 0 0.35rem 0' }}><strong>Thuốc thu hồi:</strong> <span style={{ color: 'var(--color-secondary)', fontWeight: '600' }}>{log.batch?.medicine?.medicineName}</span></p>
+                          <p style={{ margin: '0 0 0.35rem 0' }}><strong>Số lô:</strong> {log.batch?.batchNumber} - <strong>Hạn dùng:</strong> {log.batch ? new Date(log.batch.expiryDate).toLocaleDateString('vi-VN') : ''}</p>
+                          <p style={{ margin: '0 0 0.35rem 0' }}><strong>Biện pháp:</strong> {log.actionType === 'Cách ly' ? 'Cách ly tạm thời' : log.actionType === 'Trả NCC' ? 'Trả Nhà cung cấp' : 'Tiêu hủy kho'}</p>
+                          <p style={{ margin: '0 0 0.35rem 0' }}><strong>Lý do:</strong> {log.reason}</p>
+                          <p style={{ margin: '0 0 0.35rem 0', color: 'var(--text-muted)', fontSize: '0.8rem' }}><strong>Người đề xuất:</strong> {log.createdBy}</p>
+                          {log.status === 'Approved' && (
+                            <p style={{ margin: '0 0 0.35rem 0', color: 'var(--text-muted)', fontSize: '0.8rem' }}><strong>Lãnh đạo duyệt:</strong> {log.approvedBy || 'PGS.TS. Lê Minh Trí'}</p>
+                          )}
+                          <p style={{ margin: '0 0 0.35rem 0' }}><strong>Ngày tạo lệnh:</strong> {new Date(log.recallDate).toLocaleString('vi-VN')}</p>
+
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.75rem', borderTop: '1px dashed var(--border-glass)', paddingTop: '0.75rem' }}>
+                            {log.status === 'Pending' && user?.role === 'director' && (
+                              <>
+                                <button
+                                  type="button"
+                                  className="btn-premium"
+                                  style={{ 
+                                    padding: '0.25rem 0.75rem', 
+                                    fontSize: '0.74rem', 
+                                    height: '28px', 
+                                    background: 'linear-gradient(135deg, #10b981, #059669)', 
+                                    display: 'flex', 
+                                    alignItems: 'center', 
+                                    gap: '0.2rem', 
+                                    fontWeight: '600' 
+                                  }}
+                                  onClick={() => handleStartApproveRecall(log.recallID)}
+                                >
+                                  <Check size={12} /> Ký Duyệt Quyết Định
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn-secondary"
+                                  style={{ 
+                                    padding: '0.25rem 0.75rem', 
+                                    fontSize: '0.74rem', 
+                                    height: '28px', 
+                                    color: '#ef4444', 
+                                    borderColor: 'rgba(239, 68, 68, 0.4)', 
+                                    display: 'flex', 
+                                    alignItems: 'center', 
+                                    gap: '0.2rem', 
+                                    background: 'none' 
+                                  }}
+                                  onClick={() => handleRejectRecall(log.recallID)}
+                                >
+                                  <X size={12} /> Từ chối
+                                </button>
+                              </>
+                            )}
+                            {log.actionType === 'Cách ly' && (user?.role === 'pharmacist' || user?.role === 'director') && (
+                              log.status === 'Approved' ? (
+                                <button
+                                  type="button"
+                                  className="btn-premium"
+                                  style={{ 
+                                    padding: '0.25rem 0.75rem', 
+                                    fontSize: '0.74rem', 
+                                    height: '28px', 
+                                    background: 'linear-gradient(135deg, #10b981, #059669)', 
+                                    display: 'flex', 
+                                    alignItems: 'center', 
+                                    gap: '0.2rem', 
+                                    fontWeight: '600' 
+                                  }}
+                                  onClick={() => handleRestoreRecall(log.recallID)}
+                                >
+                                  <RotateCcw size={12} /> Giải phóng cách ly (Bình thường)
+                                </button>
+                              ) : log.status === 'Pending' ? (
+                                <button
+                                  type="button"
+                                  className="btn-secondary"
+                                  style={{ 
+                                    padding: '0.25rem 0.75rem', 
+                                    fontSize: '0.74rem', 
+                                    height: '28px', 
+                                    color: '#ef4444', 
+                                    borderColor: 'rgba(239, 68, 68, 0.4)', 
+                                    display: 'flex', 
+                                    alignItems: 'center', 
+                                    gap: '0.2rem', 
+                                    background: 'none' 
+                                  }}
+                                  onClick={() => handleRestoreRecall(log.recallID)}
+                                  title="Hủy đề xuất cách ly khi chưa phê duyệt"
+                                >
+                                  <X size={12} /> Hủy đề xuất cách ly
+                                </button>
+                              ) : null
+                            )}
+                          </div>
+                        </div>
                       </div>
-                    </div>
+                    ))
+                  )}
+                </div>
+              </>
+            ) : (
+              /* TAB SEARCH */
+              <div>
+                <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--color-secondary)', marginBottom: '1.25rem', fontSize: '1.1rem' }}>
+                  <Search size={20} /> Tra Cứu Truy Vết Lô Thuốc Toàn Viện
+                </h3>
+                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
+                  Hỗ trợ tra cứu nhanh nguồn gốc và đường đi của lô thuốc trong các trường hợp thu hồi khẩn cấp, phản ứng có hại (ADR) hoặc điều tra thất thoát.
+                </p>
+
+                <form onSubmit={handleSearchTrace} style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem', alignItems: 'end' }}>
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                    <label style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: '600' }}>Tìm kiếm theo</label>
+                    <select
+                      className="form-input"
+                      value={searchType}
+                      onChange={e => setSearchType(e.target.value)}
+                      style={{ background: 'var(--bg-secondary)', color: 'var(--text-main)', border: '1px solid var(--border-glass)', borderRadius: '8px', height: '35px', fontSize: '0.8rem' }}
+                    >
+                      <option value="batch">Số lô sản xuất (Batch Number)</option>
+                      <option value="patient">Mã số / Họ tên Bệnh nhân</option>
+                      <option value="medicine">Tên dược chất / Thuốc</option>
+                    </select>
                   </div>
-                ))
-              )}
-            </div>
+
+                  <div style={{ flex: 2, display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                    <label style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: '600' }}>Từ khóa tìm kiếm</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={searchQuery}
+                      onChange={e => setSearchQuery(e.target.value)}
+                      placeholder="Nhập từ khóa tìm kiếm..."
+                      style={{ height: '35px', fontSize: '0.8rem' }}
+                    />
+                  </div>
+
+                  <button type="submit" className="btn-premium" style={{ height: '35px', padding: '0 1.25rem', display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.8rem' }}>
+                    <Search size={14} /> Tìm kiếm
+                  </button>
+                </form>
+
+                <div style={{ maxHeight: '400px', overflowY: 'auto', paddingRight: '0.5rem' }}>
+                  {searching ? (
+                    <p style={{ color: 'var(--text-muted)', textAlign: 'center' }}>Đang tìm kiếm thông tin truy vết...</p>
+                  ) : searchResults.length === 0 ? (
+                    <p style={{ color: 'var(--text-muted)', textAlign: 'center', marginTop: '1.5rem' }}>Không tìm thấy kết quả phù hợp. Hãy nhập từ khóa khác.</p>
+                  ) : (
+                    searchResults.map(res => (
+                      <div key={res.batchID} style={{
+                        background: 'rgba(255,255,255,0.02)',
+                        border: '1px solid var(--border-glass)',
+                        borderRadius: '10px',
+                        padding: '0.85rem 1rem',
+                        marginBottom: '0.75rem',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center'
+                      }}>
+                        <div>
+                          <p style={{ margin: 0, fontWeight: '700', color: 'var(--color-secondary)', fontSize: '0.88rem' }}>Lô: {res.batchNumber}</p>
+                          <p style={{ margin: '0.2rem 0 0 0', fontSize: '0.8rem', color: 'var(--text-muted)' }}>Thuốc: <strong>{res.medicineName}</strong></p>
+                        </div>
+                        <button
+                          type="button"
+                          className="btn-premium"
+                          style={{ padding: '0.3rem 0.75rem', fontSize: '0.75rem', height: '28px', display: 'flex', alignItems: 'center', gap: '0.2rem' }}
+                          onClick={() => handleTraceBatch(res.batchID, res.batchNumber, res.medicineName)}
+                        >
+                          <Search size={12} /> Truy vết
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -760,6 +972,269 @@ export default function Recall({ user }) {
                   <ThumbsUp size={14} /> Xác nhận ký lệnh
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* PATIENT TRACING MODAL */}
+      {tracingBatch && (
+        <div className="modal-overlay" style={{ background: 'rgba(0,0,0,0.6)', zIndex: 1000 }}>
+          <div className="modal-content" style={{ maxWidth: '800px', width: '95%', padding: '2rem', background: 'var(--bg-secondary)', border: '1px solid var(--border-glass)', borderRadius: '16px', maxHeight: '90vh', overflowY: 'auto' }}>
+            <button 
+              style={{ position: 'absolute', top: '1.25rem', right: '1.25rem', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}
+              onClick={() => setTracingBatch(null)}
+            >
+              <X size={20} />
+            </button>
+
+            <h3 style={{ marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--color-primary)' }}>
+              <AlertOctagon size={22} color="#f59e0b" /> Bản Đồ Truy Vết Lâm Sàng - Lô Thuốc: {tracingBatch.batchNumber}
+            </h3>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem', marginBottom: '1.25rem' }}>
+              Truy xuất chi tiết đường đi của lô thuốc <strong>{tracingBatch.batchNumber}</strong> ({tracingBatch.medicineName}) từ nhập kho chẵn đến cấp phát bệnh nhân.
+            </p>
+
+            {loadingTrace ? (
+              <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-muted)' }}>Đang truy vết dữ liệu từ hệ thống...</div>
+            ) : (
+              <div>
+                {/* Statistics Cards */}
+                {tracingDetails && (
+                  <div style={{ 
+                    display: 'grid', 
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', 
+                    gap: '1rem', 
+                    background: 'rgba(255,255,255,0.03)', 
+                    border: '1px solid var(--border-glass)', 
+                    borderRadius: '10px', 
+                    padding: '0.75rem 1rem', 
+                    marginBottom: '1rem',
+                    fontSize: '0.8rem'
+                  }}>
+                    <div>
+                      <span style={{ color: 'var(--text-muted)' }}>Đã nhập kho chẵn:</span>
+                      <p style={{ margin: '0.2rem 0 0 0', fontSize: '1rem', fontWeight: 'bold', color: 'var(--color-primary)' }}>
+                        {tracingDetails.quantityOriginal?.toLocaleString('vi-VN')} {tracingDetails.unit}
+                      </p>
+                    </div>
+                    <div>
+                      <span style={{ color: 'var(--text-muted)' }}>Còn tồn kho chẵn:</span>
+                      <p style={{ margin: '0.2rem 0 0 0', fontSize: '1rem', fontWeight: 'bold', color: 'var(--color-secondary)' }}>
+                        {tracingDetails.quantityMainStore?.toLocaleString('vi-VN')} {tracingDetails.unit}
+                      </p>
+                    </div>
+                    <div>
+                      <span style={{ color: 'var(--text-muted)' }}>Đã cấp về các khoa:</span>
+                      <p style={{ margin: '0.2rem 0 0 0', fontSize: '1rem', fontWeight: 'bold', color: '#f59e0b' }}>
+                        {tracingDetails.quantityDepartment?.toLocaleString('vi-VN')} {tracingDetails.unit}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Visual Trace Flow Map */}
+                {tracingDetails && (
+                  <div style={{ 
+                    background: 'rgba(255,255,255,0.01)', 
+                    border: '1px solid var(--border-glass)', 
+                    borderRadius: '10px', 
+                    padding: '1rem', 
+                    marginBottom: '1.25rem',
+                    fontSize: '0.76rem',
+                    color: 'var(--text-main)'
+                  }}>
+                    <span style={{ fontWeight: '700', color: 'var(--color-secondary)', display: 'block', marginBottom: '0.75rem' }}>
+                      Sơ Đồ Luồng Truy Vết Lô Thuốc (Lot Traceability Flow)
+                    </span>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.5rem', justifyContent: 'space-between' }}>
+                      <div style={{ padding: '0.4rem 0.6rem', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '6px', textAlign: 'center', flex: 1 }}>
+                        <strong>Lô thuốc</strong>
+                        <div style={{ color: 'var(--text-muted)', fontSize: '0.65rem' }}>{tracingBatch.batchNumber}</div>
+                      </div>
+                      <span style={{ color: 'var(--text-muted)' }}>➔</span>
+                      <div style={{ padding: '0.4rem 0.6rem', background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.3)', borderRadius: '6px', textAlign: 'center', flex: 1 }}>
+                        <strong>Kho chẵn</strong>
+                        <div style={{ color: 'var(--text-muted)', fontSize: '0.65rem' }}>Tồn: {tracingDetails.quantityMainStore} {tracingDetails.unit}</div>
+                      </div>
+                      <span style={{ color: 'var(--text-muted)' }}>➔</span>
+                      <div style={{ padding: '0.4rem 0.6rem', background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.3)', borderRadius: '6px', textAlign: 'center', flex: 1 }}>
+                        <strong>Cấp phát khoa</strong>
+                        <div style={{ color: 'var(--text-muted)', fontSize: '0.65rem' }}>{tracingDetails.quantityDepartment} {tracingDetails.unit}</div>
+                      </div>
+                      <span style={{ color: 'var(--text-muted)' }}>➔</span>
+                      <div style={{ padding: '0.4rem 0.6rem', background: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.3)', borderRadius: '6px', textAlign: 'center', flex: 1 }}>
+                        <strong>Bệnh nhân dùng</strong>
+                        <div style={{ color: 'var(--text-muted)', fontSize: '0.65rem' }}>{patientsUsed.length} bệnh nhân đã dùng</div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {patientsUsed.length === 0 ? (
+                  <div style={{ padding: '2rem', textAlign: 'center', border: '1px dashed var(--border-glass)', borderRadius: '10px', background: 'rgba(255,255,255,0.01)' }}>
+                    <p style={{ color: 'var(--text-muted)', margin: 0 }}>An toàn: Chưa có bệnh nhân lâm sàng nào sử dụng lô thuốc này.</p>
+                  </div>
+                ) : (
+                  <div>
+                    <div style={{ 
+                      background: 'rgba(239, 68, 68, 0.08)', 
+                      border: '1px solid rgba(239, 68, 68, 0.25)', 
+                      borderRadius: '10px', 
+                      padding: '0.75rem 1rem', 
+                      marginBottom: '1.25rem', 
+                      fontSize: '0.82rem', 
+                      color: '#f87171',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem'
+                    }}>
+                      <ShieldAlert size={16} /> 
+                      <span>Phát hiện <strong>{patientsUsed.length}</strong> bệnh nhân đã tiếp nhận thuốc từ lô này. Cần lập tức liên hệ các khoa lâm sàng để theo dõi sức khỏe và điều trị dự phòng.</span>
+                    </div>
+
+                    <div style={{ maxHeight: '300px', overflowY: 'auto', border: '1px solid var(--border-glass)', borderRadius: '10px' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem', textAlign: 'left' }}>
+                        <thead>
+                          <tr style={{ background: 'rgba(255,255,255,0.03)', borderBottom: '1px solid var(--border-glass)' }}>
+                            <th style={{ padding: '0.75rem', color: 'var(--text-muted)' }}>Mã bệnh nhân</th>
+                            <th style={{ padding: '0.75rem', color: 'var(--text-muted)' }}>Tên bệnh nhân</th>
+                            <th style={{ padding: '0.75rem', color: 'var(--text-muted)' }}>Khoa điều trị</th>
+                            <th style={{ padding: '0.75rem', color: 'var(--text-muted)', textAlign: 'center' }}>SL dùng</th>
+                            <th style={{ padding: '0.75rem', color: 'var(--text-muted)' }}>Điều dưỡng cấp</th>
+                            <th style={{ padding: '0.75rem', color: 'var(--text-muted)' }}>Thời gian dùng</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {patientsUsed.map((p, pIdx) => (
+                            <tr key={pIdx} style={{ borderBottom: pIdx < patientsUsed.length - 1 ? '1px solid var(--border-glass)' : 'none' }}>
+                              <td style={{ padding: '0.75rem', fontWeight: '600', color: 'var(--color-secondary)' }}>{p.patientCode}</td>
+                              <td style={{ padding: '0.75rem', fontWeight: '500' }}>{p.patientName}</td>
+                              <td style={{ padding: '0.75rem' }}>{p.departmentName}</td>
+                              <td style={{ padding: '0.75rem', textAlign: 'center', fontWeight: 'bold' }}>{p.quantity}</td>
+                              <td style={{ padding: '0.75rem', color: 'var(--color-primary-light)' }}>{p.dispensedBy}</td>
+                              <td style={{ padding: '0.75rem', color: 'var(--text-muted)' }}>{p.transactionDate}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '1.5rem', borderTop: '1px solid var(--border-glass)', paddingTop: '1rem' }}>
+              {isPharmacist && tracingDetails && (
+                <button 
+                  type="button"
+                  className="btn-premium" 
+                  style={{ padding: '0.5rem 1.25rem', background: 'linear-gradient(90deg, #3b82f6, #2563eb)', display: 'flex', alignItems: 'center', gap: '0.35rem' }} 
+                  onClick={() => setActiveTraceForPrint({ tracingBatch, tracingDetails, patientsUsed })}
+                >
+                  <Printer size={14} /> In báo cáo truy vết
+                </button>
+              )}
+              <button className="btn-secondary" style={{ padding: '0.5rem 1.25rem' }} onClick={() => setTracingBatch(null)}>
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PRINT TRACING REPORT MODAL */}
+      {activeTraceForPrint && (
+        <div className="modal-overlay" style={{ background: 'rgba(0,0,0,0.6)', zIndex: 1000 }}>
+          <div className="modal-content" style={{ maxWidth: '850px', width: '90%', padding: '2rem', maxHeight: '90vh', overflowY: 'auto', background: '#fff', color: '#000' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '2px solid #333', paddingBottom: '0.75rem', marginBottom: '1.5rem' }}>
+              <div style={{ textAlign: 'left' }}>
+                <h4 style={{ margin: 0, fontSize: '0.85rem', fontWeight: 'bold', textTransform: 'uppercase' }}>BỆNH VIỆN ĐA KHOA HIS PHARMACY</h4>
+                <p style={{ margin: '0.1rem 0 0 0', fontSize: '0.72rem', color: '#666' }}>Khoa Dược - Phòng Cảnh giác Dược & ADR</p>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <h4 style={{ margin: 0, fontSize: '0.85rem', fontWeight: 'bold' }}>CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM</h4>
+                <p style={{ margin: '0.1rem 0 0 0', fontSize: '0.72rem', fontStyle: 'italic' }}>Độc lập - Tự do - Hạnh phúc</p>
+              </div>
+            </div>
+
+            <div id="printable-trace-report" style={{ fontFamily: 'Times New Roman, serif', padding: '0.5rem' }}>
+              <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
+                <h2 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 'bold', textTransform: 'uppercase' }}>
+                  BÁO CÁO TRUY VẾT & ĐÁNH GIÁ PHẠM VI ẢNH HƯỞNG CỦA LÔ THUỐC
+                </h2>
+                <p style={{ margin: '0.3rem 0 0 0', fontSize: '0.9rem', color: '#333', fontWeight: '600' }}>
+                  Mã số lô: {activeTraceForPrint.tracingBatch.batchNumber} | Tên thuốc: {activeTraceForPrint.tracingBatch.medicineName}
+                </p>
+                <p style={{ margin: '0.1rem 0 0 0', fontSize: '0.75rem', color: '#666' }}>
+                  Ngày lập báo cáo: {new Date().toLocaleString('vi-VN')} | Người thực hiện: {user?.fullName || 'Dược sĩ lâm sàng'}
+                </p>
+              </div>
+
+              <div style={{ fontSize: '0.9rem', lineHeight: '1.6', marginBottom: '1.5rem' }}>
+                <h4 style={{ borderBottom: '1px solid #333', paddingBottom: '0.2rem', marginBottom: '0.5rem', textTransform: 'uppercase', fontSize: '0.95rem' }}>I. Thông tin phân phối và tồn kho vật lý</h4>
+                <ul style={{ paddingLeft: '1.25rem' }}>
+                  <li><strong>Tên hoạt chất / biệt dược:</strong> {activeTraceForPrint.tracingBatch.medicineName}</li>
+                  <li><strong>Mã số lô sản xuất (Batch):</strong> {activeTraceForPrint.tracingBatch.batchNumber}</li>
+                  <li><strong>Tổng số lượng đã nhập viện:</strong> {activeTraceForPrint.tracingDetails?.quantityOriginal?.toLocaleString('vi-VN')} {activeTraceForPrint.tracingDetails?.unit}</li>
+                  <li><strong>Số lượng hiện còn tại Kho chẵn:</strong> {activeTraceForPrint.tracingDetails?.quantityMainStore?.toLocaleString('vi-VN')} {activeTraceForPrint.tracingDetails?.unit}</li>
+                  <li><strong>Số lượng đã cấp phát về các Tủ trực khoa lâm sàng:</strong> {activeTraceForPrint.tracingDetails?.quantityDepartment?.toLocaleString('vi-VN')} {activeTraceForPrint.tracingDetails?.unit}</li>
+                </ul>
+
+                <h4 style={{ borderBottom: '1px solid #333', paddingBottom: '0.2rem', marginTop: '1.5rem', marginBottom: '0.5rem', textTransform: 'uppercase', fontSize: '0.95rem' }}>II. Danh sách bệnh nhân đã cấp phát trên lâm sàng</h4>
+                {activeTraceForPrint.patientsUsed.length === 0 ? (
+                  <p style={{ fontStyle: 'italic', color: '#666' }}>Chưa ghi nhận bệnh nhân lâm sàng nào sử dụng lô thuốc này.</p>
+                ) : (
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', marginTop: '0.5rem' }}>
+                    <thead>
+                      <tr style={{ background: '#f5f5f5', borderBottom: '1px solid #333' }}>
+                        <th style={{ border: '1px solid #ddd', padding: '6px', textAlign: 'left' }}>Mã bệnh nhân</th>
+                        <th style={{ border: '1px solid #ddd', padding: '6px', textAlign: 'left' }}>Tên bệnh nhân</th>
+                        <th style={{ border: '1px solid #ddd', padding: '6px', textAlign: 'left' }}>Khoa điều trị</th>
+                        <th style={{ border: '1px solid #ddd', padding: '6px', textAlign: 'center' }}>SL sử dụng</th>
+                        <th style={{ border: '1px solid #ddd', padding: '6px', textAlign: 'left' }}>Điều dưỡng cấp</th>
+                        <th style={{ border: '1px solid #ddd', padding: '6px', textAlign: 'left' }}>Thời gian dùng</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {activeTraceForPrint.patientsUsed.map((p, idx) => (
+                        <tr key={idx} style={{ borderBottom: '1px solid #eee' }}>
+                          <td style={{ border: '1px solid #ddd', padding: '6px' }}>{p.patientCode}</td>
+                          <td style={{ border: '1px solid #ddd', padding: '6px' }}><strong>{p.patientName}</strong></td>
+                          <td style={{ border: '1px solid #ddd', padding: '6px' }}>{p.departmentName}</td>
+                          <td style={{ border: '1px solid #ddd', padding: '6px', textAlign: 'center' }}>{p.quantity}</td>
+                          <td style={{ border: '1px solid #ddd', padding: '6px' }}>{p.dispensedBy}</td>
+                          <td style={{ border: '1px solid #ddd', padding: '6px' }}>{p.transactionDate}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: '2rem', marginTop: '3rem', fontSize: '0.85rem', textAlign: 'center' }}>
+                <div>
+                  <p style={{ margin: '0 0 4rem 0' }}><strong>PHÒNG CẢNH GIÁC DƯỢC</strong><br />(Ký, ghi rõ họ tên)</p>
+                  <p style={{ margin: 0, fontWeight: 'bold' }}>{user?.fullName || 'Dược sĩ phụ trách'}</p>
+                </div>
+                <div>
+                  <p style={{ margin: '0 0 4rem 0' }}><strong>BAN GIÁM ĐỐC BỆNH VIỆN</strong><br />(Ký, đóng dấu)</p>
+                  <p style={{ margin: 0, fontWeight: 'bold' }}>PGS.TS. Lê Minh Trí</p>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '2rem', borderTop: '1px solid #eee', paddingTop: '1rem' }}>
+              <button 
+                type="button"
+                className="btn-premium" 
+                onClick={() => window.print()}
+                style={{ background: '#3b82f6', color: '#fff', border: 'none' }}
+              >
+                In báo cáo
+              </button>
+              <button className="btn-secondary" onClick={() => setActiveTraceForPrint(null)}>
+                Đóng
+              </button>
             </div>
           </div>
         </div>
