@@ -15,6 +15,11 @@ export default function Dashboard({ setPage, user }) {
   const [loading, setLoading] = useState(true);
   const [timeUnit, setTimeUnit] = useState('month');
 
+  // Waste & Loss Analytics States
+  const [analyticsTab, setAnalyticsTab] = useState('inventory'); // 'inventory' or 'waste'
+  const [wasteData, setWasteData] = useState(null);
+  const [loadingWaste, setLoadingWaste] = useState(false);
+
   const getRequisitionCode = (req) => {
     if (!req) return '';
     const date = new Date(req.requisitionDate || new Date());
@@ -76,17 +81,37 @@ export default function Dashboard({ setPage, user }) {
       });
   };
 
+  const fetchWasteData = () => {
+    setLoadingWaste(true);
+    fetch('/api/dashboard/waste-analytics')
+      .then(res => res.json())
+      .then(data => {
+        setWasteData(data);
+        setLoadingWaste(false);
+      })
+      .catch(err => {
+        console.error("Error loading waste analytics:", err);
+        setLoadingWaste(false);
+      });
+  };
+
   useEffect(() => {
     fetchSummary(timeUnit);
+    if (analyticsTab === 'waste') {
+      fetchWasteData();
+    }
 
     const handleUpdate = (e) => {
       if (e.detail === 'Dashboard' || e.detail === 'Inventory' || e.detail === 'Requisitions') {
         fetchSummary(timeUnit);
+        if (analyticsTab === 'waste') {
+          fetchWasteData();
+        }
       }
     };
     window.addEventListener('pharmacy-update', handleUpdate);
     return () => window.removeEventListener('pharmacy-update', handleUpdate);
-  }, [user, timeUnit]);
+  }, [user, timeUnit, analyticsTab]);
 
   const renderLineChart = () => {
     const data = summary?.importCosts || [];
@@ -232,7 +257,7 @@ export default function Dashboard({ setPage, user }) {
     const segments = data.map((d, i) => {
       const percent = d.value / total;
       const strokeLength = percent * circumference;
-      const strokeOffset = circumference - (accumulatedPercent * circumference);
+      const strokeOffset = -accumulatedPercent * circumference;
       accumulatedPercent += percent;
 
       return {
@@ -342,6 +367,249 @@ export default function Dashboard({ setPage, user }) {
                   <rect x={left} y={y} width={barW} height={barH} rx="4" fill={color} style={{ transition: 'width 0.5s ease-out' }} />
                   <text x={left + barW + 10} y={y + 15} textAnchor="start" fill="var(--color-secondary)" fontSize="11" fontWeight="700">
                     {d.value} đvt
+                  </text>
+                </g>
+              );
+            })}
+          </svg>
+        </div>
+      </div>
+    );
+  };
+
+  const renderWasteLineChart = () => {
+    const data = wasteData?.monthlyLoss || [];
+    
+    const renderHeader = () => (
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', width: '100%' }}>
+        <h4 style={{ margin: 0, fontSize: '0.88rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+          <TrendingUp size={14} color="var(--color-danger)" /> Thiệt hại tài chính do hao hụt (Triệu VND)
+        </h4>
+      </div>
+    );
+
+    if (data.length === 0) {
+      return (
+        <div className="glass-card" style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', height: '260px' }}>
+          {renderHeader()}
+          <div style={{ flexGrow: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', textAlign: 'center' }}>
+            <TrendingUp size={36} color="var(--text-dim)" style={{ marginBottom: '0.75rem', opacity: 0.5 }} />
+            <p style={{ color: 'var(--text-dim)', fontSize: '0.78rem', margin: 0 }}>Chưa ghi nhận thiệt hại hao hụt hoặc thanh lý nào.</p>
+          </div>
+        </div>
+      );
+    }
+
+    const left = 45;
+    const right = 20;
+    const top = 20;
+    const bottom = 30;
+    const width = 500;
+    const height = 200;
+    const plotW = width - left - right;
+    const plotH = height - top - bottom;
+
+    const chartData = data.map(d => ({
+      name: d.month,
+      value: d.lossAmount / 1000000.0
+    }));
+
+    const maxVal = Math.max(...chartData.map(d => d.value)) * 1.15 || 5;
+
+    const points = chartData.map((d, i) => {
+      const x = chartData.length === 1 
+        ? left + plotW / 2 
+        : left + (i / (chartData.length - 1)) * plotW;
+      const y = top + plotH - (d.value / maxVal) * plotH;
+      return { x, y, name: d.name, value: d.value };
+    });
+
+    const linePath = points.length === 0 ? '' : `M ${points.map(p => `${p.x} ${p.y}`).join(' L ')}`;
+    const areaPath = points.length === 0 ? '' : `M ${points[0].x} ${top + plotH} L ${points.map(p => `${p.x} ${p.y}`).join(' L ')} L ${points[points.length - 1].x} ${top + plotH} Z`;
+
+    const yTicks = [0, 0.25, 0.5, 0.75, 1].map(p => {
+      const val = p * maxVal;
+      const y = top + plotH - p * plotH;
+      return { y, val: val.toFixed(1) };
+    });
+
+    return (
+      <div className="glass-card" style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', height: '260px' }}>
+        {renderHeader()}
+        <div style={{ flexGrow: 1, position: 'relative', height: '100%' }}>
+          <svg width="100%" height="100%" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="xMidYMid meet">
+            <defs>
+              <linearGradient id="line-grad-waste" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="rgba(239, 68, 68, 0.25)" />
+                <stop offset="100%" stopColor="rgba(239, 68, 68, 0)" />
+              </linearGradient>
+            </defs>
+
+            {/* Grid lines */}
+            {yTicks.map((t, idx) => (
+              <g key={idx}>
+                <line x1={left} y1={t.y} x2={width - right} y2={t.y} stroke="rgba(255,255,255,0.05)" strokeDasharray="3 3" />
+                <text x={left - 8} y={t.y + 4} textAnchor="end" fill="var(--text-dim)" fontSize="9" fontWeight="500">{t.val} Tr</text>
+              </g>
+            ))}
+
+            {/* Shaded Area */}
+            <path d={areaPath} fill="url(#line-grad-waste)" />
+
+            {/* Plot Line */}
+            <path d={linePath} stroke="var(--color-danger)" strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+
+            {/* Data Points */}
+            {points.map((p, idx) => (
+              <g key={idx}>
+                <circle cx={p.x} cy={p.y} r="4" fill="var(--color-danger)" stroke="var(--bg-primary)" strokeWidth="2" />
+                <text x={p.x} y={height - 8} textAnchor="middle" fill="var(--text-muted)" fontSize="9.5" fontWeight="600">{p.name}</text>
+                <text x={p.x} y={p.y - 10} textAnchor="middle" fill="var(--color-danger)" fontSize="9" fontWeight="700">{p.value.toFixed(1)}M</text>
+              </g>
+            ))}
+          </svg>
+        </div>
+      </div>
+    );
+  };
+
+  const renderWasteDonutChart = () => {
+    const data = wasteData?.wasteByGroup || [];
+    const total = data.reduce((sum, d) => sum + d.totalLoss, 0);
+    
+    if (data.length === 0 || total === 0) {
+      return (
+        <div className="glass-card" style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', height: '260px', justifyContent: 'center', alignItems: 'center', textAlign: 'center' }}>
+          <PieChart size={36} color="var(--text-dim)" style={{ marginBottom: '0.75rem', opacity: 0.5 }} />
+          <h4 style={{ margin: '0 0 0.25rem 0', fontSize: '0.9rem', color: 'var(--text-muted)' }}>Nhóm thuốc hao hụt nhiều nhất</h4>
+          <p style={{ color: 'var(--text-dim)', fontSize: '0.78rem', margin: 0, maxWidth: '200px' }}>Chưa ghi nhận nhóm thuốc nào bị hao hụt.</p>
+        </div>
+      );
+    }
+
+    const colors = ['#ef4444', '#f59e0b', '#3b82f6', '#10b981', '#a855f7', '#64748b'];
+    const r = 55;
+    const cx = 90;
+    const cy = 90;
+    const circumference = 2 * Math.PI * r;
+
+    let accumulatedPercent = 0;
+
+    const segments = data.map((d, i) => {
+      const percent = d.totalLoss / total;
+      const strokeLength = percent * circumference;
+      const strokeOffset = -accumulatedPercent * circumference;
+      accumulatedPercent += percent;
+
+      return {
+        name: d.medicineGroup,
+        totalLoss: d.totalLoss,
+        percent: (percent * 100).toFixed(0),
+        color: colors[i % colors.length],
+        strokeLength,
+        strokeOffset
+      };
+    });
+
+    return (
+      <div className="glass-card" style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', height: '260px' }}>
+        <h4 style={{ margin: '0 0 0.75rem 0', fontSize: '0.88rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+          <PieChart size={14} color="var(--color-danger)" /> Phân bổ hao hụt theo nhóm dược lý
+        </h4>
+        <div style={{ display: 'flex', alignItems: 'center', height: '100%' }}>
+          <div style={{ width: '160px', height: '160px', position: 'relative', flexShrink: 0 }}>
+            <svg width="100%" height="100%" viewBox="0 0 180 180">
+              <circle cx={cx} cy={cy} r={r} fill="transparent" stroke="rgba(255,255,255,0.03)" strokeWidth="14" />
+              {segments.map((s, idx) => (
+                <circle
+                  key={idx}
+                  cx={cx}
+                  cy={cy}
+                  r={r}
+                  fill="transparent"
+                  stroke={s.color}
+                  strokeWidth="14"
+                  strokeDasharray={`${s.strokeLength} ${circumference}`}
+                  strokeDashoffset={s.strokeOffset}
+                  transform={`rotate(-90 ${cx} ${cy})`}
+                  strokeLinecap="round"
+                  style={{ transition: 'stroke-dashoffset 0.5s ease' }}
+                />
+              ))}
+              <text x={cx} y={cy - 2} textAnchor="middle" fill="var(--text-main)" fontSize="13" fontWeight="800">
+                {(total / 1000000.0).toFixed(1)}M
+              </text>
+              <text x={cx} y={cy + 13} textAnchor="middle" fill="var(--text-dim)" fontSize="8.5" fontWeight="600" letterSpacing="0.5">
+                THIỆT HẠI
+              </text>
+            </svg>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem', marginLeft: '0.75rem', flexGrow: 1, maxHeight: '160px', overflowY: 'auto' }}>
+            {segments.map((s, idx) => (
+              <div key={idx} style={{ display: 'flex', alignItems: 'center', fontSize: '0.8rem', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', minWidth: 0 }}>
+                  <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: s.color, display: 'inline-block', flexShrink: 0 }} />
+                  <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }} title={s.name}>
+                    {s.name}
+                  </span>
+                </div>
+                <strong style={{ color: 'var(--text-main)', fontSize: '0.78rem', marginLeft: '0.25rem' }}>{s.percent}%</strong>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderWasteBarChart = () => {
+    const data = wasteData?.wasteByDepartment || [];
+    
+    if (data.length === 0) {
+      return (
+        <div className="glass-card" style={{ padding: '1.25rem 1.5rem', marginBottom: '1.5rem', display: 'flex', flexDirection: 'column', height: '180px', justifyContent: 'center', alignItems: 'center', textAlign: 'center' }}>
+          <BarChart4 size={36} color="var(--text-dim)" style={{ marginBottom: '0.75rem', opacity: 0.5 }} />
+          <h4 style={{ margin: '0 0 0.25rem 0', fontSize: '0.9rem', color: 'var(--text-muted)' }}>Tỷ lệ hao hụt dược phẩm theo khoa lâm sàng</h4>
+          <p style={{ color: 'var(--text-dim)', fontSize: '0.78rem', margin: 0 }}>Chưa ghi nhận thuốc hoàn trả hao hụt/lãng phí từ khoa nào.</p>
+        </div>
+      );
+    }
+
+    const left = 160;
+    const right = 100;
+    const top = 20;
+    const bottom = 10;
+    const width = 600;
+    const height = 240;
+    
+    const maxVal = Math.max(...data.map(d => d.totalLoss)) || 10;
+    const barH = 22;
+    const spacing = 40;
+    const maxBarW = 340;
+
+    return (
+      <div className="glass-card" style={{ padding: '1.25rem 1.5rem', marginBottom: '1.5rem' }}>
+        <h4 style={{ margin: '0 0 1rem 0', fontSize: '0.9rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+          <BarChart4 size={16} color="var(--color-danger)" /> Xếp hạng hao hụt & lãng phí dược phẩm theo khoa lâm sàng
+        </h4>
+        <div style={{ width: '100%', height: '220px' }}>
+          <svg width="100%" height="100%" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="xMidYMid meet">
+            {data.map((d, i) => {
+              const y = top + i * spacing;
+              const barW = (d.totalLoss / maxVal) * maxBarW;
+              const colors = ['#ef4444', '#f59e0b', '#3b82f6', '#10b981', '#6366f1'];
+              const color = colors[i % colors.length];
+
+              return (
+                <g key={i}>
+                  <text x={left - 15} y={y + 15} textAnchor="end" fill="var(--text-main)" fontSize="11" fontWeight="600">
+                    {d.departmentName.length > 25 ? `${d.departmentName.substring(0, 23)}...` : d.departmentName}
+                  </text>
+                  <rect x={left} y={y} width={maxBarW} height={barH} rx="4" fill="rgba(255,255,255,0.02)" />
+                  <rect x={left} y={y} width={barW} height={barH} rx="4" fill={color} style={{ transition: 'width 0.5s ease-out' }} />
+                  <text x={left + barW + 10} y={y + 15} textAnchor="start" fill="var(--color-danger)" fontSize="11" fontWeight="700">
+                    {d.totalLoss.toLocaleString('vi-VN')} đ
                   </text>
                 </g>
               );
@@ -513,21 +781,80 @@ export default function Dashboard({ setPage, user }) {
       </div>
 
       {/* Visual Charts Grid (Real-time updates) */}
-      <div style={{ marginTop: '1.75rem', marginBottom: '1.25rem' }}>
-        <h3 style={{ fontSize: '1.1rem', fontWeight: '700', color: 'var(--color-primary)', display: 'flex', alignItems: 'center', gap: '0.5rem', margin: '0 0 0.25rem 0' }}>
-          📊 {user?.departmentID ? 'Báo cáo Thống kê Khoa Lâm Sàng' : 'Báo cáo Thống kê Hệ thống (Visual Analytics)'}
-        </h3>
-        <p style={{ color: 'var(--text-muted)', margin: 0, fontSize: '0.82rem' }}>
-          {user?.departmentID ? 'Biểu đồ phân tích trực quan về cơ cấu tủ trực và lượng thuốc tiêu hao thực tế tại khoa.' : 'Biểu đồ phân tích trực quan về dòng tài chính nhập kho, cơ cấu danh mục dược phẩm và tiêu hao tại các khoa lâm sàng.'}
-        </p>
+      <div style={{ marginTop: '1.75rem', marginBottom: '1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: '1rem' }}>
+        <div>
+          <h3 style={{ fontSize: '1.1rem', fontWeight: '700', color: 'var(--color-primary)', display: 'flex', alignItems: 'center', gap: '0.5rem', margin: '0 0 0.25rem 0' }}>
+            📊 {user?.departmentID ? 'Báo cáo Thống kê Khoa Lâm Sàng' : 'Báo cáo Thống kê Hệ thống (Visual Analytics)'}
+          </h3>
+          <p style={{ color: 'var(--text-muted)', margin: 0, fontSize: '0.82rem' }}>
+            {user?.departmentID ? 'Biểu đồ phân tích trực quan về cơ cấu tủ trực và lượng thuốc tiêu hao thực tế tại khoa.' : 'Biểu đồ phân tích trực quan về các chỉ số quản lý Dược bệnh viện.'}
+          </p>
+        </div>
+        {!user?.departmentID && (
+          <div style={{ display: 'flex', background: 'rgba(255,255,255,0.05)', borderRadius: '8px', padding: '3px', border: '1px solid var(--border-glass)' }}>
+            <button
+              type="button"
+              style={{
+                background: analyticsTab === 'inventory' ? 'var(--color-primary)' : 'none',
+                color: analyticsTab === 'inventory' ? '#fff' : 'var(--text-dim)',
+                border: 'none',
+                cursor: 'pointer',
+                padding: '0.35rem 0.85rem',
+                borderRadius: '6px',
+                fontSize: '0.78rem',
+                fontWeight: '600',
+                transition: 'all 0.2s ease'
+              }}
+              onClick={() => setAnalyticsTab('inventory')}
+            >
+              Phân tích tồn & luân chuyển
+            </button>
+            <button
+              type="button"
+              style={{
+                background: analyticsTab === 'waste' ? 'var(--color-danger)' : 'none',
+                color: analyticsTab === 'waste' ? '#fff' : 'var(--text-dim)',
+                border: 'none',
+                cursor: 'pointer',
+                padding: '0.35rem 0.85rem',
+                borderRadius: '6px',
+                fontSize: '0.78rem',
+                fontWeight: '600',
+                transition: 'all 0.2s ease'
+              }}
+              onClick={() => setAnalyticsTab('waste')}
+            >
+              Hao hụt & Lãng phí (Waste & Loss)
+            </button>
+          </div>
+        )}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1.62fr 1fr', gap: '1.5rem', marginBottom: '1.5rem' }}>
-        {renderLineChart()}
-        {renderDonutChart()}
-      </div>
-
-      {renderBarChart()}
+      {analyticsTab === 'inventory' ? (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: '1.62fr 1fr', gap: '1.5rem', marginBottom: '1.5rem' }}>
+            {renderLineChart()}
+            {renderDonutChart()}
+          </div>
+          {renderBarChart()}
+        </>
+      ) : (
+        /* WASTE & LOSS ANALYTICS TAB */
+        loadingWaste ? (
+          <div className="glass-card" style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-muted)', marginBottom: '1.5rem' }}>
+            <RefreshCw size={24} className="nav-icon" style={{ animation: 'spin 2s linear infinite', marginBottom: '0.5rem' }} />
+            <p>Đang tổng hợp phân tích hao hụt & lãng phí dược phẩm...</p>
+          </div>
+        ) : (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: '1.62fr 1fr', gap: '1.5rem', marginBottom: '1.5rem' }}>
+              {renderWasteLineChart()}
+              {renderWasteDonutChart()}
+            </div>
+            {renderWasteBarChart()}
+          </>
+        )
+      )}
 
       {/* Bottom Grid: Requisitions & Warnings */}
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1.5rem' }}>

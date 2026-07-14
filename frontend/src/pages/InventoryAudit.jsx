@@ -63,6 +63,9 @@ export default function InventoryAudit({ user }) {
   const [departmentId, setDepartmentId] = useState('');
   const [auditType, setAuditType] = useState('Định kỳ');
   const [notes, setNotes] = useState('');
+  const [coAuditorUsername, setCoAuditorUsername] = useState('');
+  const [coAuditorPassword, setCoAuditorPassword] = useState('');
+  const [verifyingCoAuditor, setVerifyingCoAuditor] = useState(false);
 
   // Active Audit Detail / Edit State
   const [activeAudit, setActiveAudit] = useState(null);
@@ -196,7 +199,33 @@ export default function InventoryAudit({ user }) {
       return;
     }
 
+    if (!coAuditorUsername || !coAuditorPassword) {
+      alert('Vui lòng nhập thông tin xác thực tài khoản đồng kiểm kê thứ 2!');
+      return;
+    }
+
+    setVerifyingCoAuditor(true);
     try {
+      // 1. Xác thực tài khoản kiểm kê thứ hai
+      const verifyRes = await fetch('/api/audit/verify-co-auditor', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          Username: coAuditorUsername,
+          Password: coAuditorPassword,
+          CurrentUser: user?.username || ''
+        })
+      });
+      const verifyData = await verifyRes.json();
+      if (!verifyRes.ok) {
+        alert(verifyData.message || 'Xác thực tài khoản đồng kiểm kê thất bại! Vui lòng kiểm tra lại.');
+        setVerifyingCoAuditor(false);
+        return;
+      }
+
+      const coAuditorName = verifyData.fullName;
+
+      // 2. Gọi API tạo phiếu kiểm kê mới
       const res = await fetch('/api/audit/create', {
         method: 'POST',
         headers: { 
@@ -209,25 +238,32 @@ export default function InventoryAudit({ user }) {
           DepartmentId: locationType === 'MainStore' ? null : parseInt(departmentId),
           CreatedBy: user?.fullName || 'Cán bộ kiểm kê',
           AuditType: auditType,
-          Notes: notes
+          Notes: notes,
+          CoAuditor: coAuditorName
         })
       });
       const data = await res.json();
       if (!res.ok) {
         alert(data.message || 'Lỗi tạo phiếu kiểm kê');
+        setVerifyingCoAuditor(false);
         return;
       }
+      
       setShowCreateModal(false);
       setNotes('');
+      setCoAuditorUsername('');
+      setCoAuditorPassword('');
       // Reset values
       setLocationType('MainStore');
       setDepartmentId('');
       setAuditType('Định kỳ');
-      alert(`Đã khởi tạo phiếu kiểm kê ${data.auditCode} thành công! Kho đã bị khóa các giao dịch xuất nhập.`);
+      alert(`Đã khởi tạo phiếu kiểm kê xác thực kép ${data.auditCode} thành công! Người đồng kiểm xác nhận: ${coAuditorName}.`);
       fetchData();
       selectAudit(data);
     } catch (err) {
       alert('Lỗi kết nối máy chủ!');
+    } finally {
+      setVerifyingCoAuditor(false);
     }
   };
 
@@ -590,7 +626,12 @@ export default function InventoryAudit({ user }) {
                         )}
                       </td>
                       <td>{new Date(a.auditDate).toLocaleDateString('vi-VN')}</td>
-                      <td>{a.createdBy}</td>
+                      <td>
+                        <div style={{ fontSize: '0.8rem', fontWeight: '600' }}>{a.createdBy}</div>
+                        {a.checkerSignedBy && (
+                          <div style={{ fontSize: '0.7rem', color: 'var(--color-danger)', fontWeight: '500' }}>👥 {a.checkerSignedBy}</div>
+                        )}
+                      </td>
                       <td>{a.auditType}</td>
                       <td>
                         {a.discrepancyThresholdExceeded ? (
@@ -713,6 +754,8 @@ export default function InventoryAudit({ user }) {
             <p><strong>Ngày kiểm:</strong> {new Date(activeAudit.auditDate).toLocaleString('vi-VN')}</p>
             <p><strong>Loại kiểm kê:</strong> {activeAudit.auditType}</p>
             <p><strong>Ghi chú:</strong> {activeAudit.notes || 'Không'}</p>
+            <p><strong>Kiểm kê chính (TV1):</strong> {activeAudit.createdBy}</p>
+            <p><strong>Đồng kiểm kê (TV2):</strong> {activeAudit.checkerSignedBy || 'Không có'}</p>
             <div style={{ marginTop: '0.5rem' }}>
               <strong>Trạng thái: </strong>
               <span className={`status-badge ${getStatusClass(activeAudit.status)}`} style={{ fontSize: '0.7rem' }}>
@@ -972,6 +1015,56 @@ export default function InventoryAudit({ user }) {
                 </select>
               </div>
 
+              {/* DUAL SIGNATURE AUTHENTICATION */}
+              <div style={{
+                background: 'rgba(239, 68, 68, 0.05)',
+                border: '1px solid rgba(239, 68, 68, 0.2)',
+                borderRadius: '8px',
+                padding: '1rem',
+                marginBottom: '1rem'
+              }}>
+                <h4 style={{
+                  fontSize: '0.82rem',
+                  fontWeight: '700',
+                  color: 'var(--color-danger)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.35rem',
+                  margin: '0 0 0.75rem 0'
+                }}>
+                  🔐 Xác Thực Người Đồng Kiểm Kê (Bắt Buộc)
+                </h4>
+                <p style={{ fontSize: '0.74rem', color: 'var(--text-muted)', margin: '0 0 0.75rem 0', lineHeight: '1.4' }}>
+                  Quy chế bệnh viện yêu cầu tối thiểu 2 người kiểm kê độc lập. Người thứ hai vui lòng nhập thông tin để ký số đồng khởi tạo.
+                </p>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label className="form-label" style={{ fontSize: '0.72rem' }}>Tên đăng nhập thành viên 2</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      style={{ fontSize: '0.78rem', padding: '0.35rem 0.5rem' }}
+                      placeholder="Username..."
+                      value={coAuditorUsername}
+                      onChange={(e) => setCoAuditorUsername(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label className="form-label" style={{ fontSize: '0.72rem' }}>Mật khẩu xác nhận</label>
+                    <input
+                      type="password"
+                      className="form-input"
+                      style={{ fontSize: '0.78rem', padding: '0.35rem 0.5rem' }}
+                      placeholder="Password..."
+                      value={coAuditorPassword}
+                      onChange={(e) => setCoAuditorPassword(e.target.value)}
+                      required
+                    />
+                  </div>
+                </div>
+              </div>
+
               <div className="form-group" style={{ marginBottom: '1.25rem' }}>
                 <label className="form-label">Ghi Chú / Lý Do</label>
                 <textarea 
@@ -984,8 +1077,10 @@ export default function InventoryAudit({ user }) {
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
-                <button type="button" className="btn-secondary" onClick={() => setShowCreateModal(false)}>Hủy</button>
-                <button type="submit" className="btn-premium">Lập Phiếu Đăng Ký</button>
+                <button type="button" className="btn-secondary" onClick={() => setShowCreateModal(false)} disabled={verifyingCoAuditor}>Hủy</button>
+                <button type="submit" className="btn-premium" disabled={verifyingCoAuditor}>
+                  {verifyingCoAuditor ? 'Đang xác thực...' : 'Lập Phiếu Đăng Ký'}
+                </button>
               </div>
             </form>
           </div>

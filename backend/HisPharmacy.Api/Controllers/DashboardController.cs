@@ -443,4 +443,104 @@ public class DashboardController : ControllerBase
             });
         }
     }
+
+    [HttpGet("waste-analytics")]
+    public async Task<IActionResult> GetWasteAnalytics()
+    {
+        var returns = await _context.ReturnReceiptDetails
+            .Include(d => d.Batch)
+            .ThenInclude(b => b!.Medicine)
+            .ToListAsync();
+
+        var returnReceipts = await _context.ReturnReceipts
+            .Include(r => r.Department)
+            .Where(r => r.Status == "Approved")
+            .ToListAsync();
+
+        var returnReceiptDict = returnReceipts.ToDictionary(r => r.ReturnID);
+
+        var wasteByDept = returns
+            .Where(d => returnReceiptDict.ContainsKey(d.ReturnID))
+            .GroupBy(d => returnReceiptDict[d.ReturnID].Department?.DepartmentName ?? "Không xác định")
+            .Select(g => new
+            {
+                DepartmentName = g.Key,
+                TotalLoss = (double)g.Sum(d => d.Quantity * (d.Batch?.ImportPrice ?? 0))
+            })
+            .OrderByDescending(x => x.TotalLoss)
+            .ToList();
+
+        var liquidations = await _context.LiquidationReceiptDetails
+            .Include(d => d.Batch)
+            .ThenInclude(b => b!.Medicine)
+            .ToListAsync();
+
+        var liquidationReceipts = await _context.LiquidationReceipts
+            .Where(l => l.Status == "Approved")
+            .ToListAsync();
+
+        var liquidationReceiptDict = liquidationReceipts.ToDictionary(l => l.LiquidationID);
+
+        var returnItems = returns
+            .Where(d => returnReceiptDict.ContainsKey(d.ReturnID))
+            .Select(d => new {
+                MedicineGroup = d.Batch?.Medicine?.MedicineGroup ?? "Khác",
+                Value = d.Quantity * (d.Batch?.ImportPrice ?? 0)
+            });
+
+        var liquidationItems = liquidations
+            .Where(d => liquidationReceiptDict.ContainsKey(d.LiquidationID))
+            .Select(d => new {
+                MedicineGroup = d.Batch?.Medicine?.MedicineGroup ?? "Khác",
+                Value = d.Quantity * (d.Batch?.ImportPrice ?? 0)
+            });
+
+        var combinedItems = returnItems.Concat(liquidationItems);
+
+        var wasteByGroup = combinedItems
+            .GroupBy(x => x.MedicineGroup)
+            .Select(g => new
+            {
+                MedicineGroup = g.Key,
+                TotalLoss = (double)g.Sum(x => x.Value)
+            })
+            .OrderByDescending(x => x.TotalLoss)
+            .ToList();
+
+        var today = DateTime.Today;
+        var startMonth = today.AddMonths(-5);
+        var monthsList = Enumerable.Range(0, 6)
+            .Select(i => startMonth.AddMonths(i))
+            .Select(m => new { m.Year, m.Month })
+            .ToList();
+
+        var monthlyLossList = new List<object>();
+        foreach (var m in monthsList)
+        {
+            var returnSum = returns
+                .Where(d => returnReceiptDict.ContainsKey(d.ReturnID) &&
+                            returnReceiptDict[d.ReturnID].ReturnDate.Year == m.Year &&
+                            returnReceiptDict[d.ReturnID].ReturnDate.Month == m.Month)
+                .Sum(d => d.Quantity * (d.Batch?.ImportPrice ?? 0));
+
+            var liquidationSum = liquidations
+                .Where(d => liquidationReceiptDict.ContainsKey(d.LiquidationID) &&
+                            liquidationReceiptDict[d.LiquidationID].LiquidationDate.Year == m.Year &&
+                            liquidationReceiptDict[d.LiquidationID].LiquidationDate.Month == m.Month)
+                .Sum(d => d.Quantity * (d.Batch?.ImportPrice ?? 0));
+
+            monthlyLossList.Add(new
+            {
+                Month = $"T{m.Month}/{m.Year}",
+                LossAmount = (double)(returnSum + liquidationSum)
+            });
+        }
+
+        return Ok(new
+        {
+            WasteByDepartment = wasteByDept,
+            WasteByGroup = wasteByGroup,
+            MonthlyLoss = monthlyLossList
+        });
+    }
 }

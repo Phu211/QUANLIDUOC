@@ -184,6 +184,8 @@ namespace HisPharmacy.Api.Controllers
                 DepartmentID = request.DepartmentId,
                 AuditDate = DateTime.Now,
                 CreatedBy = request.CreatedBy,
+                CheckerSignedBy = request.CoAuditor,
+                CheckerSignedAt = DateTime.Now,
                 AuditType = request.AuditType,
                 Status = "Nháp",
                 Notes = request.Notes,
@@ -196,7 +198,7 @@ namespace HisPharmacy.Api.Controllers
                 new TimelineEvent
                 {
                     Time = DateTime.Now.ToString("dd/MM/yyyy HH:mm"),
-                    Activity = $"Khởi tạo phiếu kiểm kê {code} ({request.AuditType})",
+                    Activity = $"Khởi tạo phiếu kiểm kê xác thực kép {code} ({request.AuditType}) bởi {request.CreatedBy} (Thành viên 1) và {request.CoAuditor} (Thành viên 2)",
                     User = request.CreatedBy
                 }
             };
@@ -586,9 +588,43 @@ namespace HisPharmacy.Api.Controllers
                 }
             }
         }
+
+        [HttpPost("verify-co-auditor")]
+        public async Task<IActionResult> VerifyCoAuditor([FromBody] VerifyCoAuditorRequest request)
+        {
+            if (request == null)
+                return BadRequest(new { message = "Dữ liệu không hợp lệ." });
+
+            if (string.IsNullOrWhiteSpace(request.Username) || string.IsNullOrWhiteSpace(request.Password))
+                return BadRequest(new { message = "Tên đăng nhập và mật khẩu không được để trống." });
+
+            if (request.Username.Trim().ToLower() == request.CurrentUser.Trim().ToLower())
+                return BadRequest(new { message = "Người đồng kiểm kê phải là tài khoản khác với người thực hiện chính." });
+
+            var user = await _context.Users
+                .FirstOrDefaultAsync(u => u.Username.ToLower() == request.Username.Trim().ToLower() && u.Password == request.Password);
+
+            if (user == null)
+                return BadRequest(new { message = "Tên đăng nhập hoặc mật khẩu người đồng kiểm kê không chính xác." });
+
+            return Ok(new
+            {
+                userID = user.UserID,
+                username = user.Username,
+                fullName = user.FullName,
+                role = user.Role
+            });
+        }
     }
 
     // Requests DTOs
+    public class VerifyCoAuditorRequest
+    {
+        public string Username { get; set; } = string.Empty;
+        public string Password { get; set; } = string.Empty;
+        public string CurrentUser { get; set; } = string.Empty;
+    }
+
     public class CreateAuditRequest
     {
         public string LocationType { get; set; } = "MainStore";
@@ -596,6 +632,7 @@ namespace HisPharmacy.Api.Controllers
         public string CreatedBy { get; set; } = string.Empty;
         public string AuditType { get; set; } = "Định kỳ";
         public string? Notes { get; set; }
+        public string CoAuditor { get; set; } = string.Empty;
     }
 
     public class UpdateAuditRequest
