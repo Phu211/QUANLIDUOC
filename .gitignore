@@ -24,3 +24,8 @@ dist/
 Thumbs.db
 .idea/
 .vscode/
+
+# Ignore local appsettings with secrets
+backend/**/appsettings.Development.json
+backend/**/appsettings.Local.json
+

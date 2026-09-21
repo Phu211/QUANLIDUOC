@@ -6,6 +6,7 @@ import {
   Activity, Calendar, BadgeAlert, CheckCircle2, Ban, ShieldAlert,
   ArrowRightLeft
 } from 'lucide-react';
+import { handleIntegerKeyDown, sanitizeInteger, handleIntegerPaste } from '../utils/numberInputUtils';
 
 const SIG = {
   duoc: (
@@ -59,8 +60,8 @@ export default function InventoryAudit({ user }) {
 
   // Creation State
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [locationType, setLocationType] = useState('MainStore'); // 'MainStore' or 'Cabinet'
-  const [departmentId, setDepartmentId] = useState('');
+  const [locationType, setLocationType] = useState(() => user?.departmentID ? 'Cabinet' : 'MainStore'); // 'MainStore' or 'Cabinet'
+  const [departmentId, setDepartmentId] = useState(() => user?.departmentID ? user.departmentID.toString() : '');
   const [auditType, setAuditType] = useState('Định kỳ');
   const [notes, setNotes] = useState('');
   const [coAuditorUsername, setCoAuditorUsername] = useState('');
@@ -119,6 +120,84 @@ export default function InventoryAudit({ user }) {
       setDepartments(data);
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  const handleExportAudit = () => {
+    if (activeTab === 'audit') {
+      if (!audits || audits.length === 0) {
+        alert("Không có phiếu kiểm kê nào để xuất báo cáo.");
+        return;
+      }
+      const headers = [
+        "Mã Phiếu",
+        "Kho / Tủ Trực",
+        "Ngày Lập",
+        "Người Lập",
+        "Người Đồng Kiểm",
+        "Loại Kiểm Kê",
+        "Lệch Lớn",
+        "Trạng Thái",
+        "Ghi Chú"
+      ];
+      const rows = audits.map(a => [
+        a.auditCode,
+        a.locationType === 'MainStore' ? 'Kho Chẵn Chính' : `Tủ trực: ${a.department?.departmentName || ''}`,
+        new Date(a.auditDate).toLocaleDateString('vi-VN'),
+        a.createdBy || '',
+        a.checkerSignedBy || '',
+        a.auditType || '',
+        a.discrepancyThresholdExceeded ? 'Có' : 'Không',
+        a.status || '',
+        a.notes || ''
+      ]);
+
+      const csvContent = "\uFEFF" + [headers.join(","), ...rows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(","))].join("\n");
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `Bao_cao_kiem_ke_${new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } else {
+      if (!logs || logs.length === 0) {
+        alert("Không có nhật ký điều chỉnh nào để xuất báo cáo.");
+        return;
+      }
+      const headers = [
+        "Ngày Điều Chỉnh",
+        "Thuốc / Vật Tư",
+        "Số Lô",
+        "Kho / Phòng",
+        "Tồn Cũ",
+        "Tồn Thực Tế",
+        "Chênh Lệch",
+        "Người Thực Hiện",
+        "Lý Do Ghi Nhận"
+      ];
+      const rows = logs.map(l => [
+        new Date(l.adjustmentDate).toLocaleString('vi-VN'),
+        l.batch?.medicine?.medicineName || '',
+        l.batch?.batchNumber || '',
+        l.locationType === 'MainStore' ? 'Kho chẵn' : `Tủ trực: ${departments.find(d => d.departmentID === l.departmentID)?.departmentName || ''}`,
+        l.oldQuantity || 0,
+        l.newQuantity || 0,
+        l.discrepancy || 0,
+        l.adjustedBy || '',
+        l.reason || ''
+      ]);
+
+      const csvContent = "\uFEFF" + [headers.join(","), ...rows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(","))].join("\n");
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `Nhat_ky_dieu_chinh_ton_kho_${new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
     }
   };
 
@@ -282,11 +361,24 @@ export default function InventoryAudit({ user }) {
   };
 
   const handleUpdateQuantities = async () => {
-    const updatedDetails = activeAudit.details.map(d => ({
-      AuditDetailID: d.auditDetailID,
-      ActualQuantity: actualQuantities[d.auditDetailID] !== undefined ? parseInt(actualQuantities[d.auditDetailID]) : d.systemQuantity,
-      Reason: discrepancyReasons[d.auditDetailID] || 'Vỡ/Hỏng'
-    }));
+    // Validate that no field is left blank
+    for (const d of activeAudit.details) {
+      const val = actualQuantities[d.auditDetailID];
+      if (val === "") {
+        alert(`Vui lòng nhập số lượng thực tế cho thuốc/vật tư ${d.batch?.medicine?.medicineName || ''}.`);
+        return;
+      }
+    }
+
+    const updatedDetails = activeAudit.details.map(d => {
+      const val = actualQuantities[d.auditDetailID];
+      const parsedQty = (val === undefined || val === "") ? d.systemQuantity : (parseInt(val) || 0);
+      return {
+        AuditDetailID: d.auditDetailID,
+        ActualQuantity: parsedQty,
+        Reason: discrepancyReasons[d.auditDetailID] || 'Vỡ/Hỏng'
+      };
+    });
 
     try {
       const res = await fetch(`/api/audit/${activeAudit.auditID}`, {
@@ -490,9 +582,9 @@ export default function InventoryAudit({ user }) {
   const getPriorityBadge = (prio) => {
     switch (prio) {
       case 'Critical':
-        return <span style={{ color: '#f43f5e', background: '#ffe4e6', padding: '0.15rem 0.35rem', borderRadius: '4px', fontSize: '0.72rem', fontWeight: 'bold' }}>Gây nghiện 🚨</span>;
+        return <span style={{ color: '#f43f5e', background: '#ffe4e6', padding: '0.15rem 0.35rem', borderRadius: '4px', fontSize: '0.72rem', fontWeight: 'bold' }}>Gây nghiện</span>;
       case 'High':
-        return <span style={{ color: '#a855f7', background: '#f3e8ff', padding: '0.15rem 0.35rem', borderRadius: '4px', fontSize: '0.72rem', fontWeight: 'bold' }}>Hướng thần ⚕️</span>;
+        return <span style={{ color: '#a855f7', background: '#f3e8ff', padding: '0.15rem 0.35rem', borderRadius: '4px', fontSize: '0.72rem', fontWeight: 'bold' }}>Hướng thần</span>;
       case 'Medium':
         return <span style={{ color: '#3b82f6', background: '#dbeafe', padding: '0.15rem 0.35rem', borderRadius: '4px', fontSize: '0.72rem' }}>Kháng sinh</span>;
       default:
@@ -537,6 +629,9 @@ export default function InventoryAudit({ user }) {
           <div style={{ display: 'flex', gap: '0.75rem' }}>
             <button className="btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }} onClick={fetchData}>
               <RefreshCw size={15} /> Làm mới
+            </button>
+            <button className="btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }} onClick={handleExportAudit}>
+              Xuất báo cáo
             </button>
             {(user?.role === 'pharmacist' || user?.role === 'director') && (
               <button 
@@ -620,16 +715,16 @@ export default function InventoryAudit({ user }) {
                       <td style={{ fontWeight: 'bold', color: 'var(--color-secondary)' }}>{a.auditCode}</td>
                       <td>
                         {a.locationType === 'MainStore' ? (
-                          <span style={{ fontWeight: '600' }}>📦 Kho Chẵn Chính</span>
+                          <span style={{ fontWeight: '600' }}>Kho Chẵn Chính</span>
                         ) : (
-                          <span>🏥 Tủ trực: {a.department?.departmentName}</span>
+                          <span>Tủ trực: {a.department?.departmentName}</span>
                         )}
                       </td>
                       <td>{new Date(a.auditDate).toLocaleDateString('vi-VN')}</td>
                       <td>
                         <div style={{ fontSize: '0.8rem', fontWeight: '600' }}>{a.createdBy}</div>
                         {a.checkerSignedBy && (
-                          <div style={{ fontSize: '0.7rem', color: 'var(--color-danger)', fontWeight: '500' }}>👥 {a.checkerSignedBy}</div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--color-danger)', fontWeight: '500' }}>Đồng kiểm: {a.checkerSignedBy}</div>
                         )}
                       </td>
                       <td>{a.auditType}</td>
@@ -750,7 +845,7 @@ export default function InventoryAudit({ user }) {
           </div>
 
           <div style={{ fontSize: '0.82rem', lineHeight: '1.6', marginBottom: '1.25rem', color: 'var(--text-muted)' }}>
-            <p><strong>Loại kho:</strong> {activeAudit.locationType === 'MainStore' ? '📦 Kho Chẵn Chính' : `🏥 Tủ trực: ${activeAudit.department?.departmentName}`}</p>
+            <p><strong>Loại kho:</strong> {activeAudit.locationType === 'MainStore' ? 'Kho Chẵn Chính' : `Tủ trực: ${activeAudit.department?.departmentName}`}</p>
             <p><strong>Ngày kiểm:</strong> {new Date(activeAudit.auditDate).toLocaleString('vi-VN')}</p>
             <p><strong>Loại kiểm kê:</strong> {activeAudit.auditType}</p>
             <p><strong>Ghi chú:</strong> {activeAudit.notes || 'Không'}</p>
@@ -789,13 +884,22 @@ export default function InventoryAudit({ user }) {
                         <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Thực tế:</span>
                         {isEditing && activeAudit.status === 'Nháp' ? (
                           <input 
-                            type="number" 
-                            min="0"
-                            style={{ width: '65px', height: '24px', fontSize: '0.78rem', background: '#0a0f1d', color: '#fff', border: '1px solid var(--border-glass)', borderRadius: '4px', textAlign: 'center' }}
+                            type="text" 
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            style={{ width: '65px', height: '24px', fontSize: '0.78rem', background: 'var(--input-bg)', color: 'var(--text-main)', border: '1px solid var(--border-color)', borderRadius: '4px', textAlign: 'center' }}
                             value={actualQuantities[d.auditDetailID] !== undefined ? actualQuantities[d.auditDetailID] : d.actualQuantity}
+                            onKeyDown={handleIntegerKeyDown}
                             onChange={(e) => {
-                              const val = Math.max(0, parseInt(e.target.value) || 0);
+                              const cleaned = sanitizeInteger(e.target.value, true);
+                              const val = cleaned === "" ? "" : parseInt(cleaned, 10);
                               setActualQuantities({ ...actualQuantities, [d.auditDetailID]: val });
+                            }}
+                            onPaste={(e) => {
+                              handleIntegerPaste(e, (cleaned) => {
+                                const val = cleaned === "" ? "" : parseInt(cleaned, 10);
+                                setActualQuantities({ ...actualQuantities, [d.auditDetailID]: val });
+                              }, true);
                             }}
                           />
                         ) : (
@@ -921,11 +1025,13 @@ export default function InventoryAudit({ user }) {
               </button>
             )}
 
-            {(activeAudit.status === 'Nháp' || activeAudit.status === 'Chờ xác nhận' || activeAudit.status === 'Có chênh lệch' || activeAudit.status === 'Đã xác nhận') && (
+            {((activeAudit.status === 'Nháp' || activeAudit.status === 'Chờ xác nhận') || 
+              ((activeAudit.status === 'Có chênh lệch' || activeAudit.status === 'Đã xác nhận') && user?.role === 'director')) && (
               <button 
                 className="btn-secondary" 
                 style={{ width: '100%', height: '36px', fontSize: '0.82rem', background: '#dc2626', color: '#fff', border: 'none' }}
                 onClick={() => setShowCancelModal(true)}
+                title={user?.role === 'director' ? "Hủy bỏ phiếu kiểm kê (Quyền Lãnh đạo)" : "Hủy bỏ bản nháp kiểm kê"}
               >
                 Hủy Bỏ Phiếu Kiểm Kê
               </button>
@@ -963,31 +1069,39 @@ export default function InventoryAudit({ user }) {
             <form onSubmit={handleCreateAudit}>
               <div className="form-group" style={{ marginBottom: '1rem' }}>
                 <label className="form-label">Chọn Kho / Tủ Trực Kiểm Kê</label>
-                <div style={{ display: 'flex', gap: '1.5rem', marginTop: '0.35rem' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer', color: 'var(--text-main)', fontSize: '0.82rem' }}>
-                    <input 
-                      type="radio" 
-                      name="locationType" 
-                      value="MainStore" 
-                      checked={locationType === 'MainStore'} 
-                      onChange={() => setLocationType('MainStore')} 
-                    />
-                    📦 Kho Chẵn Chính
-                  </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer', color: 'var(--text-main)', fontSize: '0.82rem' }}>
-                    <input 
-                      type="radio" 
-                      name="locationType" 
-                      value="Cabinet" 
-                      checked={locationType === 'Cabinet'} 
-                      onChange={() => setLocationType('Cabinet')} 
-                    />
-                    🏥 Tủ Trực Khoa Lâm Sàng
-                  </label>
-                </div>
+                {user?.departmentID ? (
+                  <div style={{ marginTop: '0.35rem' }}>
+                    <span className="badge-status pending" style={{ textTransform: 'none', background: 'rgba(13, 148, 136, 0.15)', color: 'var(--color-secondary)', fontSize: '0.85rem', padding: '0.35rem 0.75rem' }}>
+                      Tủ Trực / Kho Lẻ: {user.departmentName || `Khoa ${user.departmentID}`}
+                    </span>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', gap: '1.5rem', marginTop: '0.35rem' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer', color: 'var(--text-main)', fontSize: '0.82rem' }}>
+                      <input 
+                        type="radio" 
+                        name="locationType" 
+                        value="MainStore" 
+                        checked={locationType === 'MainStore'} 
+                        onChange={() => setLocationType('MainStore')} 
+                      />
+                      Kho Chẵn Chính
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer', color: 'var(--text-main)', fontSize: '0.82rem' }}>
+                      <input 
+                        type="radio" 
+                        name="locationType" 
+                        value="Cabinet" 
+                        checked={locationType === 'Cabinet'} 
+                        onChange={() => setLocationType('Cabinet')} 
+                      />
+                      Tủ Trực Khoa Lâm Sàng
+                    </label>
+                  </div>
+                )}
               </div>
 
-              {locationType === 'Cabinet' && (
+              {locationType === 'Cabinet' && !user?.departmentID && (
                 <div className="form-group" style={{ marginBottom: '1rem' }}>
                   <label className="form-label">Khoa Lâm Sàng</label>
                   <select 

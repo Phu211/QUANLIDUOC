@@ -43,6 +43,7 @@ public class ImportController : ControllerBase
                 i.SecondInspector,
                 i.AnomalyDescription,
                 i.EditHistoryJson,
+                i.DocumentHash,
                 // Return a lightweight dummy JSON array if documents exist to avoid loading megabytes of base64
                 DocumentsJson = i.DocumentsJson != null && i.DocumentsJson != "" ? "[\"has_files\"]" : "[]",
                 Supplier = i.Supplier,
@@ -97,7 +98,9 @@ public class ImportController : ControllerBase
                 i.DeliveryPersonSignature,
                 i.DeliveryPersonName,
                 i.ApproverSignature,
+                i.ApproverName,
                 i.EditHistoryJson,
+                i.DocumentHash,
                 Supplier = i.Supplier,
                 Details = i.Details.Select(d => new
                 {
@@ -123,7 +126,45 @@ public class ImportController : ControllerBase
         if (import == null)
             return NotFound(new { Error = "Không tìm thấy phiếu nhập kho." });
 
-        return Ok(import);
+        var rawImport = await _context.ImportReceipts
+            .Include(i => i.Details)
+            .FirstOrDefaultAsync(i => i.ImportID == id);
+
+        bool isIntegrityValid = false;
+        if (rawImport != null && !string.IsNullOrEmpty(rawImport.DocumentHash))
+        {
+            var canonical = DocumentSecurityHelper.BuildCanonicalString(rawImport);
+            isIntegrityValid = DocumentSecurityHelper.VerifyIntegrity(rawImport.DocumentHash, canonical);
+        }
+
+        return Ok(new
+        {
+            import.ImportID,
+            import.ImportCode,
+            import.ContractNumber,
+            import.InvoiceNumber,
+            import.SupplierID,
+            import.ImportDate,
+            import.CreatedBy,
+            import.Notes,
+            import.Status,
+            import.InvoiceDate,
+            import.DeliveryNoteNumber,
+            import.SecondInspector,
+            import.AnomalyDescription,
+            import.DocumentsJson,
+            import.DigitalSignature,
+            import.SecondInspectorSignature,
+            import.DeliveryPersonSignature,
+            import.DeliveryPersonName,
+            import.ApproverSignature,
+            import.ApproverName,
+            import.EditHistoryJson,
+            import.DocumentHash,
+            IsIntegrityValid = isIntegrityValid,
+            import.Supplier,
+            import.Details
+        });
     }
 
     [HttpPost("migrate-cloudinary")]

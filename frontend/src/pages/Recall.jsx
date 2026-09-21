@@ -390,21 +390,84 @@ export default function Recall({ user }) {
     (b.batchNumber || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  const handleExportRecalls = () => {
+    if (!recalls || recalls.length === 0) {
+      alert("Không có dữ liệu thu hồi/cách ly để xuất báo cáo.");
+      return;
+    }
+
+    const headers = [
+      "Mã Quyết Định",
+      "Thuốc / Vật Tư",
+      "Số Lô",
+      "Hình Thức Xử Lý",
+      "Lý Do Thu Hồi",
+      "Ngày Quyết Định",
+      "Số Lượng Thu Hồi",
+      "Đơn Vị",
+      "Người Phê Duyệt",
+      "Trạng Thái"
+    ];
+
+    const rows = recalls.map(rec => {
+      let statusStr = rec.status;
+      if (rec.status === 'Pending') statusStr = 'Chờ duyệt';
+      else if (rec.status === 'Approved') statusStr = 'Đã duyệt cách ly';
+      else if (rec.status === 'Completed') statusStr = 'Hoàn tất';
+      else if (rec.status === 'Rejected') statusStr = 'Đã từ chối';
+
+      return [
+        formatRecallCode(rec),
+        rec.medicineName || rec.batch?.medicine?.medicineName || '',
+        rec.batchNumber || rec.batch?.batchNumber || '',
+        rec.actionType || '',
+        rec.reason || '',
+        new Date(rec.recallDate).toLocaleString('vi-VN'),
+        rec.recalledQuantity || 0,
+        rec.unit || rec.batch?.medicine?.unit || '',
+        rec.approvedBy || '',
+        statusStr
+      ];
+    });
+
+    const csvContent = "\uFEFF" + [headers.join(","), ...rows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(","))].join("\n");
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `Bao_cao_thu_hoi_cach_ly_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   if (loading) return <div style={{ color: '#fff', padding: '2rem' }}>Đang tải dữ liệu nghiệp vụ thu hồi...</div>;
 
   const isPharmacist = user?.role === 'pharmacist' || user?.role === 'pharmacist_admin';
 
   return (
     <div>
-      <h1 className="page-title">
-        {isPharmacist || user?.role === 'director' ? "Thu Hồi & Cách Ly Thuốc" : "Truy Vết Thuốc Thu Hồi"}
-      </h1>
-      <p className="page-subtitle">
-        {isPharmacist || user?.role === 'director' 
-          ? "Quản lý cách ly khẩn cấp, đình chỉ phát hành hoặc hủy bỏ/trả NCC các lô thuốc không đạt tiêu chuẩn GSP."
-          : "Theo dõi các lô thuốc bị đình chỉ phát hành hoặc thu hồi để kịp thời truy vết bệnh nhân đã sử dụng."
-        }
-      </p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+        <div>
+          <h1 className="page-title">
+            {isPharmacist || user?.role === 'director' ? "Thu Hồi & Cách Ly Thuốc" : "Truy Vết Thuốc Thu Hồi"}
+          </h1>
+          <p className="page-subtitle">
+            {isPharmacist || user?.role === 'director' 
+              ? "Quản lý cách ly khẩn cấp, đình chỉ phát hành hoặc hủy bỏ/trả NCC các lô thuốc không đạt tiêu chuẩn GSP."
+              : "Theo dõi các lô thuốc bị đình chỉ phát hành hoặc thu hồi để kịp thời truy vết bệnh nhân đã sử dụng."
+            }
+          </p>
+        </div>
+        <button 
+          type="button" 
+          className="btn-secondary" 
+          style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }} 
+          onClick={handleExportRecalls}
+        >
+          Xuất báo cáo
+        </button>
+      </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1.5rem' }}>
         {/* Left Side: Create recall command */}

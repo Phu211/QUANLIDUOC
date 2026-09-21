@@ -1,10 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Layers, User, PlusCircle, RefreshCw, Send, CheckSquare, X, PenTool, Eraser, ThumbsUp, ShieldAlert } from 'lucide-react';
+import { Layers, User, PlusCircle, RefreshCw, Send, CheckSquare, X, PenTool, Eraser, ThumbsUp, ShieldAlert, Sparkles, CheckCircle2, AlertCircle, Stethoscope, Search, AlertTriangle } from 'lucide-react';
+import { handleIntegerKeyDown, sanitizeInteger, handleIntegerPaste } from '../utils/numberInputUtils';
+import BreakageReportModal from '../components/BreakageReportModal';
+import BreakageReportList from '../components/BreakageReportList';
 
 export default function CabinetManagement({ user }) {
+  const isPharmacist = user?.role === 'dispensary' || user?.role === 'pharmacist';
   const [departments, setDepartments] = useState([]);
   const [selectedDept, setSelectedDept] = useState('');
   const [cabinetStocks, setCabinetStocks] = useState([]);
+  const [cabinetSearchTerm, setCabinetSearchTerm] = useState('');
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(false);
 
@@ -13,11 +18,115 @@ export default function CabinetManagement({ user }) {
   const [pendingRefillMedicines, setPendingRefillMedicines] = useState([]);
   const [selectedMedicineIds, setSelectedMedicineIds] = useState([]);
 
+  // Breakage Report States
+  const [showBreakageModal, setShowBreakageModal] = useState(false);
+  const [activeCabinetTab, setActiveCabinetTab] = useState('stocks'); // 'stocks' or 'breakage'
+
   // Patient Export Form State
   const [patientCode, setPatientCode] = useState('');
   const [patientName, setPatientName] = useState('');
   const [exportItems, setExportItems] = useState([{ batchID: '', quantity: '' }]);
   const [exporting, setExporting] = useState(false);
+
+  // Patient Auto-Lookup & Order Auto-fill State
+  const [patientSuggestions, setPatientSuggestions] = useState([]);
+  const [showPatientSuggestions, setShowPatientSuggestions] = useState(false);
+  const [selectedPatientOrder, setSelectedPatientOrder] = useState(null);
+  const [autoFillNotice, setAutoFillNotice] = useState(null);
+  const patientDropdownRef = useRef(null);
+
+  // Fetch patient suggestions on department change
+  const fetchPatientSuggestions = (query = '') => {
+    fetch(`/api/cabinet/lookup-patient?query=${encodeURIComponent(query)}&departmentId=${selectedDept || 0}`)
+      .then(res => res.json())
+      .then(data => {
+        setPatientSuggestions(data || []);
+      })
+      .catch(err => console.error("Error looking up patients:", err));
+  };
+
+  useEffect(() => {
+    if (selectedDept) {
+      fetchPatientSuggestions('');
+    }
+  }, [selectedDept]);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (patientDropdownRef.current && !patientDropdownRef.current.contains(e.target)) {
+        setShowPatientSuggestions(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Automatically fill patient info and map medical orders to cabinet stock
+  const applyPatientData = (p) => {
+    if (!p) return;
+    setPatientCode(p.patientCode);
+    setPatientName(p.patientName);
+    setSelectedPatientOrder(p);
+    setShowPatientSuggestions(false);
+
+    if (p.medicines && p.medicines.length > 0) {
+      const mappedItems = [];
+      const notInCabinet = [];
+
+      p.medicines.forEach(m => {
+        // Find batch in cabinet matching this medicine and has positive quantity
+        const stock = cabinetStocks.find(s => s.batch?.medicineID === m.medicineID && s.currentQuantity > 0);
+        if (stock) {
+          mappedItems.push({
+            batchID: stock.batchID.toString(),
+            quantity: Math.min(m.requestedQuantity || 1, stock.currentQuantity).toString()
+          });
+        } else {
+          notInCabinet.push(m.medicineName);
+        }
+      });
+
+      if (mappedItems.length > 0) {
+        setExportItems(mappedItems);
+        setAutoFillNotice({
+          type: 'success',
+          text: `Đã tự động nhận diện hồ sơ bệnh nhân và nạp ${mappedItems.length} loại thuốc theo y lệnh của ${p.doctorName || 'Bác sĩ điều trị'}.`,
+          missing: notInCabinet.length > 0 ? notInCabinet : null
+        });
+      } else {
+        setAutoFillNotice({
+          type: 'warning',
+          text: `Đã điền thông tin bệnh nhân, nhưng các thuốc trong y lệnh hiện không có sẵn trong tủ trực của khoa.`,
+          missing: notInCabinet
+        });
+      }
+    } else {
+      setAutoFillNotice({
+        type: 'info',
+        text: `Đã nhận diện hồ sơ bệnh nhân: ${p.patientName}. Vui lòng chọn thuốc trong tủ trực cần cấp.`,
+        missing: null
+      });
+    }
+  };
+
+  const handlePatientCodeChange = (val) => {
+    setPatientCode(val);
+    setAutoFillNotice(null);
+    if (!val.trim()) {
+      setShowPatientSuggestions(false);
+      setSelectedPatientOrder(null);
+      return;
+    }
+    setShowPatientSuggestions(true);
+    fetchPatientSuggestions(val.trim());
+
+    // Check if exact match exists in current suggestions
+    const exact = patientSuggestions.find(p => p.patientCode.toLowerCase() === val.trim().toLowerCase());
+    if (exact) {
+      applyPatientData(exact);
+    }
+  };
 
   useEffect(() => {
     fetch('/api/requisition/departments')
@@ -144,7 +253,8 @@ export default function CabinetManagement({ user }) {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
-        'X-User-Role': user?.role || ''
+        'X-User-Role': user?.role || '',
+        'X-User-FullName': encodeURIComponent(user?.fullName || '')
       },
       body: JSON.stringify(payload)
     })
@@ -159,6 +269,8 @@ export default function CabinetManagement({ user }) {
       setPatientCode('');
       setPatientName('');
       setExportItems([{ batchID: '', quantity: '' }]);
+      setSelectedPatientOrder(null);
+      setAutoFillNotice(null);
       fetchCabinetData(selectedDept);
     })
     .catch(err => alert(err.message))
@@ -343,46 +455,234 @@ export default function CabinetManagement({ user }) {
       .catch(err => alert(err.message));
   };
 
+  const handleExportCabinetStocks = () => {
+    if (!cabinetStocks || cabinetStocks.length === 0) {
+      alert("Không có dữ liệu tồn tủ trực để xuất.");
+      return;
+    }
+    const headers = [
+      "Thuốc / Vật Tư",
+      "Số Lô",
+      "Hạn Dùng",
+      "Tồn Tủ Trực",
+      "Đơn Giá",
+      "Trạng Thái"
+    ];
+    const rows = cabinetStocks.map(stock => [
+      stock.batch?.medicine?.medicineName || '',
+      stock.batch?.batchNumber || '',
+      new Date(stock.batch?.expiryDate).toLocaleDateString('vi-VN'),
+      stock.currentQuantity || 0,
+      stock.batch?.importPrice || 0,
+      stock.batch?.status || 'Bình thường'
+    ]);
+
+    const csvContent = "\uFEFF" + [headers.join(","), ...rows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(","))].join("\n");
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `Ton_kho_tu_truc_${currentDeptName.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleExportTransactions = () => {
+    if (!transactions || transactions.length === 0) {
+      alert("Không có nhật ký xuất tủ trực nào để xuất.");
+      return;
+    }
+    const headers = [
+      "Bệnh Nhân",
+      "Mã BA/BN",
+      "Thuốc Cấp Phát",
+      "Số Lượng",
+      "Số Lô",
+      "Thời Gian",
+      "Trạng Thái Bù Tủ"
+    ];
+    const rows = transactions.map(tx => [
+      tx.patientName || '',
+      tx.patientCode || '',
+      tx.batch?.medicine?.medicineName || '',
+      tx.quantity || 0,
+      tx.batch?.batchNumber || '',
+      new Date(tx.transactionDate).toLocaleString('vi-VN'),
+      !tx.requisition 
+        ? 'Chưa bù' 
+        : tx.requisition.status === 'Pending' 
+        ? 'Chờ duyệt bù' 
+        : tx.requisition.status === 'Approved' 
+        ? 'Đã bù tủ' 
+        : 'Bị từ chối'
+    ]);
+
+    const csvContent = "\uFEFF" + [headers.join(","), ...rows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(","))].join("\n");
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `Nhat_ky_xuat_tu_truc_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const currentDeptName = departments.find(d => d.departmentID.toString() === selectedDept)?.departmentName || "Tủ trực";
 
+  const filteredStocks = cabinetStocks.filter(stock => {
+    if (!cabinetSearchTerm.trim()) return true;
+    const q = cabinetSearchTerm.toLowerCase().trim();
+    const name = (stock.batch?.medicine?.medicineName || '').toLowerCase();
+    const batch = (stock.batch?.batchNumber || '').toLowerCase();
+    const code = (stock.batch?.medicine?.medicineCode || '').toLowerCase();
+    return name.includes(q) || batch.includes(q) || code.includes(q);
+  });
+
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+    <div className="cabinet-management">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
-          <h1 className="page-title">Tủ Trực Khoa Lâm Sàng</h1>
-          <p className="page-subtitle">Nhập xuất tủ trực ngoài giờ và đề nghị bù tủ trực định kỳ về khoa Dược.</p>
+          <h1 className="page-title">{isPharmacist ? 'Tra Cứu Tồn Kho & Cấp Phát Tủ Trực' : 'Tủ Trực Khoa Lâm Sàng'}</h1>
+          <p className="page-subtitle">
+            {isPharmacist 
+              ? 'Theo dõi tồn kho thuốc tủ trực các khoa phòng, thực hiện cấp xuất thuốc ngoài giờ/cấp cứu và đối chiếu nhật ký.'
+              : 'Nhập xuất tủ trực ngoài giờ, lập biên bản hư hao/vỡ hỏng và đề nghị bù cơ số về khoa Dược.'}
+          </p>
         </div>
-        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-          <label className="form-label" style={{ margin: 0, textTransform: 'none', fontWeight: '500' }}>Khoa lâm sàng:</label>
-          <select 
-            className="form-input" 
-            style={{ width: '220px' }}
-            value={selectedDept} 
-            onChange={e => setSelectedDept(e.target.value)}
-            disabled={!!user?.departmentID}
-          >
-            {departments.map(d => (
-              <option key={d.departmentID} value={d.departmentID}>{d.departmentName}</option>
-            ))}
-          </select>
+        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          {!isPharmacist && user?.role !== 'head' && (
+            <button
+              className="btn-danger"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.35rem',
+                padding: '0.45rem 0.85rem',
+                fontSize: '0.82rem',
+                background: '#dc2626',
+                color: '#fff',
+                borderRadius: '8px',
+                border: 'none',
+                cursor: 'pointer',
+                fontWeight: '600'
+              }}
+              onClick={() => setShowBreakageModal(true)}
+            >
+              <AlertTriangle size={15} /> Báo Cáo Đổ Vỡ / Hư Hao
+            </button>
+          )}
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <label className="form-label" style={{ margin: 0, textTransform: 'none', fontWeight: '500' }}>Khoa lâm sàng:</label>
+            <select 
+              className="form-input" 
+              style={{ width: '220px' }}
+              value={selectedDept} 
+              onChange={e => setSelectedDept(e.target.value)}
+              disabled={isPharmacist ? false : !!user?.departmentID}
+            >
+              {departments.map(d => (
+                <option key={d.departmentID} value={d.departmentID}>{d.departmentName}</option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
+      {/* Tabs Switcher: Chỉ hiển thị cho Điều dưỡng lâm sàng / Trưởng khoa */}
+      {!isPharmacist && (
+        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>
+          <button
+            onClick={() => setActiveCabinetTab('stocks')}
+            style={{
+              padding: '0.5rem 1rem',
+              borderRadius: '8px',
+              border: 'none',
+              cursor: 'pointer',
+              fontWeight: '600',
+              fontSize: '0.88rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              background: activeCabinetTab === 'stocks' ? 'var(--color-primary)' : 'var(--bg-secondary)',
+              color: activeCabinetTab === 'stocks' ? '#fff' : 'var(--text-muted)'
+            }}
+          >
+            <Layers size={16} /> Cơ Số Tủ Trực & Xuất Dùng Bệnh Nhân
+          </button>
+          <button
+            onClick={() => setActiveCabinetTab('breakage')}
+            style={{
+              padding: '0.5rem 1rem',
+              borderRadius: '8px',
+              border: 'none',
+              cursor: 'pointer',
+              fontWeight: '600',
+              fontSize: '0.88rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              background: activeCabinetTab === 'breakage' ? '#dc2626' : 'var(--bg-secondary)',
+              color: activeCabinetTab === 'breakage' ? '#fff' : 'var(--text-muted)'
+            }}
+          >
+            <AlertTriangle size={16} /> Biên Bản Hư Hao / Vỡ Hỏng Đột Xuất
+          </button>
+        </div>
+      )}
+
+      {activeCabinetTab === 'breakage' && !isPharmacist ? (
+        <BreakageReportList
+          departmentId={selectedDept}
+          user={user}
+          onUpdateNeeded={() => fetchCabinetData(selectedDept)}
+        />
+      ) : (
       <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '1.5rem' }}>
         {/* Left column: Cabinet Stocks & Patients Export Form */}
         <div>
           {/* Cabinet Inventory List */}
           <div className="glass-card">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-              <h3>Cơ Số Tủ Trực Hiện Có ({currentDeptName})</h3>
-              <button className="btn-secondary" style={{ padding: '0.4rem', borderRadius: '8px' }} onClick={() => fetchCabinetData(selectedDept)}>
-                <RefreshCw size={14} />
-              </button>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', gap: '0.5rem' }}>
+              <div>
+                <h3 style={{ margin: 0 }}>Cơ Số Tủ Trực Hiện Có ({currentDeptName})</h3>
+                {isPharmacist && (
+                  <span style={{ fontSize: '0.75rem', color: 'var(--color-primary)', fontWeight: '600' }}>
+                    Chế độ Dược sĩ quản lý & cấp phát cơ số tủ trực ({filteredStocks.length} loại thuốc)
+                  </span>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: '0.35rem' }}>
+                <button className="btn-secondary" style={{ padding: '0.4rem 0.6rem', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.25rem', borderRadius: '8px' }} onClick={handleExportCabinetStocks}>
+                  Xuất báo cáo
+                </button>
+                <button className="btn-secondary" style={{ padding: '0.4rem', borderRadius: '8px' }} onClick={() => fetchCabinetData(selectedDept)}>
+                  <RefreshCw size={14} />
+                </button>
+              </div>
             </div>
+
+            {/* Instant Search Bar */}
+            <div style={{ marginBottom: '1rem', position: 'relative' }}>
+              <input 
+                type="text" 
+                className="form-input" 
+                placeholder="🔍 Tìm nhanh tên thuốc, số lô, mã thuốc trong tủ trực..." 
+                value={cabinetSearchTerm} 
+                onChange={e => setCabinetSearchTerm(e.target.value)}
+                style={{ width: '100%', paddingLeft: '2.4rem', fontSize: '0.85rem' }}
+              />
+              <Search size={15} style={{ position: 'absolute', left: '0.85rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+            </div>
+
             {loading ? (
               <p style={{ color: 'var(--text-muted)' }}>Đang tải tồn tủ trực...</p>
-            ) : cabinetStocks.length === 0 ? (
-              <p style={{ color: 'var(--text-muted)' }}>Tủ trực của khoa hiện đang trống hoặc chưa được cấp thuốc.</p>
+            ) : filteredStocks.length === 0 ? (
+              <p style={{ color: 'var(--text-muted)' }}>
+                {cabinetSearchTerm ? 'Không tìm thấy thuốc nào khớp với từ khóa tìm kiếm.' : 'Tủ trực của khoa hiện đang trống hoặc chưa được cấp thuốc.'}
+              </p>
             ) : (
               <div className="table-container">
                 <table>
@@ -393,11 +693,11 @@ export default function CabinetManagement({ user }) {
                       <th>Hạn dùng</th>
                       <th>Tồn tủ trực</th>
                       <th>Đơn giá</th>
-                      <th>Trạng thái / Thao tác</th>
+                      <th>Trạng thái {isPharmacist ? '' : '/ Thao tác'}</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {cabinetStocks.map(stock => (
+                    {filteredStocks.map(stock => (
                       <tr key={stock.departmentStockID}>
                         <td>
                           <strong>{stock.batch?.medicine?.medicineName}</strong>
@@ -412,7 +712,7 @@ export default function CabinetManagement({ user }) {
                               return (
                                 <div style={{ marginTop: '0.25rem' }}>
                                   <span style={{ fontSize: '0.68rem', padding: '0.15rem 0.35rem', background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '4px', display: 'inline-block', fontWeight: 'bold' }}>
-                                    ⚠️ ĐÃ HẾT HẠN
+                                    ĐÃ HẾT HẠN
                                   </span>
                                 </div>
                               );
@@ -420,7 +720,7 @@ export default function CabinetManagement({ user }) {
                               return (
                                 <div style={{ marginTop: '0.25rem' }}>
                                   <span style={{ fontSize: '0.68rem', padding: '0.15rem 0.35rem', background: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b', border: '1px solid rgba(245, 158, 11, 0.3)', borderRadius: '4px', display: 'inline-block', fontWeight: 'bold' }}>
-                                    ⚠️ Sắp hết hạn ({diffDays} ngày)
+                                    Sắp hết hạn ({diffDays} ngày)
                                   </span>
                                 </div>
                               );
@@ -442,18 +742,18 @@ export default function CabinetManagement({ user }) {
                           {new Date(stock.batch?.expiryDate).toLocaleDateString('vi-VN')}
                         </td>
                         <td>
-                          <span style={{ fontSize: '1.1rem', fontWeight: '600', color: 'var(--color-primary)' }}>
+                          <span style={{ fontSize: '1.1rem', fontWeight: '700', color: 'var(--color-primary)' }}>
                             {stock.currentQuantity}
                           </span> {stock.batch?.medicine?.unit}
                         </td>
                         <td>{stock.batch?.importPrice.toLocaleString('vi-VN')}đ</td>
                         <td>
-                          {stock.batch?.status !== 'Bình thường' ? (
+                          {stock.batch?.status && stock.batch.status !== 'Bình thường' && stock.batch.status !== 'Đang sử dụng' ? (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', alignItems: 'flex-start' }}>
                               <span className="badge-status rejected" style={{ fontSize: '0.68rem', padding: '0.15rem 0.35rem', background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.2)', textTransform: 'none', whiteSpace: 'nowrap' }}>
                                 Đình chỉ: {stock.batch?.status}
                               </span>
-                              {stock.currentQuantity > 0 && (
+                              {!isPharmacist && stock.currentQuantity > 0 && (
                                 <button 
                                   type="button" 
                                   className="btn-secondary" 
@@ -479,151 +779,318 @@ export default function CabinetManagement({ user }) {
           {/* Bedside Export Simulator Form */}
           <div className="glass-card">
             <h3 style={{ marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <PlusCircle size={20} color="var(--color-secondary)" /> Xuất Tủ Trực Cho Bệnh Nhân (Ngoài Giờ / Cấp Cứu)
-            </h3>
-            <form onSubmit={handleExportSubmit}>
-              <div className="form-row">
-                <div className="form-group">
-                  <label className="form-label">Mã Bệnh Án / Bệnh Nhân (BA/BN)</label>
-                  <input 
-                    type="text" 
-                    className="form-input" 
-                    placeholder="VD: BN-8972" 
-                    value={patientCode} 
-                    onChange={e => setPatientCode(e.target.value)}
-                  />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Họ và Tên Bệnh Nhân</label>
-                  <input 
-                    type="text" 
-                    className="form-input" 
-                    placeholder="VD: Nguyễn Văn A" 
-                    value={patientName} 
-                    onChange={e => setPatientName(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div style={{ marginTop: '1rem', borderTop: '1px dashed var(--border-glass)', paddingTop: '1rem', marginBottom: '1rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-                  <span style={{ fontSize: '0.88rem', fontWeight: '700', color: 'var(--text-main)' }}>
-                    Danh sách Thuốc / Vật tư cấp phát:
-                  </span>
-                  <button 
-                    type="button" 
-                    className="btn-premium" 
-                    style={{ padding: '0.25rem 0.6rem', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.25rem', height: '28px', background: 'var(--color-secondary)', borderColor: 'var(--color-secondary)', color: '#ffffff' }}
-                    onClick={addExportItem}
-                  >
-                    + Thêm thuốc
-                  </button>
-                </div>
-
-                {exportItems.map((item, index) => {
-                  return (
-                    <div key={index} className="form-row" style={{ marginTop: '0.5rem', alignItems: 'flex-end', background: 'rgba(255,255,255,0.02)', padding: '0.5rem', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.05)', display: 'flex', gap: '0.75rem' }}>
-                      <div className="form-group" style={{ flex: 3 }}>
-                        <label className="form-label" style={{ fontSize: '0.75rem' }}>Thuốc trong tủ / Lô sản xuất ({index + 1})</label>
-                        <select 
-                          className="form-input"
-                          value={item.batchID}
-                          onChange={e => updateExportItem(index, 'batchID', e.target.value)}
-                        >
-                          <option value="">-- Chọn thuốc xuất tủ --</option>
-                          {cabinetStocks.map((s, idx) => {
-                            const isEarliest = cabinetStocks.findIndex(it => it.batch?.medicineID === s.batch?.medicineID) === idx;
-                            const expiryStr = s.batch?.expiryDate ? new Date(s.batch.expiryDate).toLocaleDateString('vi-VN') : 'N/A';
-                            const isSuspended = s.batch?.status !== 'Bình thường';
-                            const expiryDate = s.batch?.expiryDate ? new Date(s.batch.expiryDate) : null;
-                            const today = new Date();
-                            today.setHours(0,0,0,0);
-                            const isExpired = expiryDate ? (expiryDate - today) <= 0 : false;
-                            const isDisabled = isSuspended || isExpired;
-                            return (
-                              <option key={s.batchID} value={s.batchID} disabled={isDisabled}>
-                                {s.batch?.medicine?.medicineName} (Lô: {s.batch?.batchNumber} - Tồn: {s.currentQuantity} - HSD: {expiryStr}){isSuspended ? ` [ĐÌNH CHỈ / THU HỒI: ${s.batch?.status}]` : isExpired ? ' [⚠️ HẾT HẠN]' : isEarliest ? ' ★ [ƯU TIÊN FEFO]' : ''}
-                              </option>
-                            );
-                          })}
-                        </select>
-                      </div>
-                      <div className="form-group" style={{ flex: 1 }}>
-                        <label className="form-label" style={{ fontSize: '0.75rem' }}>Số lượng</label>
-                        <input 
-                          type="number" 
-                          min="1"
-                          step="1"
-                          className="form-input" 
-                          placeholder="SL" 
-                          value={item.quantity} 
-                          onChange={e => updateExportItem(index, 'quantity', e.target.value)}
-                        />
-                      </div>
-                      {exportItems.length > 1 && (
-                        <button 
-                          type="button" 
-                          className="btn-danger" 
-                          style={{ padding: '0.4rem 0.5rem', height: '38px', minWidth: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '0px', background: '#ef4444', borderColor: '#ef4444', color: '#ffffff', borderRadius: '6px' }}
-                          onClick={() => removeExportItem(index)}
-                        >
-                          <X size={14} />
-                        </button>
-                      )}
+                <PlusCircle size={20} color="var(--color-secondary)" /> Xuất Tủ Trực Cho Bệnh Nhân (Ngoài Giờ / Cấp Cứu)
+              </h3>
+              <form onSubmit={handleExportSubmit}>
+                <div className="form-row" style={{ position: 'relative' }}>
+                  <div className="form-group" ref={patientDropdownRef} style={{ position: 'relative' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+                      <label className="form-label" style={{ margin: 0 }}>
+                        Mã Bệnh Án / Bệnh Nhân (BA/BN) *
+                      </label>
+                      <span style={{ fontSize: '0.72rem', color: 'var(--color-primary)', display: 'inline-flex', alignItems: 'center', gap: '0.2rem', fontWeight: '600' }}>
+                        <Sparkles size={12} /> Tự động nạp y lệnh
+                      </span>
                     </div>
-                  );
-                })}
-              </div>
+                    <div style={{ position: 'relative' }}>
+                      <input 
+                        type="text" 
+                        className="form-input" 
+                        placeholder="Gõ mã BN hoặc chọn gợi ý (VD: BN-002847)..." 
+                        value={patientCode} 
+                        onChange={e => handlePatientCodeChange(e.target.value)}
+                        onFocus={() => {
+                          fetchPatientSuggestions(patientCode);
+                          setShowPatientSuggestions(true);
+                        }}
+                        style={{ width: '100%', paddingRight: '2rem' }}
+                      />
+                      <Search size={14} style={{ position: 'absolute', right: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                    </div>
 
-              {cabinetStocks.length === 0 && (
-                <div style={{
-                  background: 'rgba(245, 158, 11, 0.1)',
-                  border: '1px solid rgba(245, 158, 11, 0.2)',
-                  borderRadius: '8px',
-                  padding: '0.75rem 1rem',
-                  color: '#fcd34d',
-                  fontSize: '0.85rem',
-                  marginTop: '1rem',
-                  lineHeight: '1.4'
-                }}>
-                  ⚠️ Tủ trực của khoa hiện đang trống. Khoa cần nhận thuốc cấp phát thường quy từ Kho Dược hoặc thực hiện quy trình bù tủ trực để có cơ số thuốc trước khi xuất cho bệnh nhân.
+                    {/* Auto-suggest Dropdown */}
+                    {showPatientSuggestions && patientSuggestions.length > 0 && (
+                      <div style={{
+                        position: 'absolute',
+                        top: '100%',
+                        left: 0,
+                        right: 0,
+                        zIndex: 100,
+                        background: 'var(--bg-card)',
+                        border: '1px solid var(--border-glass)',
+                        borderRadius: '8px',
+                        marginTop: '4px',
+                        maxHeight: '220px',
+                        overflowY: 'auto',
+                        boxShadow: '0 8px 24px rgba(0,0,0,0.35)'
+                      }}>
+                        <div style={{ padding: '0.4rem 0.75rem', fontSize: '0.72rem', color: 'var(--text-muted)', borderBottom: '1px solid var(--border-glass)', fontWeight: '700' }}>
+                          BỆNH NHÂN CÓ Y LỆNH NỘI TRÚ / PHÒNG KHÁM ({patientSuggestions.length}):
+                        </div>
+                        {patientSuggestions.map(p => (
+                          <div
+                            key={p.patientCode}
+                            onClick={() => applyPatientData(p)}
+                            style={{
+                              padding: '0.55rem 0.75rem',
+                              cursor: 'pointer',
+                              borderBottom: '1px solid rgba(255,255,255,0.05)',
+                              transition: 'background 0.15s ease'
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(14, 165, 233, 0.15)'}
+                            onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <strong style={{ fontSize: '0.85rem', color: 'var(--color-primary)' }}>{p.patientCode}</strong>
+                              <span style={{ fontSize: '0.75rem', fontWeight: '700', color: 'var(--text-main)' }}>{p.patientName}</span>
+                            </div>
+                            <div style={{ fontSize: '0.73rem', color: 'var(--text-muted)', marginTop: '0.15rem' }}>
+                              {p.diagnosis ? `${p.diagnosis} • ` : ''}
+                              <span style={{ color: '#10b981', fontWeight: '600' }}>{p.medicines?.length || 0} thuốc trong y lệnh</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Họ và Tên Bệnh Nhân *</label>
+                    <input 
+                      type="text" 
+                      className="form-input" 
+                      placeholder="Tự động điền hoặc nhập tay nếu cấp cứu..." 
+                      value={patientName} 
+                      onChange={e => setPatientName(e.target.value)}
+                    />
+                  </div>
                 </div>
-              )}
 
-              <div style={{ margin: '0.75rem 0', fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem', fontStyle: 'italic' }}>
-                <ShieldAlert size={14} color="var(--color-secondary)" />
-                <span>Điều dưỡng lâm sàng thực hiện cấp phát tủ trực theo y lệnh của Bác sĩ điều trị.</span>
-              </div>
-
-              <button 
-                type="submit" 
-                className="btn-premium" 
-                style={{ width: '100%', justifyContent: 'center', marginTop: '0.5rem', opacity: exporting ? 0.7 : 1 }} 
-                disabled={cabinetStocks.length === 0 || exporting}
-              >
-                {exporting ? 'Đang xử lý...' : (
-                  <>
-                    <Send size={16} /> Xác nhận cấp xuất từ tủ trực (Theo Y lệnh)
-                  </>
+                {/* Quick Suggestion Pills */}
+                {patientSuggestions.length > 0 && !selectedPatientOrder && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap', marginTop: '0.4rem', marginBottom: '0.75rem' }}>
+                    <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>Gợi ý nhanh:</span>
+                    {patientSuggestions.slice(0, 4).map(p => (
+                      <button
+                        key={p.patientCode}
+                        type="button"
+                        onClick={() => applyPatientData(p)}
+                        style={{
+                          padding: '0.15rem 0.5rem',
+                          fontSize: '0.73rem',
+                          borderRadius: '999px',
+                          border: '1px solid var(--border-glass)',
+                          background: 'var(--bg-secondary)',
+                          color: 'var(--text-main)',
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.borderColor = 'var(--color-primary)';
+                          e.currentTarget.style.color = 'var(--color-primary)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.borderColor = 'var(--border-glass)';
+                          e.currentTarget.style.color = 'var(--text-main)';
+                        }}
+                      >
+                        {p.patientCode} - {p.patientName}
+                      </button>
+                    ))}
+                  </div>
                 )}
-              </button>
-            </form>
-          </div>
+
+                {/* Patient Order Info Card Banner */}
+                {selectedPatientOrder && (
+                  <div style={{
+                    background: 'linear-gradient(135deg, rgba(14, 165, 233, 0.08), rgba(16, 185, 129, 0.08))',
+                    border: '1px solid rgba(14, 165, 233, 0.25)',
+                    borderRadius: '8px',
+                    padding: '0.75rem 1rem',
+                    marginTop: '0.65rem',
+                    marginBottom: '1rem',
+                    fontSize: '0.8rem'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontWeight: '700', color: 'var(--color-primary)' }}>
+                        <Stethoscope size={15} />
+                        <span>Hồ sơ Bệnh án & Y lệnh Bác sĩ: {selectedPatientOrder.doctorName || 'BS. Điều trị'}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedPatientOrder(null);
+                          setAutoFillNotice(null);
+                          setExportItems([{ batchID: '', quantity: '' }]);
+                        }}
+                        style={{ border: 'none', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '0.72rem' }}
+                      >
+                        Bỏ chọn
+                      </button>
+                    </div>
+                    <div style={{ color: 'var(--text-muted)', marginBottom: '0.35rem' }}>
+                      <strong>Chẩn đoán:</strong> {selectedPatientOrder.diagnosis || 'Theo dõi điều trị nội trú'}
+                    </div>
+                    {autoFillNotice && (
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.35rem',
+                        color: autoFillNotice.type === 'warning' ? '#f59e0b' : '#10b981',
+                        fontWeight: '600',
+                        fontSize: '0.78rem',
+                        marginTop: '0.35rem'
+                      }}>
+                        {autoFillNotice.type === 'warning' ? <AlertCircle size={14} /> : <CheckCircle2 size={14} />}
+                        <span>{autoFillNotice.text}</span>
+                      </div>
+                    )}
+                    {autoFillNotice?.missing && autoFillNotice.missing.length > 0 && (
+                      <div style={{ color: '#ef4444', fontSize: '0.74rem', marginTop: '0.25rem', fontStyle: 'italic' }}>
+                        * Lưu ý: Thuốc [{autoFillNotice.missing.join(', ')}] trong y lệnh hiện không có trong Tủ trực.
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div style={{ marginTop: '1rem', borderTop: '1px dashed var(--border-glass)', paddingTop: '1rem', marginBottom: '1rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                    <span style={{ fontSize: '0.88rem', fontWeight: '700', color: 'var(--text-main)' }}>
+                      Danh sách Thuốc / Vật tư cấp phát:
+                    </span>
+                    <button 
+                      type="button" 
+                      className="btn-premium" 
+                      style={{ padding: '0.25rem 0.6rem', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.25rem', height: '28px', background: 'var(--color-secondary)', borderColor: 'var(--color-secondary)', color: '#ffffff' }}
+                      onClick={addExportItem}
+                    >
+                      + Thêm thuốc
+                    </button>
+                  </div>
+
+                  {exportItems.map((item, index) => {
+                    return (
+                      <div key={index} className="form-row" style={{ marginTop: '0.5rem', alignItems: 'flex-end', background: 'rgba(255,255,255,0.02)', padding: '0.5rem', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.05)', display: 'flex', gap: '0.75rem' }}>
+                        <div className="form-group" style={{ flex: 3 }}>
+                          <label className="form-label" style={{ fontSize: '0.75rem' }}>Thuốc trong tủ / Lô sản xuất ({index + 1})</label>
+                          <select 
+                            className="form-input"
+                            value={item.batchID}
+                            onChange={e => updateExportItem(index, 'batchID', e.target.value)}
+                          >
+                            <option value="">-- Chọn thuốc xuất tủ --</option>
+                            {cabinetStocks.map((s, idx) => {
+                              const isEarliest = cabinetStocks.findIndex(it => it.batch?.medicineID === s.batch?.medicineID) === idx;
+                              const expiryStr = s.batch?.expiryDate ? new Date(s.batch.expiryDate).toLocaleDateString('vi-VN') : 'N/A';
+                              const isSuspended = s.batch?.status && s.batch.status !== 'Bình thường' && s.batch.status !== 'Đang sử dụng';
+                              const expiryDate = s.batch?.expiryDate ? new Date(s.batch.expiryDate) : null;
+                              const today = new Date();
+                              today.setHours(0,0,0,0);
+                              const isExpired = expiryDate ? (expiryDate - today) <= 0 : false;
+                              const isDisabled = isSuspended || isExpired;
+                              return (
+                                <option key={s.batchID} value={s.batchID} disabled={isDisabled}>
+                                  {s.batch?.medicine?.medicineName} (Lô: {s.batch?.batchNumber} - Tồn: {s.currentQuantity} - HSD: {expiryStr}){isSuspended ? ` [ĐÌNH CHỈ / THU HỒI: ${s.batch?.status}]` : isExpired ? ' [HẾT HẠN]' : isEarliest ? ' ★ [ƯU TIÊN FEFO]' : ''}
+                                </option>
+                              );
+                            })}
+                          </select>
+                        </div>
+                        <div className="form-group" style={{ flex: 1 }}>
+                          <label className="form-label" style={{ fontSize: '0.75rem' }}>Số lượng</label>
+                          <input 
+                            type="text" 
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            className="form-input" 
+                            placeholder="SL" 
+                            value={item.quantity} 
+                            onKeyDown={handleIntegerKeyDown}
+                            onChange={e => updateExportItem(index, 'quantity', sanitizeInteger(e.target.value, false))}
+                            onPaste={e => handleIntegerPaste(e, val => updateExportItem(index, 'quantity', val), false)}
+                          />
+                        </div>
+                        {exportItems.length > 1 && (
+                          <button 
+                            type="button" 
+                            className="btn-danger" 
+                            style={{ padding: '0.4rem 0.5rem', height: '38px', minWidth: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '0px', background: '#ef4444', borderColor: '#ef4444', color: '#ffffff', borderRadius: '6px' }}
+                            onClick={() => removeExportItem(index)}
+                          >
+                            <X size={14} />
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {cabinetStocks.length === 0 && (
+                  <div style={{
+                    background: 'rgba(245, 158, 11, 0.1)',
+                    border: '1px solid rgba(245, 158, 11, 0.2)',
+                    borderRadius: '8px',
+                    padding: '0.75rem 1rem',
+                    color: '#fcd34d',
+                    fontSize: '0.85rem',
+                    marginTop: '1rem',
+                    lineHeight: '1.4'
+                  }}>
+                    Tủ trực của khoa hiện đang trống. Khoa cần nhận thuốc cấp phát thường quy từ Kho Dược hoặc thực hiện quy trình bù tủ trực để có cơ số thuốc trước khi xuất cho bệnh nhân.
+                  </div>
+                )}
+
+                <div style={{ margin: '0.75rem 0', fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem', fontStyle: 'italic' }}>
+                  <ShieldAlert size={14} color="var(--color-secondary)" />
+                  <span>Điều dưỡng lâm sàng thực hiện cấp phát tủ trực theo y lệnh của Bác sĩ điều trị.</span>
+                </div>
+
+                <button 
+                  type="submit" 
+                  className="btn-premium" 
+                  style={{ width: '100%', justifyContent: 'center', marginTop: '0.5rem', opacity: exporting ? 0.7 : 1 }} 
+                  disabled={cabinetStocks.length === 0 || exporting}
+                >
+                  {exporting ? 'Đang xử lý...' : (
+                    <>
+                      <Send size={16} /> Xác nhận cấp xuất từ tủ trực (Theo Y lệnh)
+                    </>
+                  )}
+                </button>
+              </form>
+            </div>
         </div>
 
         {/* Right column: Cabinet Logs and Aggregation trigger */}
         <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', height: 'fit-content' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
-            <h3>Nhật Ký Xuất Tủ Trực Khoa</h3>
-            {user?.role !== 'nurse' && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', gap: '0.5rem' }}>
+            <div>
+              <h3 style={{ margin: 0 }}>Nhật Ký Xuất Tủ Trực Khoa</h3>
+              {isPharmacist && (
+                <span style={{ fontSize: '0.73rem', color: 'var(--text-muted)' }}>
+                  Đối chiếu lịch sử xuất thuốc tại tủ trực
+                </span>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: '0.35rem' }}>
               <button 
-                className="btn-premium" 
-                style={{ fontSize: '0.8rem', padding: '0.4rem 0.8rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
-                onClick={handleRefillRequest}
+                type="button"
+                className="btn-secondary" 
+                style={{ fontSize: '0.8rem', padding: '0.4rem 0.6rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+                onClick={handleExportTransactions}
               >
-                <CheckSquare size={14} /> Bù tủ trực
+                Xuất nhật ký
               </button>
-            )}
+              {!isPharmacist && user?.role !== 'nurse' && (
+                <button 
+                  className="btn-premium" 
+                  style={{ fontSize: '0.8rem', padding: '0.4rem 0.8rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+                  onClick={handleRefillRequest}
+                >
+                  <CheckSquare size={14} /> Bù tủ trực
+                </button>
+              )}
+            </div>
           </div>
           
           <div style={{ maxHeight: '530px', overflowY: 'auto', paddingRight: '0.5rem' }}>
@@ -692,6 +1159,7 @@ export default function CabinetManagement({ user }) {
           </div>
         </div>
       </div>
+      )}
 
       {/* DIGITAL SIGNATURE MODAL */}
       {showSignatureModal && (
@@ -824,6 +1292,19 @@ export default function CabinetManagement({ user }) {
           </div>
         </div>
       )}
+
+      {/* Breakage Report Modal */}
+      <BreakageReportModal
+        isOpen={showBreakageModal}
+        onClose={() => setShowBreakageModal(false)}
+        cabinetStocks={cabinetStocks}
+        departmentId={selectedDept}
+        user={user}
+        onSuccess={() => {
+          fetchCabinetData(selectedDept);
+          setActiveCabinetTab('breakage');
+        }}
+      />
     </div>
   );
 }

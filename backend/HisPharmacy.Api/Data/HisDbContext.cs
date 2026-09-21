@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations.Schema;
 using Microsoft.EntityFrameworkCore;
 
 namespace HisPharmacy.Api.Data;
@@ -34,6 +35,13 @@ public class HisDbContext : DbContext
     public DbSet<InventoryMovement> InventoryMovements => Set<InventoryMovement>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<QuarantineStock> QuarantineStocks => Set<QuarantineStock>();
+    public DbSet<ClearanceProposal> ClearanceProposals => Set<ClearanceProposal>();
+    public DbSet<OutpatientPrescription> OutpatientPrescriptions => Set<OutpatientPrescription>();
+    public DbSet<OutpatientPrescriptionDetail> OutpatientPrescriptionDetails => Set<OutpatientPrescriptionDetail>();
+    public DbSet<BreakageReport> BreakageReports => Set<BreakageReport>();
+    public DbSet<BreakageReportDetail> BreakageReportDetails => Set<BreakageReportDetail>();
+    public DbSet<AccountingPeriod> AccountingPeriods => Set<AccountingPeriod>();
+    public DbSet<PatientAdrReport> PatientAdrReports => Set<PatientAdrReport>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -197,6 +205,99 @@ public class HisDbContext : DbContext
             .HasOne(d => d.Batch)
             .WithMany()
             .HasForeignKey(d => d.BatchID);
+
+        modelBuilder.Entity<ClearanceProposal>().HasKey(e => e.ClearanceID);
+        modelBuilder.Entity<ClearanceProposal>().Property(e => e.ClearanceID).ValueGeneratedOnAdd();
+        modelBuilder.Entity<ClearanceProposal>()
+            .HasOne(c => c.Batch)
+            .WithMany()
+            .HasForeignKey(c => c.BatchID);
+        modelBuilder.Entity<ClearanceProposal>()
+            .HasOne(c => c.SourceDepartment)
+            .WithMany()
+            .HasForeignKey(c => c.SourceDepartmentID)
+            .OnDelete(DeleteBehavior.SetNull);
+        modelBuilder.Entity<ClearanceProposal>()
+            .HasOne(c => c.TargetDepartment)
+            .WithMany()
+            .HasForeignKey(c => c.TargetDepartmentID)
+            .OnDelete(DeleteBehavior.SetNull);
+        modelBuilder.Entity<ClearanceProposal>()
+            .HasOne(c => c.Supplier)
+            .WithMany()
+            .HasForeignKey(c => c.SupplierID)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        modelBuilder.Entity<OutpatientPrescription>().HasKey(e => e.PrescriptionID);
+        modelBuilder.Entity<OutpatientPrescription>().Property(e => e.PrescriptionID).ValueGeneratedOnAdd();
+        modelBuilder.Entity<OutpatientPrescription>()
+            .HasOne(p => p.Department)
+            .WithMany()
+            .HasForeignKey(p => p.DepartmentID);
+        modelBuilder.Entity<OutpatientPrescriptionDetail>().HasKey(e => e.PrescriptionDetailID);
+        modelBuilder.Entity<OutpatientPrescriptionDetail>().Property(e => e.PrescriptionDetailID).ValueGeneratedOnAdd();
+        modelBuilder.Entity<OutpatientPrescriptionDetail>()
+            .HasOne(d => d.Prescription)
+            .WithMany(p => p.Details)
+            .HasForeignKey(d => d.PrescriptionID)
+            .OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<OutpatientPrescriptionDetail>()
+            .HasOne(d => d.Medicine)
+            .WithMany()
+            .HasForeignKey(d => d.MedicineID);
+        modelBuilder.Entity<OutpatientPrescriptionDetail>()
+            .HasOne(d => d.AllocatedBatch)
+            .WithMany()
+            .HasForeignKey(d => d.AllocatedBatchID)
+            .OnDelete(DeleteBehavior.SetNull);
+
+        // Global Query Filter for Soft Delete on Medicine
+        modelBuilder.Entity<Medicine>().HasQueryFilter(m => !m.IsDeleted);
+
+        // BreakageReport mappings
+        modelBuilder.Entity<BreakageReport>().HasKey(e => e.ReportID);
+        modelBuilder.Entity<BreakageReport>().Property(e => e.ReportID).ValueGeneratedOnAdd();
+        modelBuilder.Entity<BreakageReport>().Ignore(r => r.ReasonType);
+        modelBuilder.Entity<BreakageReport>().Ignore(r => r.DetailedReason);
+        modelBuilder.Entity<BreakageReport>().Ignore(r => r.EvidenceImageBase64);
+
+        modelBuilder.Entity<BreakageReportDetail>().HasKey(e => e.DetailID);
+        modelBuilder.Entity<BreakageReportDetail>().Property(e => e.DetailID).ValueGeneratedOnAdd();
+        modelBuilder.Entity<BreakageReportDetail>().Ignore(d => d.Quantity);
+        modelBuilder.Entity<BreakageReportDetail>().Ignore(d => d.EstimatedLossValue);
+
+        modelBuilder.Entity<BreakageReportDetail>()
+            .HasOne(d => d.BreakageReport)
+            .WithMany(r => r.Details)
+            .HasForeignKey(d => d.ReportID)
+            .OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<BreakageReportDetail>()
+            .HasOne(d => d.Batch)
+            .WithMany()
+            .HasForeignKey(d => d.BatchID);
+        modelBuilder.Entity<BreakageReport>()
+            .HasOne(b => b.Department)
+            .WithMany()
+            .HasForeignKey(b => b.DepartmentID);
+
+        // AccountingPeriod mappings
+        modelBuilder.Entity<AccountingPeriod>().HasKey(e => e.PeriodID);
+        modelBuilder.Entity<AccountingPeriod>().Property(e => e.PeriodID).ValueGeneratedOnAdd();
+        modelBuilder.Entity<AccountingPeriod>()
+            .HasIndex(p => new { p.PeriodMonth, p.PeriodYear }).IsUnique();
+        modelBuilder.Entity<AccountingPeriod>().Ignore(p => p.StartDate);
+        modelBuilder.Entity<AccountingPeriod>().Ignore(p => p.EndDate);
+        modelBuilder.Entity<AccountingPeriod>().Ignore(p => p.TotalStockQuantity);
+        modelBuilder.Entity<AccountingPeriod>().Ignore(p => p.TotalStockValue);
+
+        // PatientAdrReport mappings
+        modelBuilder.Entity<PatientAdrReport>().HasKey(e => e.ReportID);
+        modelBuilder.Entity<PatientAdrReport>().Property(e => e.ReportID).ValueGeneratedOnAdd();
+        modelBuilder.Entity<PatientAdrReport>()
+            .HasOne(r => r.Prescription)
+            .WithMany()
+            .HasForeignKey(r => r.PrescriptionID)
+            .OnDelete(DeleteBehavior.SetNull);
     }
 }
 
@@ -222,6 +323,9 @@ public class Medicine
     public int MinInventory { get; set; } = 10;
     public string MedicineGroup { get; set; } = "Dược phẩm khác";
     public string PriorityLevel { get; set; } = "Low"; // 'Low', 'Medium', 'High', 'Critical'
+    public string DrugClassification { get; set; } = "Regular"; // 'Regular', 'SpecialAntibiotic', 'NarcoticPsychotropic'
+    public bool IsDeleted { get; set; } = false;
+    public DateTime? DeletedAt { get; set; }
 }
 
 public class Department
@@ -298,6 +402,7 @@ public class MedicineRequisition
     public string? WitnessSignature { get; set; }
     public int SlaMinutes { get; set; } = 120;
     public bool IsSlaBreached { get; set; } = false;
+    public string? DocumentHash { get; set; } // SHA-256 hash verifying document integrity
 
     // Navigation
     public Department? Department { get; set; }
@@ -359,6 +464,7 @@ public class ImportReceipt
     public string? ApproverSignature { get; set; } // Base64 signature image string của người duyệt nhập kho (Ban lãnh đạo)
     public string? ApproverName { get; set; } // Họ tên Dược sĩ trưởng hoặc Ban giám đốc duyệt
     public string? EditHistoryJson { get; set; } // Chuỗi JSON lưu vết lịch sử điều chỉnh phiếu
+    public string? DocumentHash { get; set; } // SHA-256 hash verifying document integrity
 
     // Navigation
     public Supplier? Supplier { get; set; }
@@ -546,6 +652,7 @@ public class InventoryAudit
     public DateTime? DirectorSignedAt { get; set; }
     public bool DiscrepancyThresholdExceeded { get; set; } = false;
     public string? TimelineJson { get; set; } // JSON list of activities
+    public string? DocumentHash { get; set; } // SHA-256 hash verifying document integrity
 
     // Navigation
     public Department? Department { get; set; }
@@ -607,15 +714,97 @@ public class InventoryMovement
 public class AuditLog
 {
     public int LogID { get; set; }
-    public string Username { get; set; } = string.Empty;
-    public string UserRole { get; set; } = string.Empty;
-    public string Action { get; set; } = string.Empty;
+    public string? TableName { get; set; }
+    public string Action { get; set; } = string.Empty; // 'INSERT', 'UPDATE', 'DELETE'
+    public string? KeyValues { get; set; }
+    public string? OldValues { get; set; }
+    public string? NewValues { get; set; }
+    public string? ChangedColumns { get; set; }
+    public string? Username { get; set; }
+    public string? UserRole { get; set; }
+    public string? IPAddress { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.Now;
+
+    // Original columns from AuditLogs table
     public string EntityName { get; set; } = string.Empty;
     public int? EntityID { get; set; }
     public string? BeforeData { get; set; }
     public string? AfterData { get; set; }
-    public string? IPAddress { get; set; }
     public string? Device { get; set; }
+}
+
+public class BreakageReport
+{
+    public int ReportID { get; set; }
+    public string ReportCode { get; set; } = string.Empty; // BBHH-YYYYMMDD-XXXX
+    public int DepartmentID { get; set; }
+    public DateTime ReportDate { get; set; } = DateTime.Now;
+    public string ReportedBy { get; set; } = string.Empty;
+    public string Reason { get; set; } = "Rơi vỡ";
+    [NotMapped]
+    public string? ReasonType { get => Reason; set => Reason = value; }
+    [NotMapped]
+    public string? DetailedReason { get; set; }
+    public string? DamageImage { get; set; }
+    [NotMapped]
+    public string? EvidenceImageBase64 { get => DamageImage; set => DamageImage = value; }
+    public string Status { get; set; } = "Pending"; // 'Pending', 'Approved', 'Rejected'
+    public string? DigitalSignature { get; set; }
+    public string? ApproverSignature { get; set; }
+    public string? ApproverName { get; set; }
+    public DateTime? ApprovedAt { get; set; }
+    public decimal TotalLossAmount { get; set; } = 0;
+    public string? Notes { get; set; }
+    public string? DocumentHash { get; set; }
+
+    // Navigation
+    public Department? Department { get; set; }
+    public List<BreakageReportDetail> Details { get; set; } = new();
+}
+
+public class BreakageReportDetail
+{
+    public int DetailID { get; set; }
+    public int ReportID { get; set; }
+    public int BatchID { get; set; }
+    public int MedicineID { get; set; }
+    public int DamagedQuantity { get; set; }
+    [NotMapped]
+    public int Quantity { get => DamagedQuantity; set => DamagedQuantity = value; }
+    public decimal UnitPrice { get; set; } = 0;
+    public decimal TotalLossAmount { get; set; } = 0;
+    [NotMapped]
+    public decimal EstimatedLossValue { get => TotalLossAmount; set => TotalLossAmount = value; }
+    public string? Notes { get; set; }
+
+    // Navigation
+    public Batch? Batch { get; set; }
+    public Medicine? Medicine { get; set; }
+    public BreakageReport? BreakageReport { get; set; }
+}
+
+public class AccountingPeriod
+{
+    public int PeriodID { get; set; }
+    public int PeriodMonth { get; set; } // 1 - 12
+    public int PeriodYear { get; set; } // 2026...
+    [NotMapped]
+    public DateTime? StartDate { get; set; }
+    [NotMapped]
+    public DateTime? EndDate { get; set; }
+    public bool IsLocked { get; set; } = false;
+    public DateTime? LockedAt { get; set; }
+    public string? LockedBy { get; set; }
+    public string? Notes { get; set; }
+    public int ClosingStockCount { get; set; } = 0;
+    [NotMapped]
+    public int TotalStockQuantity { get => ClosingStockCount; set => ClosingStockCount = value; }
+    public decimal ClosingStockValue { get; set; } = 0;
+    [NotMapped]
+    public decimal TotalStockValue { get => ClosingStockValue; set => ClosingStockValue = value; }
+    public decimal TotalImportValue { get; set; } = 0;
+    public decimal TotalExportValue { get; set; } = 0;
+    public decimal TotalLossValue { get; set; } = 0;
     public DateTime CreatedAt { get; set; } = DateTime.Now;
 }
 
@@ -650,4 +839,116 @@ public class SupplierMedicine
     public DateTime? EndDate { get; set; }
     public bool IsActive { get; set; } = true;
     public string? Status { get; set; }
+}
+
+public class ClearanceProposal
+{
+    public int ClearanceID { get; set; }
+    public int BatchID { get; set; }
+    public string SourceLocationType { get; set; } = "MainStore"; // 'MainStore' or 'Cabinet'
+    public int? SourceDepartmentID { get; set; }
+    public int CurrentQuantity { get; set; }
+    public int EstimatedWasteQuantity { get; set; }
+    public decimal EstimatedWasteValue { get; set; }
+    public decimal AverageDailyConsumption { get; set; }
+    public int DaysToExpiry { get; set; }
+    public decimal DaysOfSupply { get; set; }
+    public string RiskLevel { get; set; } = "Medium"; // 'Critical', 'High', 'Medium'
+    public string RecommendedAction { get; set; } = "InternalTransfer"; // 'InternalTransfer', 'VendorReturn', 'UrgentDispense', 'Monitor'
+    public int? TargetDepartmentID { get; set; }
+    public int? SupplierID { get; set; }
+    public int ProposedQuantity { get; set; }
+    public string Status { get; set; } = "Pending"; // 'Pending', 'Transferred', 'VendorReturning', 'Dismissed', 'Completed'
+    public int? GeneratedTransferID { get; set; }
+    public string? Notes { get; set; }
+    public string CreatedBy { get; set; } = "Hệ thống AI/Heuristic";
+    public DateTime CreatedAt { get; set; } = DateTime.Now;
+    public DateTime? ResolvedAt { get; set; }
+    public string? ResolvedBy { get; set; }
+    public string? ResolutionNotes { get; set; }
+    public string? DigitalSignature { get; set; }
+
+    // Navigation
+    public Batch? Batch { get; set; }
+    public Department? SourceDepartment { get; set; }
+    public Department? TargetDepartment { get; set; }
+    public Supplier? Supplier { get; set; }
+}
+
+public class OutpatientPrescription
+{
+    public int PrescriptionID { get; set; }
+    public string PrescriptionCode { get; set; } = string.Empty; // DT-YYYYMMDD-XXXX
+    public string Barcode { get; set; } = string.Empty;
+    public string PatientCode { get; set; } = string.Empty; // BN-XXXXXX
+    public string PatientName { get; set; } = string.Empty;
+    public int? BirthYear { get; set; }
+    public string Gender { get; set; } = "Nam";
+    public string? Address { get; set; }
+    public string? InsuranceCardNumber { get; set; }
+    public int InsuranceRate { get; set; } = 80; // 80, 95, 100, 0
+    public string Diagnosis { get; set; } = string.Empty;
+    public string DoctorName { get; set; } = "BS.CKII. Nguyễn Hữu Lực";
+    public int DepartmentID { get; set; } = 1; // 1: Khoa Khám Bệnh
+    public DateTime PrescribedAt { get; set; } = DateTime.Now;
+    public string Status { get; set; } = "Pending"; // 'Pending', 'Dispensed', 'Cancelled'
+    public DateTime? DispensedAt { get; set; }
+    public string? DispensedBy { get; set; }
+    public decimal TotalAmount { get; set; }
+    public decimal InsuranceCoverageAmount { get; set; }
+    public decimal PatientCoPayAmount { get; set; }
+    public string? Notes { get; set; }
+    public string? DigitalSignature { get; set; }
+    public string? DispenserSignature { get; set; }
+    public string? DoctorSignature { get; set; }
+    public string? PatientSignature { get; set; }
+
+    // Navigation
+    public Department? Department { get; set; }
+    public List<OutpatientPrescriptionDetail> Details { get; set; } = new();
+}
+
+public class OutpatientPrescriptionDetail
+{
+    public int PrescriptionDetailID { get; set; }
+    public int PrescriptionID { get; set; }
+    public int MedicineID { get; set; }
+    public int RequestedQuantity { get; set; }
+    public int DispensedQuantity { get; set; }
+    public string DosageInstructions { get; set; } = "Ngày uống 2 lần, mỗi lần 1 viên sau ăn";
+    public decimal? MorningDose { get; set; } = 1;
+    public decimal? NoonDose { get; set; } = 0;
+    public decimal? AfternoonDose { get; set; } = 0;
+    public decimal? NightDose { get; set; } = 1;
+    public string? UsageTime { get; set; } = "Sau ăn 30 phút";
+    public int? AllocatedBatchID { get; set; }
+    public decimal UnitPrice { get; set; }
+    public decimal Amount { get; set; }
+
+    // Navigation
+    public OutpatientPrescription? Prescription { get; set; }
+    public Medicine? Medicine { get; set; }
+    public Batch? AllocatedBatch { get; set; }
+}
+
+public class PatientAdrReport
+{
+    public int ReportID { get; set; }
+    public int? PrescriptionID { get; set; }
+    public string PrescriptionCode { get; set; } = string.Empty;
+    public string PatientName { get; set; } = string.Empty;
+    public string? PatientPhone { get; set; }
+    public string? SuspectedMedicineName { get; set; }
+    public string Symptoms { get; set; } = string.Empty;
+    public string Severity { get; set; } = "Nhẹ"; // "Nhẹ", "Trung bình", "Nghiêm trọng"
+    public string? OnsetDelay { get; set; } // "Dưới 30 phút", "1-2 giờ", "Vài ngày", etc.
+    public string? Description { get; set; }
+    public DateTime ReportedAt { get; set; } = DateTime.Now;
+    public string Status { get; set; } = "New"; // "New", "Contacted", "Resolved"
+    public string? PharmacistNotes { get; set; }
+    public string? ReviewedBy { get; set; }
+    public DateTime? ReviewedAt { get; set; }
+
+    // Navigation
+    public OutpatientPrescription? Prescription { get; set; }
 }

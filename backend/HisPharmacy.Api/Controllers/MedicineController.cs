@@ -56,10 +56,18 @@ public class MedicineController : ControllerBase
         if (string.IsNullOrWhiteSpace(medicine.Unit))
             return BadRequest(new { Error = "Đơn vị tính không được để trống." });
 
-        // Check if Code already exists
+        // Check if Code already exists in active medicines
         var codeExists = await _context.Medicines.AnyAsync(m => m.MedicineCode.ToLower() == medicine.MedicineCode.ToLower());
         if (codeExists)
-            return BadRequest(new { Error = $"Mã thuốc '{medicine.MedicineCode}' đã tồn tại trong hệ thống." });
+            return BadRequest(new { Error = $"Mã thuốc '{medicine.MedicineCode}' đã tồn tại trong danh mục hoạt động." });
+
+        if (string.IsNullOrWhiteSpace(medicine.DrugClassification))
+        {
+            medicine.DrugClassification = "Regular";
+        }
+
+        medicine.IsDeleted = false;
+        medicine.DeletedAt = null;
 
         _context.Medicines.Add(medicine);
         await _context.SaveChangesAsync();
@@ -132,7 +140,10 @@ public class MedicineController : ControllerBase
                 Manufacturer = med.Manufacturer?.Trim(),
                 Unit = med.Unit.Trim(),
                 MinInventory = med.MinInventory <= 0 ? 10 : med.MinInventory,
-                MedicineGroup = string.IsNullOrWhiteSpace(med.MedicineGroup) ? "Dược phẩm khác" : med.MedicineGroup.Trim()
+                MedicineGroup = string.IsNullOrWhiteSpace(med.MedicineGroup) ? "Dược phẩm khác" : med.MedicineGroup.Trim(),
+                DrugClassification = string.IsNullOrWhiteSpace(med.DrugClassification) ? "Regular" : med.DrugClassification.Trim(),
+                IsDeleted = false,
+                DeletedAt = null
             });
         }
 
@@ -181,7 +192,7 @@ public class MedicineController : ControllerBase
         if (string.IsNullOrWhiteSpace(updated.Unit))
             return BadRequest(new { Error = "Đơn vị tính không được để trống." });
 
-        // Check if Code exists on another medicine
+        // Check if Code exists on another active medicine
         var codeExists = await _context.Medicines.AnyAsync(m => m.MedicineID != id && m.MedicineCode.ToLower() == updated.MedicineCode.ToLower());
         if (codeExists)
             return BadRequest(new { Error = $"Mã thuốc '{updated.MedicineCode}' đã được sử dụng bởi thuốc khác." });
@@ -195,6 +206,10 @@ public class MedicineController : ControllerBase
         medicine.Unit = updated.Unit;
         medicine.MinInventory = updated.MinInventory;
         medicine.MedicineGroup = updated.MedicineGroup;
+        if (!string.IsNullOrWhiteSpace(updated.DrugClassification))
+        {
+            medicine.DrugClassification = updated.DrugClassification;
+        }
 
         await _context.SaveChangesAsync();
 
@@ -205,30 +220,76 @@ public class MedicineController : ControllerBase
         return Ok(medicine);
     }
 
+    // Soft Delete: Hide medicine from active lists while preserving historical transactions
     [HttpDelete("{id}")]
     public async Task<IActionResult> DeleteMedicine(int id)
     {
         var userRole = Request.Headers["X-User-Role"].ToString();
-        if (userRole != "pharmacist" && userRole != "director")
-            return BadRequest(new { Error = "Quyền truy cập bị từ chối. Chỉ Dược sĩ hoặc Giám đốc mới có quyền xóa thuốc khỏi danh mục." });
+        if (userRole != "director")
+            return BadRequest(new { Error = "Quyền truy cập bị từ chối. Chỉ Ban Giám Đốc mới có thẩm quyền xóa thuốc khỏi danh mục bệnh viện." });
 
         var medicine = await _context.Medicines.FindAsync(id);
-        if (medicine == null) return NotFound();
+        if (medicine == null) return NotFound(new { Error = "Không tìm thấy thuốc cần xóa." });
 
-        // Check foreign key constraint with Batches table
-        var hasBatches = await _context.Batches.AnyAsync(b => b.MedicineID == id);
-        if (hasBatches)
-        {
-            return BadRequest(new { Error = "Không thể xóa thuốc này vì đã có lô thuốc nhập kho liên quan trong hệ thống. Vui lòng giữ lại để bảo đảm lịch sử số liệu." });
-        }
+        // Execute Soft Delete
+        medicine.IsDeleted = true;
+        medicine.DeletedAt = DateTime.Now;
 
-        _context.Medicines.Remove(medicine);
         await _context.SaveChangesAsync();
 
         // Broadcast real-time updates
         await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Inventory");
         await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Imports");
 
-        return Ok(new { Message = "Xóa danh mục thuốc thành công." });
+        return Ok(new { Message = $"Đã xóa mềm thuốc '{medicine.MedicineName}' ({medicine.MedicineCode}). Dữ liệu giao dịch lịch sử vẫn được bảo toàn toàn vẹn." });
+    }
+
+    // Get list of soft-deleted medicines in Trash
+    [HttpGet("trash")]
+    public async Task<IActionResult> GetTrash()
+    {
+        var userRole = Request.Headers["X-User-Role"].ToString();
+        if (userRole != "director")
+            return BadRequest(new { Error = "Quyền truy cập bị từ chối. Chỉ Ban Giám Đốc mới có quyền xem thùng rác danh mục thuốc." });
+
+        var trash = await _context.Medicines
+            .IgnoreQueryFilters()
+            .Where(m => m.IsDeleted)
+            .OrderByDescending(m => m.DeletedAt)
+            .ToListAsync();
+
+        return Ok(trash);
+    }
+
+    // Restore a soft-deleted medicine back to active catalog
+    [HttpPost("{id}/restore")]
+    public async Task<IActionResult> RestoreMedicine(int id)
+    {
+        var userRole = Request.Headers["X-User-Role"].ToString();
+        if (userRole != "director")
+            return BadRequest(new { Error = "Quyền truy cập bị từ chối. Chỉ Ban Giám Đốc mới có quyền khôi phục thuốc vào danh mục." });
+
+        var medicine = await _context.Medicines
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(m => m.MedicineID == id && m.IsDeleted);
+
+        if (medicine == null)
+            return NotFound(new { Error = "Không tìm thấy thuốc trong thùng rác hoặc thuốc đã ở trạng thái hoạt động." });
+
+        // Check if code conflicts with another active medicine
+        var codeConflict = await _context.Medicines.AnyAsync(m => m.MedicineCode.ToLower() == medicine.MedicineCode.ToLower());
+        if (codeConflict)
+            return BadRequest(new { Error = $"Không thể khôi phục vì mã '{medicine.MedicineCode}' hiện đang được sử dụng bởi một thuốc khác đang hoạt động." });
+
+        medicine.IsDeleted = false;
+        medicine.DeletedAt = null;
+
+        await _context.SaveChangesAsync();
+
+        // Broadcast real-time updates
+        await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Inventory");
+        await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Imports");
+
+        return Ok(new { Message = $"Đã khôi phục thành công thuốc '{medicine.MedicineName}' ({medicine.MedicineCode}) vào danh mục hoạt động.", Medicine = medicine });
     }
 }

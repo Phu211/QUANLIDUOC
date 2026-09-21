@@ -25,9 +25,22 @@ public class ReturnController : ControllerBase
     [HttpGet]
     public async Task<IActionResult> GetReturns()
     {
-        var returns = await _context.ReturnReceipts
+        var userRole = Request.Headers["X-User-Role"].ToString();
+        var deptIdStr = Request.Headers["X-User-DeptID"].ToString();
+
+        IQueryable<ReturnReceipt> query = _context.ReturnReceipts
             .Include(r => r.Department)
-            .Include(r => r.Details)!.ThenInclude(d => d.Batch)!.ThenInclude(b => b!.Medicine)
+            .Include(r => r.Details)!.ThenInclude(d => d.Batch)!.ThenInclude(b => b!.Medicine);
+
+        if (userRole != "pharmacist" && userRole != "director")
+        {
+            if (int.TryParse(deptIdStr, out int deptId) && deptId > 0)
+            {
+                query = query.Where(r => r.DepartmentID == deptId);
+            }
+        }
+
+        var returns = await query
             .OrderByDescending(r => r.ReturnDate)
             .ToListAsync();
         return Ok(returns);
@@ -37,11 +50,21 @@ public class ReturnController : ControllerBase
     public async Task<IActionResult> SubmitReturn([FromBody] ReturnReceipt ret)
     {
         var userRole = Request.Headers["X-User-Role"].ToString();
-        if (userRole != "head_nurse" && userRole != "head")
-            return BadRequest(new { Error = "Quyền truy cập bị từ chối. Chỉ Điều dưỡng trưởng khoa hoặc Trưởng khoa mới có quyền ký duyệt hoàn trả thuốc thừa về kho." });
+        var deptIdStr = Request.Headers["X-User-DeptID"].ToString();
+
+        if (userRole != "head_nurse" && userRole != "head" && userRole != "dispensary")
+            return BadRequest(new { Error = "Quyền truy cập bị từ chối. Chỉ Điều dưỡng trưởng khoa, Trưởng khoa hoặc Dược sĩ phụ trách kho lẻ của khoa mới có quyền lập đề xuất hoàn trả thuốc thừa về kho." });
 
         if (ret == null || ret.DepartmentID <= 0 || ret.Details == null || !ret.Details.Any())
             return BadRequest(new { Error = "Thông tin phiếu hoàn trả không hợp lệ." });
+
+        if (userRole != "pharmacist" && userRole != "director")
+        {
+            if (int.TryParse(deptIdStr, out int userDeptId) && userDeptId > 0 && ret.DepartmentID != userDeptId)
+            {
+                return BadRequest(new { Error = "Quyền truy cập bị từ chối. Bạn không được phép lập phiếu hoàn trả cho khoa phòng khác." });
+            }
+        }
 
         if (string.IsNullOrWhiteSpace(ret.ReturnReason))
             return BadRequest(new { Error = "Vui lòng nhập hoặc chọn lý do hoàn trả thuốc thừa." });

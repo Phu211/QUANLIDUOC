@@ -15,8 +15,11 @@ import {
   Clock,
   FileText,
   PlusCircle,
-  Trash
+  Trash,
+  ShieldCheck,
+  AlertTriangle
 } from 'lucide-react';
+import { handleIntegerKeyDown, sanitizeInteger, handleIntegerPaste } from '../utils/numberInputUtils';
 
 const SIG = {
   duoc: (
@@ -117,6 +120,59 @@ export default function Requisitions({ user }) {
       case 'Approved': return receiveDate ? 'approved' : 'warning';
       default: return 'pending';
     }
+  };
+
+  const exportToCSV = (data, headers, filename) => {
+    if (!data || !data.length) {
+      alert("Không có dữ liệu để xuất báo cáo!");
+      return;
+    }
+    const BOM = "\uFEFF";
+    const headerRow = headers.join(",");
+    const rows = data.map(row => 
+      headers.map(header => {
+        const val = row[header] !== undefined ? row[header] : '';
+        const escaped = ('' + val).replace(/"/g, '""');
+        return `"${escaped}"`;
+      }).join(",")
+    );
+    const csvContent = BOM + headerRow + "\n" + rows.join("\n");
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `${filename}_${new Date().toISOString().slice(0,10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleExportRequisitions = () => {
+    const list = user?.role === 'nurse' || user?.role === 'head_nurse' || user?.role === 'head' || user?.role === 'dispensary'
+      ? requisitions.filter(r => r.departmentID === user.departmentID)
+      : requisitions;
+      
+    if (list.length === 0) {
+      alert("Không có phiếu lĩnh nào để xuất!");
+      return;
+    }
+
+    const csvData = list.map(r => ({
+      "Mã Phiếu": getRequisitionCode(r),
+      "Khoa / Phòng Lâm Sàng": r.department?.departmentName || r.departmentName || "Khoa Dược",
+      "Phân Loại Lĩnh": r.requisitionType === 'Regular' ? 'Lĩnh thường quy' : r.requisitionType === 'Urgent' ? 'Lĩnh khẩn' : r.requisitionType === 'DirectTransfer' ? 'Xuất chuyển chủ động' : 'Bù tủ trực',
+      "Ngày Đề Nghị": new Date(r.requisitionDate).toLocaleString('vi-VN'),
+      "Trạng Thái Phiếu": getStatusText(r.status, r.receiveDate)
+    }));
+    
+    const headers = [
+      "Mã Phiếu", 
+      "Khoa / Phòng Lâm Sàng", 
+      "Phân Loại Lĩnh", 
+      "Ngày Đề Nghị", 
+      "Trạng Thái Phiếu"
+    ];
+    exportToCSV(csvData, headers, "Bao_Cao_Y_Lenh_Cap_Phat");
   };
 
   const [activeReqForDetail, setActiveReqForDetail] = useState(null);
@@ -240,6 +296,8 @@ export default function Requisitions({ user }) {
       })
       .catch(err => alert("Lỗi khi thay đổi trạng thái ủy quyền: " + err.message));
   };
+
+
 
   useEffect(() => {
     fetchRequisitions();
@@ -431,7 +489,7 @@ export default function Requisitions({ user }) {
 
     // Cold chain alert: normal clinical refrigeration is 2°C to 8°C
     if (tempVal < 2.0 || tempVal > 8.0) {
-      const confirmWarning = window.confirm(`⚠️ CẢNH BÁO NHIỆT ĐỘ: Nhiệt độ bảo quản thực tế khi giao nhận là ${tempVal}°C, nằm ngoài điều kiện tiêu chuẩn bảo quản lạnh (2°C - 8°C). Bạn có chắc chắn muốn ký nhận thuốc không?`);
+      const confirmWarning = window.confirm(`CẢNH BÁO NHIỆT ĐỘ: Nhiệt độ bảo quản thực tế khi giao nhận là ${tempVal}°C, nằm ngoài điều kiện tiêu chuẩn bảo quản lạnh (2°C - 8°C). Bạn có chắc chắn muốn ký nhận thuốc không?`);
       if (!confirmWarning) return;
     }
 
@@ -444,7 +502,7 @@ export default function Requisitions({ user }) {
           alert(`CẢNH BÁO AN TOÀN: Lô thuốc ${d.batchNumber} của thuốc ${d.medicineName} ĐÃ HẾT HẠN sử dụng. Hệ thống từ chối nhận lô thuốc này.`);
           hasExpiredOrNearExpiry = true;
         } else if (daysLeft < 30) {
-          const confirmExp = window.confirm(`⚠️ LƯU Ý HẠN DÙNG: Lô thuốc ${d.batchNumber} của thuốc ${d.medicineName} chỉ còn ${daysLeft} ngày sử dụng (cận date dưới 30 ngày). Bạn có chắc chắn muốn nhận không?`);
+          const confirmExp = window.confirm(`LƯU Ý HẠN DÙNG: Lô thuốc ${d.batchNumber} của thuốc ${d.medicineName} chỉ còn ${daysLeft} ngày sử dụng (cận date dưới 30 ngày). Bạn có chắc chắn muốn nhận không?`);
           if (!confirmExp) hasExpiredOrNearExpiry = true;
         }
       }
@@ -549,7 +607,7 @@ export default function Requisitions({ user }) {
   };
 
   const handleQtyChange = (detailId, val) => {
-    const qty = Math.max(0, parseInt(val) || 0);
+    const qty = val === "" ? "" : Math.max(0, parseInt(val) || 0);
     setAdjustedQuantities(prev => ({
       ...prev,
       [detailId]: qty
@@ -582,14 +640,27 @@ export default function Requisitions({ user }) {
   // Intercept: Approve Requisition -> Open Signature Pad
   const handleApproveClick = () => {
     let hasError = false;
-    activeReqForDetail.details.forEach(d => {
-      const qty = adjustedQuantities[d.requisitionDetailID] ?? d.requestedQuantity;
-      const maxStock = getMainStoreStockForMedicine(d.medicineID);
-      if (qty > maxStock) {
-        alert(`Số lượng cấp phát cho ${d.medicine?.medicineName || "vật tư"} (${qty}) vượt quá tồn kho chính sẵn có (${maxStock}). Vui lòng giảm số lượng thực cấp.`);
+    for (const d of activeReqForDetail.details) {
+      const rawQty = adjustedQuantities[d.requisitionDetailID];
+      if (rawQty === "") {
+        alert(`Vui lòng nhập số lượng thực cấp cho ${d.medicine?.medicineName || "vật tư"}.`);
         hasError = true;
+        break;
       }
-    });
+      const qty = rawQty ?? d.requestedQuantity;
+      const parsedQty = parseInt(qty, 10);
+      if (isNaN(parsedQty) || parsedQty < 0) {
+        alert(`Số lượng thực cấp cho ${d.medicine?.medicineName || "vật tư"} phải là số nguyên không âm.`);
+        hasError = true;
+        break;
+      }
+      const maxStock = getMainStoreStockForMedicine(d.medicineID);
+      if (parsedQty > maxStock) {
+        alert(`Số lượng cấp phát cho ${d.medicine?.medicineName || "vật tư"} (${parsedQty}) vượt quá tồn kho chính sẵn có (${maxStock}). Vui lòng giảm số lượng thực cấp.`);
+        hasError = true;
+        break;
+      }
+    }
 
     if (hasError) return;
 
@@ -654,9 +725,9 @@ export default function Requisitions({ user }) {
       alert("Vui lòng chọn thuốc và nhập số lượng.");
       return;
     }
-    const qty = parseInt(transferQty);
-    if (qty <= 0) {
-      alert("Số lượng phải lớn hơn 0.");
+    const qty = parseInt(transferQty, 10);
+    if (isNaN(qty) || qty <= 0 || !/^\d+$/.test(transferQty)) {
+      alert("Số lượng cấp phát thực tế phải là số nguyên dương lớn hơn 0.");
       return;
     }
     const batchItem = mainStoreBatches.find(b => b.batchID.toString() === selectedBatchId);
@@ -720,10 +791,14 @@ export default function Requisitions({ user }) {
 
     if (signatureTarget.action === 'approve_requisition') {
       const id = signatureTarget.requisitionID;
-      const payloadDetails = activeReqForDetail.details.map(d => ({
-        requisitionDetailID: d.requisitionDetailID,
-        dispensedQuantity: adjustedQuantities[d.requisitionDetailID] ?? d.requestedQuantity
-      }));
+      const payloadDetails = activeReqForDetail.details.map(d => {
+        const val = adjustedQuantities[d.requisitionDetailID];
+        const qty = (val === "" || val === undefined) ? d.requestedQuantity : (parseInt(val) || 0);
+        return {
+          requisitionDetailID: d.requisitionDetailID,
+          dispensedQuantity: qty
+        };
+      });
 
       fetch(`/api/requisition/${id}/approve`, { 
         method: 'POST',
@@ -944,16 +1019,16 @@ export default function Requisitions({ user }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
         <div>
           <h1 className="page-title">
-            {(user?.role === 'nurse' || user?.role === 'head_nurse' || user?.role === 'head') ? 'Yêu Cầu Lĩnh Thuốc Khoa Lâm Sàng' : 'Cấp Phát Thuốc & Vật Tư Khoa Phòng'}
+            {(user?.role === 'nurse' || user?.role === 'head_nurse' || user?.role === 'head' || user?.role === 'dispensary') ? 'Yêu Cầu Lĩnh Thuốc Khoa Lâm Sàng' : 'Cấp Phát Thuốc & Vật Tư Khoa Phòng'}
           </h1>
           <p className="page-subtitle">
-            {(user?.role === 'nurse' || user?.role === 'head_nurse' || user?.role === 'head') 
+            {(user?.role === 'nurse' || user?.role === 'head_nurse' || user?.role === 'head' || user?.role === 'dispensary') 
               ? `Theo dõi trạng thái các phiếu lĩnh thuốc của khoa ${user.departmentName || ''} và lập yêu cầu mới.` 
               : 'Quản lý cấp phát thường quy và bù tủ trực cho các khoa phòng theo nguyên tắc FEFO.'}
           </p>
         </div>
         <div style={{ display: 'flex', gap: '0.75rem' }}>
-          {(user?.role === 'nurse' || user?.role === 'head_nurse' || user?.role === 'head') && (
+          {(user?.role === 'nurse' || user?.role === 'head_nurse' || user?.role === 'head' || user?.role === 'dispensary') && (
             <button 
               className="btn-premium" 
               style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }} 
@@ -968,6 +1043,9 @@ export default function Requisitions({ user }) {
           )}
           <button className="btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }} onClick={fetchRequisitions}>
             <RefreshCw size={16} /> Làm mới
+          </button>
+          <button className="btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }} onClick={handleExportRequisitions}>
+            Xuất báo cáo
           </button>
         </div>
       </div>
@@ -1019,15 +1097,15 @@ export default function Requisitions({ user }) {
           color: '#f59e0b',
           fontSize: '0.82rem'
         }}>
-          <span style={{ fontSize: '1.2rem' }}>⚠️</span>
+          <span style={{ fontSize: '1.2rem' }}></span>
           <span>
             <strong>Ủy quyền đang kích hoạt:</strong> Trưởng khoa hiện đang vắng mặt và đã ủy quyền duyệt lâm sàng cho bạn. Bạn có thể ký duyệt thay Trưởng khoa đối với các phiếu lĩnh thuốc của khoa mình.
           </span>
         </div>
       )}
 
-      {(user?.role === 'nurse' || user?.role === 'head_nurse' || user?.role === 'head') ? (
-        // Giao diện của Điều dưỡng: Chỉ xem danh sách phiếu lĩnh thuốc của khoa mình
+      {(user?.role === 'nurse' || user?.role === 'head_nurse' || user?.role === 'head' || user?.role === 'dispensary') ? (
+        // Giao diện của Điều dưỡng / Dược sĩ khoa: Chỉ xem danh sách phiếu lĩnh thuốc của khoa mình
         <>
           {(() => {
             const pendingReceipts = requisitions.filter(r => r.departmentID === user.departmentID && (r.status === 'InTransit' || (r.status === 'Approved' && !r.receiveDate)));
@@ -1046,7 +1124,7 @@ export default function Requisitions({ user }) {
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
                   <div style={{ background: '#10b981', color: '#fff', width: '40px', height: '40px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)' }}>
-                    📦
+                    <ClipboardCheck size={20} />
                   </div>
                   <div>
                     <h4 style={{ margin: 0, color: '#10b981', fontSize: '0.92rem', fontWeight: '700' }}>Yêu cầu ký xác nhận nhận bàn giao thuốc</h4>
@@ -1063,9 +1141,19 @@ export default function Requisitions({ user }) {
           <div className="glass-card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
             <h3>Danh Sách Phiếu Yêu Cầu Lĩnh Thuốc Đã Gửi</h3>
-            <span className="badge-status pending" style={{ textTransform: 'none', background: 'rgba(13, 148, 136, 0.1)', color: 'var(--color-secondary)' }}>
-              Khoa: {user.departmentName}
-            </span>
+            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+              <button 
+                type="button" 
+                className="btn-secondary" 
+                style={{ padding: '0.35rem 0.75rem', fontSize: '0.75rem', border: '1px solid var(--border-glass)' }} 
+                onClick={handleExportRequisitions}
+              >
+                Xuất báo cáo Phiếu Lĩnh
+              </button>
+              <span className="badge-status pending" style={{ textTransform: 'none', background: 'rgba(13, 148, 136, 0.1)', color: 'var(--color-secondary)' }}>
+                Khoa: {user.departmentName}
+              </span>
+            </div>
           </div>
 
           {requisitions.filter(r => r.departmentID === user.departmentID).length === 0 ? (
@@ -1092,7 +1180,7 @@ export default function Requisitions({ user }) {
                         <td><strong>{getRequisitionCode(req)}</strong></td>
                         <td>
                           <span className={`badge-status ${req.requisitionType === 'Regular' ? 'regular' : req.requisitionType === 'Urgent' ? 'urgent' : req.requisitionType === 'DirectTransfer' ? 'approved' : 'refill'}`}>
-                            {req.requisitionType === 'Regular' ? 'Lĩnh thường quy' : req.requisitionType === 'Urgent' ? '🚨 Lĩnh khẩn' : req.requisitionType === 'DirectTransfer' ? 'Xuất chuyển chủ động' : 'Bù tủ trực cấp cứu'}
+                            {req.requisitionType === 'Regular' ? 'Lĩnh thường quy' : req.requisitionType === 'Urgent' ? 'Lĩnh khẩn' : req.requisitionType === 'DirectTransfer' ? 'Xuất chuyển chủ động' : 'Bù tủ trực cấp cứu'}
                           </span>
                         </td>
                         <td>{new Date(req.requisitionDate).toLocaleString('vi-VN')}</td>
@@ -1150,7 +1238,7 @@ export default function Requisitions({ user }) {
                                     setShowSignatureModal(true);
                                   }}
                                 >
-                                  {user?.role === 'head_nurse' ? '✍️ Ký duyệt thay' : (req.status === 'PendingHead' ? 'Ký duyệt' : 'Ký bổ sung')}
+                                  {user?.role === 'head_nurse' ? 'Ký duyệt thay' : (req.status === 'PendingHead' ? 'Ký duyệt' : 'Ký bổ sung')}
                                 </button>
                                 {req.status === 'PendingHead' && (
                                   <button 
@@ -1215,6 +1303,14 @@ export default function Requisitions({ user }) {
         <div className="glass-card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
             <h3>Danh Sách Yêu Cầu Cấp Phát Thuốc & Vật Tư Y Tế ({pendingCount} Phiếu chờ duyệt)</h3>
+            <button 
+              type="button" 
+              className="btn-secondary" 
+              style={{ padding: '0.35rem 0.75rem', fontSize: '0.75rem', border: '1px solid var(--border-glass)' }} 
+              onClick={handleExportRequisitions}
+            >
+              Xuất báo cáo Phiếu Lĩnh
+            </button>
           </div>
 
           {requisitions.length === 0 ? (
@@ -1249,7 +1345,7 @@ export default function Requisitions({ user }) {
                       <td><strong>{req.department?.departmentName}</strong></td>
                       <td>
                         <span className={`badge-status ${req.requisitionType === 'Regular' ? 'regular' : req.requisitionType === 'Urgent' ? 'urgent' : req.requisitionType === 'DirectTransfer' ? 'approved' : 'refill'}`}>
-                          {req.requisitionType === 'Regular' ? 'Lĩnh thường quy' : req.requisitionType === 'Urgent' ? '🚨 Lĩnh khẩn' : req.requisitionType === 'DirectTransfer' ? 'Xuất chuyển chủ động' : 'Bù tủ trực cấp cứu'}
+                          {req.requisitionType === 'Regular' ? 'Lĩnh thường quy' : req.requisitionType === 'Urgent' ? 'Lĩnh khẩn' : req.requisitionType === 'DirectTransfer' ? 'Xuất chuyển chủ động' : 'Bù tủ trực cấp cứu'}
                         </span>
                       </td>
                       <td>{new Date(req.requisitionDate).toLocaleString('vi-VN')}</td>
@@ -1349,12 +1445,33 @@ export default function Requisitions({ user }) {
                 <div className="form-group" style={{ marginBottom: '1.0rem' }}>
                   <label className="form-label">Số lượng cấp phát thực tế</label>
                   <input 
-                    type="number" 
+                    type="text" 
+                    inputMode="numeric"
+                    pattern="[0-9]*"
                     className="form-input" 
-                    placeholder="Nhập số lượng cấp phát"
+                    placeholder="Nhập số lượng cấp phát (chỉ nhập số nguyên, ví dụ: 10)"
                     value={transferQty}
-                    onChange={e => setTransferQty(e.target.value)}
-                    min="1"
+                    onKeyDown={e => {
+                      // Cho phép các phím điều hướng và phím chức năng
+                      if (['Backspace', 'Delete', 'Tab', 'Escape', 'Enter', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key) || (e.ctrlKey || e.metaKey)) {
+                        return;
+                      }
+                      // Chặn mọi ký tự không phải số nguyên 0-9 (bao gồm chữ, e, E, dấu chấm, dấu phẩy, dấu trừ...)
+                      if (!/^[0-9]$/.test(e.key)) {
+                        e.preventDefault();
+                      }
+                    }}
+                    onChange={e => {
+                      // Lọc bỏ mọi ký tự không phải số và loại bỏ các số 0 ở đầu
+                      const clean = e.target.value.replace(/\D/g, '').replace(/^0+/, '');
+                      setTransferQty(clean);
+                    }}
+                    onPaste={e => {
+                      e.preventDefault();
+                      const pasteText = e.clipboardData.getData('text');
+                      const clean = pasteText.replace(/\D/g, '').replace(/^0+/, '');
+                      if (clean) setTransferQty(clean);
+                    }}
                   />
                 </div>
 
@@ -1475,7 +1592,7 @@ export default function Requisitions({ user }) {
                         <td><strong>{req.department?.departmentName}</strong></td>
                         <td>
                           <span className={`badge-status ${req.requisitionType === 'Regular' ? 'regular' : req.requisitionType === 'Urgent' ? 'urgent' : req.requisitionType === 'DirectTransfer' ? 'approved' : 'refill'}`}>
-                            {req.requisitionType === 'Regular' ? 'Lĩnh thường quy' : req.requisitionType === 'Urgent' ? '🚨 Lĩnh khẩn' : req.requisitionType === 'DirectTransfer' ? 'Xuất chuyển chủ động' : 'Bù tủ trực cấp cứu'}
+                            {req.requisitionType === 'Regular' ? 'Lĩnh thường quy' : req.requisitionType === 'Urgent' ? 'Lĩnh khẩn' : req.requisitionType === 'DirectTransfer' ? 'Xuất chuyển chủ động' : 'Bù tủ trực cấp cứu'}
                           </span>
                         </td>
                         <td>{new Date(req.requisitionDate).toLocaleString('vi-VN')}</td>
@@ -1483,11 +1600,11 @@ export default function Requisitions({ user }) {
                         <td style={{ textAlign: 'center' }}>
                           {req.receiveDate ? (
                             <span className="badge-status approved" style={{ textTransform: 'none', fontSize: '0.72rem', padding: '0.15rem 0.4rem' }}>
-                              ✍️ Đã ký số hai đầu
+                              Đã ký số hai đầu
                             </span>
                           ) : (
                             <span className="badge-status warning" style={{ textTransform: 'none', fontSize: '0.72rem', padding: '0.15rem 0.4rem' }}>
-                              ✍️ Chờ khoa ký nhận
+                              Chờ khoa ký nhận
                             </span>
                           )}
                         </td>
@@ -1537,16 +1654,16 @@ export default function Requisitions({ user }) {
                             {tx.requisition ? (
                               tx.requisition.receiveDate ? (
                                 <span className="badge-status approved" style={{ textTransform: 'none', fontSize: '0.72rem', padding: '0.15rem 0.4rem' }}>
-                                  ✍️ Đã ký số hai đầu
+                                  Đã ký số hai đầu
                                 </span>
                               ) : (
                                 <span className="badge-status warning" style={{ textTransform: 'none', fontSize: '0.72rem', padding: '0.15rem 0.4rem' }}>
-                                  ✍️ Chờ khoa ký nhận
+                                  Chờ khoa ký nhận
                                 </span>
                               )
                             ) : (
                               <span className="badge-status approved" style={{ textTransform: 'none', fontSize: '0.72rem', padding: '0.15rem 0.4rem' }}>
-                                ✍️ Đã ký xác nhận
+                                Đã ký xác nhận
                               </span>
                             )}
                           </td>
@@ -1752,7 +1869,7 @@ export default function Requisitions({ user }) {
                       </span>
                       {activeReqForDetail.delegatedBy && (
                         <span style={{ fontSize: '0.58rem', color: '#d97706', display: 'block', marginTop: '0.2rem', fontWeight: '600', lineHeight: '1.2' }}>
-                          ✍️ Ký thay: {activeReqForDetail.delegatedTo}<br />
+                          Ký thay: {activeReqForDetail.delegatedTo}<br />
                           (Ủy quyền: {activeReqForDetail.delegatedBy})
                         </span>
                       )}
@@ -1822,6 +1939,54 @@ export default function Requisitions({ user }) {
               );
             })()}
 
+            {/* Digital Signature Integrity Verification Card (SHA-256) */}
+            {activeReqForDetail.documentHash && (
+              <div style={{
+                marginTop: '1.25rem',
+                padding: '0.75rem 1.25rem',
+                borderRadius: '8px',
+                background: activeReqForDetail.isIntegrityValid === false ? 'rgba(239, 68, 68, 0.1)' : 'rgba(16, 185, 129, 0.1)',
+                border: activeReqForDetail.isIntegrityValid === false ? '1px solid #ef4444' : '1px solid #10b981',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '1rem'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                  {activeReqForDetail.isIntegrityValid === false ? (
+                    <AlertTriangle size={24} style={{ color: '#ef4444', flexShrink: 0 }} />
+                  ) : (
+                    <ShieldCheck size={24} style={{ color: '#10b981', flexShrink: 0 }} />
+                  )}
+                  <div>
+                    <div style={{ 
+                      fontSize: '0.88rem', 
+                      fontWeight: 700, 
+                      color: activeReqForDetail.isIntegrityValid === false ? '#ef4444' : '#10b981' 
+                    }}>
+                      {activeReqForDetail.isIntegrityValid === false 
+                        ? '⚠ CẢNH BÁO: Dữ liệu phiếu lĩnh đã bị can thiệp sau khi ký duyệt! (Integrity Violation)' 
+                        : '✓ Chứng thư chữ ký số điện tử toàn vẹn (SHA-256 Document Verified)'}
+                    </div>
+                    <div style={{ fontSize: '0.73rem', color: 'var(--text-muted)', marginTop: '2px', fontFamily: 'monospace' }}>
+                      Mã băm SHA-256: {activeReqForDetail.documentHash}
+                    </div>
+                  </div>
+                </div>
+                <span style={{ 
+                  fontSize: '0.75rem', 
+                  padding: '0.25rem 0.65rem', 
+                  borderRadius: '20px', 
+                  fontWeight: 700,
+                  background: activeReqForDetail.isIntegrityValid === false ? '#ef4444' : '#10b981',
+                  color: '#ffffff',
+                  whiteSpace: 'nowrap'
+                }}>
+                  {activeReqForDetail.isIntegrityValid === false ? 'BỊ CAN THIỆP' : 'TOÀN VẸN'}
+                </span>
+              </div>
+            )}
+
             <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '1rem', marginBottom: '1.25rem', fontSize: '0.88rem' }}>
               <div>
                 <p style={{ marginBottom: '0.35rem' }}><strong>Khoa lâm sàng nhận:</strong> {activeReqForDetail.department?.departmentName}</p>
@@ -1864,6 +2029,28 @@ export default function Requisitions({ user }) {
               </div>
             )}
 
+            {/* Narcotic & Psychotropic Strict Control Notice */}
+            {activeReqForDetail.details?.some(d => d.medicine?.drugClassification === 'NarcoticPsychotropic') && (
+              <div style={{
+                background: 'rgba(239, 68, 68, 0.08)',
+                border: '1px solid rgba(239, 68, 68, 0.3)',
+                borderRadius: '8px',
+                padding: '0.75rem 1rem',
+                marginBottom: '1rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.65rem',
+                color: '#ef4444',
+                fontSize: '0.82rem',
+                lineHeight: 1.4
+              }}>
+                <AlertTriangle size={20} style={{ flexShrink: 0 }} />
+                <span>
+                  <strong>QUY CHẾ KIỂM SOÁT THUỐC GÂY NGHIỆN / HƯỚNG THẦN (Thông tư 20/2017/TT-BYT):</strong> Phiếu này chứa thuốc kiểm soát đặc biệt. Bắt buộc 2 người (Dược sĩ xuất + Người nhận) đối soát số lượng và số lô thực tế. Nghiêm cấm cấp phát bù tủ trực nếu không có hồ sơ bệnh nhân chỉ định cụ thể.
+                </span>
+              </div>
+            )}
+
             {/* PENDING: EDITABLE VIEW */}
             {activeReqForDetail.status === 'Pending' && user?.role === 'pharmacist' ? (
               <div className="table-container" style={{ marginBottom: '1.25rem', maxHeight: '350px', overflowY: 'auto' }}>
@@ -1882,13 +2069,26 @@ export default function Requisitions({ user }) {
                     {activeReqForDetail.details?.map(d => {
                       const maxStock = getMainStoreStockForMedicine(d.medicineID);
                       const currentDispensed = adjustedQuantities[d.requisitionDetailID] ?? d.requestedQuantity;
-                      const fefoAlloc = getFefoPreviewForMedicine(d.medicineID, currentDispensed);
-                      const isExceeded = currentDispensed > maxStock;
+                      const parsedDispensed = currentDispensed === "" ? 0 : (parseInt(currentDispensed) || 0);
+                      const fefoAlloc = getFefoPreviewForMedicine(d.medicineID, parsedDispensed);
+                      const isExceeded = parsedDispensed > maxStock;
 
                       return (
                         <tr key={d.requisitionDetailID} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                           <td>
-                            <strong>{d.medicine?.medicineName}</strong>
+                            <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '0.35rem' }}>
+                              <strong>{d.medicine?.medicineName}</strong>
+                              {d.medicine?.drugClassification === 'NarcoticPsychotropic' && (
+                                <span style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.3)', padding: '0.1rem 0.35rem', borderRadius: '4px', fontSize: '0.68rem', fontWeight: 700 }}>
+                                  🚨 Hướng thần/gây nghiện
+                                </span>
+                              )}
+                              {d.medicine?.drugClassification === 'SpecialAntibiotic' && (
+                                <span style={{ background: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b', border: '1px solid rgba(245, 158, 11, 0.3)', padding: '0.1rem 0.35rem', borderRadius: '4px', fontSize: '0.68rem', fontWeight: 700 }}>
+                                  💊 Kháng sinh kiểm soát
+                                </span>
+                              )}
+                            </div>
                             <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.1rem' }}>Mã: {d.medicine?.medicineCode}</div>
                           </td>
                           <td style={{ textAlign: 'center' }}>{d.medicine?.unit}</td>
@@ -1903,26 +2103,34 @@ export default function Requisitions({ user }) {
                           </td>
                           <td style={{ textAlign: 'center' }}>
                             <input 
-                              type="number" 
+                              type="text"
+                              inputMode="numeric"
+                              pattern="[0-9]*"
                               className="form-input" 
                               style={{ 
                                 padding: '0.25rem 0.4rem', 
                                 fontSize: '0.85rem', 
                                 width: '80px', 
                                 textAlign: 'center',
-                                border: isExceeded ? '1px solid var(--color-danger)' : '1px solid var(--border-glass)',
-                                background: isExceeded ? 'rgba(239, 68, 68, 0.15)' : 'rgba(0, 0, 0, 0.2)',
-                                color: isExceeded ? '#f87171' : '#ffffff',
+                                border: isExceeded ? '1px solid var(--color-danger)' : '1px solid var(--border-color)',
+                                background: isExceeded ? 'rgba(239, 68, 68, 0.15)' : 'var(--input-bg)',
+                                color: isExceeded ? 'var(--color-danger)' : 'var(--text-main)',
                                 margin: '0 auto'
                               }}
                               value={currentDispensed}
-                              onChange={e => handleQtyChange(d.requisitionDetailID, e.target.value)}
-                              min="0"
+                              onKeyDown={e => {
+                                if (['Backspace', 'Delete', 'Tab', 'Escape', 'Enter', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key) || (e.ctrlKey || e.metaKey)) return;
+                                if (!/^[0-9]$/.test(e.key)) e.preventDefault();
+                              }}
+                              onChange={e => {
+                                const digits = e.target.value.replace(/\D/g, '');
+                                handleQtyChange(d.requisitionDetailID, digits);
+                              }}
                             />
                           </td>
                           <td style={{ fontSize: '0.75rem' }}>
                             {isExceeded ? (
-                              <span style={{ color: 'var(--color-danger)', fontWeight: '600' }}>⚠️ Vượt quá tồn kho chính!</span>
+                              <span style={{ color: 'var(--color-danger)', fontWeight: '600' }}>Vượt quá tồn kho chính!</span>
                             ) : fefoAlloc.length === 0 ? (
                               <span style={{ color: 'var(--text-dim)', fontStyle: 'italic' }}>Không cấp phát (SL = 0)</span>
                             ) : (
@@ -1962,8 +2170,20 @@ export default function Requisitions({ user }) {
                       return (
                         <tr key={d.requisitionDetailID}>
                           <td>
-                            <strong>{d.medicine?.medicineName}</strong>
-                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Mã: {d.medicine?.medicineCode}</div>
+                            <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '0.35rem' }}>
+                              <strong>{d.medicine?.medicineName}</strong>
+                              {d.medicine?.drugClassification === 'NarcoticPsychotropic' && (
+                                <span style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.3)', padding: '0.1rem 0.35rem', borderRadius: '4px', fontSize: '0.68rem', fontWeight: 700 }}>
+                                  🚨 Hướng thần/gây nghiện
+                                </span>
+                              )}
+                              {d.medicine?.drugClassification === 'SpecialAntibiotic' && (
+                                <span style={{ background: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b', border: '1px solid rgba(245, 158, 11, 0.3)', padding: '0.1rem 0.35rem', borderRadius: '4px', fontSize: '0.68rem', fontWeight: 700 }}>
+                                  💊 Kháng sinh kiểm soát
+                                </span>
+                              )}
+                            </div>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.1rem' }}>Mã: {d.medicine?.medicineCode}</div>
                           </td>
                           <td style={{ textAlign: 'center' }}>{d.medicine?.unit}</td>
                           <td style={{ textAlign: 'center', color: 'var(--text-dim)', fontWeight: '500' }}>{d.requestedQuantity}</td>
@@ -2212,7 +2432,7 @@ export default function Requisitions({ user }) {
               )}
               {(activeReqForDetail.status === 'Approved' || activeReqForDetail.status === 'InTransit' || activeReqForDetail.status === 'Received' || activeReqForDetail.status === 'PartiallyReceived' || activeReqForDetail.status === 'RejectedOnReceive') && (
                 <>
-                  {(activeReqForDetail.status === 'InTransit' || (activeReqForDetail.status === 'Approved' && !activeReqForDetail.receiveDate)) && (user?.role === 'nurse' || user?.role === 'head_nurse' || user?.role === 'head') && (
+                  {(activeReqForDetail.status === 'InTransit' || (activeReqForDetail.status === 'Approved' && !activeReqForDetail.receiveDate)) && (user?.role === 'nurse' || user?.role === 'head_nurse' || user?.role === 'head' || user?.role === 'dispensary') && (
                     <button 
                       className="btn-premium" 
                       style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', background: '#10b981', borderColor: '#059669' }}
@@ -2500,7 +2720,7 @@ export default function Requisitions({ user }) {
               {hasControlledDrugs && (
                 <div style={{ background: 'rgba(239, 68, 68, 0.15)', border: '1px solid #ef4444', borderRadius: '8px', padding: '0.75rem', marginBottom: '1rem', color: '#f87171', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                   <Info size={16} />
-                  <span><strong>⚠️ CẢNH BÁO AN TOÀN:</strong> Phiếu này chứa thuốc kiểm soát đặc biệt (Gây nghiện/Hướng thần). Bắt buộc phải có chữ ký của Người làm chứng (Xác thực kép).</span>
+                  <span><strong>CẢNH BÁO AN TOÀN:</strong> Phiếu này chứa thuốc kiểm soát đặc biệt (Gây nghiện/Hướng thần). Bắt buộc phải có chữ ký của Người làm chứng (Xác thực kép).</span>
                 </div>
               )}
 
@@ -2644,15 +2864,23 @@ export default function Requisitions({ user }) {
                           <td style={{ padding: '0.5rem', textAlign: 'center' }}>
                             {deliveryConfirmStatus === 'PartialAccept' ? (
                               <input 
-                                type="number" 
-                                className="input-main" 
+                                type="text" 
+                                inputMode="numeric"
+                                pattern="[0-9]*"
+                                className="form-input" 
                                 style={{ padding: '0.2rem', width: '70px', textAlign: 'center', margin: '0 auto' }}
-                                min="0"
-                                max={detail.quantity}
                                 value={detail.receivedQuantity}
+                                onKeyDown={handleIntegerKeyDown}
                                 onChange={(e) => {
-                                  const val = Math.min(detail.quantity, Math.max(0, parseInt(e.target.value) || 0));
+                                  const raw = sanitizeInteger(e.target.value, true);
+                                  const val = raw === "" ? 0 : Math.min(detail.quantity, parseInt(raw, 10));
                                   setReceiveDetails(prev => prev.map((item, dIdx) => dIdx === idx ? { ...item, receivedQuantity: val } : item));
+                                }}
+                                onPaste={(e) => {
+                                  handleIntegerPaste(e, (raw) => {
+                                    const val = raw === "" ? 0 : Math.min(detail.quantity, parseInt(raw, 10));
+                                    setReceiveDetails(prev => prev.map((item, dIdx) => dIdx === idx ? { ...item, receivedQuantity: val } : item));
+                                  }, true);
                                 }}
                               />
                             ) : (
@@ -2809,7 +3037,7 @@ export default function Requisitions({ user }) {
                         <p style={{ margin: '0.25rem 0 0 0', fontSize: '12px', fontWeight: 'bold', color: activeReqForPrint.isSlaBreached ? '#ef4444' : '#10b981' }}>
                           SLA: {activeReqForPrint.requisitionType === 'Regular' ? 'Thường quy (120 phút)' : activeReqForPrint.requisitionType === 'Urgent' ? 'Khẩn cấp (15 phút)' : 'Chủ động (Không đếm ngược)'} 
                           {' | '} Vận chuyển: {Math.round((new Date(activeReqForPrint.receiveDate) - new Date(activeReqForPrint.deliveredAt)) / 60000)} phút 
-                          {' | '} Trạng thái: {activeReqForPrint.isSlaBreached ? '⚠️ TRỄ SLA (Cảnh báo)' : '✓ ĐẠT SLA'}
+                          {' | '} Trạng thái: {activeReqForPrint.isSlaBreached ? 'TRỄ SLA (Cảnh báo)' : '✓ ĐẠT SLA'}
                         </p>
                       )}
                     </div>
@@ -2968,7 +3196,7 @@ export default function Requisitions({ user }) {
                                 activeReqForPrint.status === 'Approved' || activeReqForPrint.status === 'InTransit' || activeReqForPrint.status === 'Received' || activeReqForPrint.status === 'PartiallyReceived' ? SIG.chuong : <span style={{ color: '#888', fontStyle: 'italic', fontSize: '10px' }}>Chờ ký duyệt</span>
                               )}
                             </div>
-                            <p style={{ margin: 0, fontWeight: 'bold' }}>{activeReqForPrint.delegatedTo ? `✍️ Ký thay: DĐ. ${activeReqForPrint.delegatedTo}` : (() => {
+                            <p style={{ margin: 0, fontWeight: 'bold' }}>{activeReqForPrint.delegatedTo ? `Ký thay: DĐ. ${activeReqForPrint.delegatedTo}` : (() => {
                               const deptId = activeReqForPrint.departmentID;
                               const deptName = activeReqForPrint.department?.departmentName || '';
                               if (deptId === 2 || String(deptName).toLowerCase().includes('cấp cứu')) return 'BS.CKII. Lê Văn Chương';
@@ -3235,7 +3463,7 @@ export default function Requisitions({ user }) {
                       checked={requisitionType === 'Urgent'} 
                       onChange={() => setRequisitionType('Urgent')} 
                     />
-                    🚨 Lĩnh Khẩn Cấp (Ưu tiên duyệt)
+                    Lĩnh Khẩn Cấp (Ưu tiên duyệt)
                   </label>
                 </div>
               </div>
@@ -3285,13 +3513,15 @@ export default function Requisitions({ user }) {
                     <div className="form-group" style={{ marginBottom: 0 }}>
                       <label className="form-label">Số lượng lĩnh</label>
                       <input 
-                        type="number" 
-                        min="1"
-                        step="1"
+                        type="text" 
+                        inputMode="numeric"
+                        pattern="[0-9]*"
                         className="form-input" 
                         placeholder="VD: 10"
                         value={item.requestedQuantity} 
-                        onChange={e => handleReqItemChange(idx, 'requestedQuantity', e.target.value)}
+                        onKeyDown={handleIntegerKeyDown}
+                        onChange={e => handleReqItemChange(idx, 'requestedQuantity', sanitizeInteger(e.target.value, false))}
+                        onPaste={e => handleIntegerPaste(e, val => handleReqItemChange(idx, 'requestedQuantity', val), false)}
                         required
                       />
                     </div>

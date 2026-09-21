@@ -49,8 +49,8 @@ public class CabinetController : ControllerBase
     public async Task<IActionResult> ExportFromCabinet([FromBody] CabinetExportRequest request)
     {
         var userRole = Request.Headers["X-User-Role"].ToString();
-        if (userRole != "nurse" && userRole != "head" && userRole != "head_nurse")
-            return BadRequest(new { Error = "Quyền truy cập bị từ chối. Chỉ Điều dưỡng khoa hoặc Trưởng khoa mới có quyền thực hiện xuất tủ trực cấp phát cho bệnh nhân." });
+        if (userRole != "nurse" && userRole != "head" && userRole != "head_nurse" && userRole != "dispensary" && userRole != "pharmacist")
+            return BadRequest(new { Error = "Quyền truy cập bị từ chối. Chỉ Dược sĩ, Điều dưỡng khoa hoặc Trưởng khoa mới có quyền thực hiện xuất tủ trực cấp phát cho bệnh nhân." });
         
         if (request == null)
             return BadRequest(new { Error = "Thông tin xuất tủ trực không hợp lệ." });
@@ -76,7 +76,8 @@ public class CabinetController : ControllerBase
                 return BadRequest(new { Error = "Tủ trực của khoa đang tiến hành kiểm kê và bị khóa mọi giao dịch xuất tủ." });
 
             var userFullName = System.Net.WebUtility.UrlDecode(Request.Headers["X-User-FullName"].ToString());
-            if (string.IsNullOrEmpty(userFullName)) userFullName = "Điều dưỡng lâm sàng";
+            if (string.IsNullOrEmpty(userFullName))
+                userFullName = (userRole == "dispensary" || userRole == "pharmacist") ? "Dược sĩ cấp phát" : "Điều dưỡng lâm sàng";
 
             var txs = await _cabinetService.ExportMultipleFromCabinetAsync(
                 request.DepartmentID, 
@@ -129,6 +130,46 @@ public class CabinetController : ControllerBase
         {
             return BadRequest(new { Error = ex.Message });
         }
+    }
+
+    /// <summary>
+    /// Tra cứu hồ sơ bệnh nhân theo Mã BA/BN để tự động điền Họ tên và danh sách thuốc theo Y lệnh
+    /// </summary>
+    [HttpGet("lookup-patient")]
+    public async Task<IActionResult> LookupPatient([FromQuery] string? query = null, [FromQuery] int departmentId = 0)
+    {
+        var prescQuery = _context.OutpatientPrescriptions
+            .Include(p => p.Details)
+                .ThenInclude(d => d.Medicine)
+            .AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(query))
+        {
+            var q = query.Trim().ToLower();
+            prescQuery = prescQuery.Where(p => p.PatientCode.ToLower().Contains(q) || p.PatientName.ToLower().Contains(q));
+        }
+
+        var patients = await prescQuery
+            .OrderByDescending(p => p.PrescribedAt)
+            .Take(15)
+            .Select(p => new
+            {
+                p.PatientCode,
+                p.PatientName,
+                p.Diagnosis,
+                p.DoctorName,
+                Medicines = p.Details.Select(d => new
+                {
+                    d.MedicineID,
+                    MedicineName = d.Medicine != null ? d.Medicine.MedicineName : "Thuốc",
+                    Unit = d.Medicine != null ? d.Medicine.Unit : "Viên",
+                    RequestedQuantity = d.RequestedQuantity > 0 ? d.RequestedQuantity : 1,
+                    d.DosageInstructions
+                }).ToList()
+            })
+            .ToListAsync();
+
+        return Ok(patients);
     }
 }
 

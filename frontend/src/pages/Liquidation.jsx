@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { AlertOctagon, FileText, Check, Trash2, Printer, RefreshCw, Layers, PenTool, Eraser, ThumbsUp, X } from 'lucide-react';
+import { handleIntegerKeyDown, sanitizeInteger, handleIntegerPaste } from '../utils/numberInputUtils';
 
 const SIG = {
   duoc: (
@@ -307,6 +308,56 @@ export default function Liquidation({ user }) {
     setShowSignatureModal(true);
   };
 
+  const handleExportLiquidations = () => {
+    if (!liquidations || liquidations.length === 0) {
+      alert("Không có dữ liệu thanh lý/tiêu hủy để xuất báo cáo.");
+      return;
+    }
+
+    const headers = [
+      "Mã Biên Bản",
+      "Phân Loại",
+      "Lý Do Xử Lý",
+      "Người Lập",
+      "Ngày Thực Hiện",
+      "Dược Phẩm Xử Lý Chi Tiết",
+      "Trạng Thái"
+    ];
+
+    const rows = liquidations.map(liq => {
+      const detailsStr = liq.details ? liq.details.map(d => 
+        `${d.batch?.medicine?.medicineName || ''} (Lô: ${d.batch?.batchNumber || ''}, SL: ${d.quantity || 0} ${d.batch?.medicine?.unit || ''})`
+      ).join("; ") : "";
+
+      let statusStr = liq.status;
+      if (liq.status === 'Chờ duyệt') statusStr = 'Chờ duyệt';
+      else if (liq.status === 'Đã duyệt') statusStr = 'Đã duyệt';
+      else if (liq.status === 'Đã thanh lý') statusStr = 'Đã thanh lý';
+      else if (liq.status === 'Đã tiêu hủy') statusStr = 'Đã tiêu hủy';
+      else if (liq.status === 'Từ chối') statusStr = 'Từ chối';
+
+      return [
+        getLiquidationCode(liq),
+        liq.type || 'Tiêu hủy',
+        liq.reason || '',
+        liq.createdBy || '',
+        new Date(liq.liquidationDate).toLocaleString('vi-VN'),
+        detailsStr,
+        statusStr
+      ];
+    });
+
+    const csvContent = "\uFEFF" + [headers.join(","), ...rows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(","))].join("\n");
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `Bao_cao_thanh_ly_tieu_huy_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const handleRejectLiquidation = (id) => {
     if (!window.confirm("Bạn có chắc chắn muốn từ chối yêu cầu thanh lý này không?")) return;
     fetch(`/api/liquidation/${id}/reject`, {
@@ -362,7 +413,7 @@ export default function Liquidation({ user }) {
   const handleQuantityChange = (batchID, location, val) => {
     const updated = selectedItems.map(x => {
       if (x.batchID === batchID && x.location === location) {
-        return { ...x, quantity: parseInt(val) || 0 };
+        return { ...x, quantity: val === "" ? "" : (parseInt(val) || 0) };
       }
       return x;
     });
@@ -374,6 +425,13 @@ export default function Liquidation({ user }) {
     if (selectedItems.length === 0) {
       alert("Vui lòng chọn ít nhất một lô thuốc hết hạn để thanh lý.");
       return;
+    }
+    for (const item of selectedItems) {
+      const q = parseInt(item.quantity, 10);
+      if (item.quantity === "" || isNaN(q) || q <= 0) {
+        alert("Vui lòng điền số lượng thanh lý hợp lệ (lớn hơn 0) cho các mặt hàng đã chọn.");
+        return;
+      }
     }
     if (!reason) {
       alert("Vui lòng nhập lý do thanh lý tài sản.");
@@ -395,7 +453,10 @@ export default function Liquidation({ user }) {
       reason: finalReason,
       type: activeTab === 'liquidation' ? 'Thanh lý' : 'Tiêu hủy',
       createdBy: user?.fullName || 'Dược sĩ Hà Lâm Đình Phú',
-      items: selectedItems,
+      items: selectedItems.map(item => ({
+        ...item,
+        quantity: parseInt(item.quantity, 10)
+      })),
       digitalSignature: signatureData,
       checkerName: checkerName
     };
@@ -448,8 +509,20 @@ export default function Liquidation({ user }) {
 
   return (
     <div>
-      <h1 className="page-title">Thanh Lý & Tiêu Hủy Tài Sản</h1>
-      <p className="page-subtitle">Quản lý lập đề xuất và duyệt thanh lý các lô thuốc hết hạn, cận hạn (dưới 30 ngày) hoặc hư hỏng định kỳ.</p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+        <div>
+          <h1 className="page-title">Thanh Lý & Tiêu Hủy Tài Sản</h1>
+          <p className="page-subtitle">Quản lý lập đề xuất và duyệt thanh lý các lô thuốc hết hạn, cận hạn (dưới 30 ngày) hoặc hư hỏng định kỳ.</p>
+        </div>
+        <button 
+          type="button" 
+          className="btn-secondary" 
+          style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }} 
+          onClick={handleExportLiquidations}
+        >
+          Xuất báo cáo
+        </button>
+      </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1.5rem' }}>
         {/* Left Side: Expired Candidates and liquidation form */}
@@ -727,12 +800,34 @@ export default function Liquidation({ user }) {
                             {activeTab === 'liquidation' ? 'SL thanh lý:' : 'SL tiêu hủy:'}
                           </label>
                           <input 
-                            type="number"
+                            type="text"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
                             className="form-input"
-                            style={{ width: '80px', padding: '0.25rem 0.5rem' }}
+                            style={{ width: '80px', padding: '0.25rem 0.5rem', textAlign: 'center' }}
                             value={item.quantity}
-                            max={orig?.quantity}
-                            onChange={e => handleQuantityChange(item.batchID, item.location, e.target.value)}
+                            onKeyDown={handleIntegerKeyDown}
+                            onChange={e => {
+                              const cleaned = sanitizeInteger(e.target.value, false);
+                              const maxVal = orig?.quantity;
+                              let finalVal = cleaned;
+                              if (maxVal !== undefined && cleaned !== '') {
+                                const num = parseInt(cleaned, 10);
+                                if (num > maxVal) finalVal = String(maxVal);
+                              }
+                              handleQuantityChange(item.batchID, item.location, finalVal);
+                            }}
+                            onPaste={e => {
+                              handleIntegerPaste(e, (cleaned) => {
+                                const maxVal = orig?.quantity;
+                                let finalVal = cleaned;
+                                if (maxVal !== undefined && cleaned !== '') {
+                                  const num = parseInt(cleaned, 10);
+                                  if (num > maxVal) finalVal = String(maxVal);
+                                }
+                                handleQuantityChange(item.batchID, item.location, finalVal);
+                              }, false);
+                            }}
                           />
                         </div>
                       </div>
@@ -761,9 +856,19 @@ export default function Liquidation({ user }) {
 
         {/* Right Side: Historical Liquidations */}
         <div className="glass-card">
-          <h3 style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <FileText size={20} color="var(--color-secondary)" /> Lịch Sử Thanh Lý & Tiêu Hủy
-          </h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+            <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <FileText size={20} color="var(--color-secondary)" /> Lịch Sử Thanh Lý & Tiêu Hủy
+            </h3>
+            <button 
+              type="button" 
+              className="btn-secondary" 
+              style={{ padding: '0.35rem 0.75rem', fontSize: '0.75rem', border: '1px solid var(--border-glass)' }} 
+              onClick={handleExportLiquidations}
+            >
+              Xuất báo cáo
+            </button>
+          </div>
           <div style={{ maxHeight: '600px', overflowY: 'auto', paddingRight: '0.5rem' }}>
             {liquidations.length === 0 ? (
               <p style={{ color: 'var(--text-muted)' }}>Chưa có lịch sử thanh lý/tiêu hủy tài sản.</p>

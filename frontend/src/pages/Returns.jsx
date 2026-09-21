@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { RefreshCcw, Send, CheckCircle, XCircle, FileText, Plus, Trash, PenTool, Eraser, ThumbsUp, Printer, X } from 'lucide-react';
+import { handleIntegerKeyDown, sanitizeInteger, handleIntegerPaste } from '../utils/numberInputUtils';
 
 const SIG = {
   duoc: (
@@ -57,7 +58,12 @@ export default function Returns({ user }) {
   const fetchInitialData = () => {
     setLoading(true);
     Promise.all([
-      fetch('/api/return').then(res => res.json()),
+      fetch('/api/return', {
+        headers: {
+          'X-User-Role': user?.role || '',
+          'X-User-DeptID': user?.departmentID ? user.departmentID.toString() : ''
+        }
+      }).then(res => res.json()),
       fetch('/api/requisition/departments').then(res => res.json())
     ])
     .then(([returnsData, deptsData]) => {
@@ -127,19 +133,6 @@ export default function Returns({ user }) {
         }
       }
     } else if (field === 'quantity') {
-      const batchID = newItems[index].batchID;
-      if (batchID) {
-        const cabinetItem = deptCabinetStocks.find(s => s.batchID.toString() === batchID.toString());
-        if (cabinetItem) {
-          const qty = parseInt(value, 10);
-          if (!isNaN(qty) && qty > cabinetItem.currentQuantity) {
-            alert(`Số lượng hoàn trả không được vượt quá số lượng hiện có trong tủ trực khoa (${cabinetItem.currentQuantity}).`);
-            newItems[index].quantity = cabinetItem.currentQuantity.toString();
-            setReturnItems(newItems);
-            return;
-          }
-        }
-      }
       newItems[index].quantity = value;
     } else {
       newItems[index][field] = value;
@@ -230,6 +223,55 @@ export default function Returns({ user }) {
     }
   };
 
+  const handleExportReturns = () => {
+    if (!returns || returns.length === 0) {
+      alert("Không có dữ liệu hoàn trả để xuất báo cáo.");
+      return;
+    }
+
+    const headers = [
+      "Mã Phiếu Hoàn Trả",
+      "Khoa/Phòng Hoàn Trả",
+      "Ngày Đề Xuất",
+      "Lý Do Hoàn Trả",
+      "Thuốc/Vật Tư Hoàn Trả",
+      "Trạng Thái"
+    ];
+
+    const rows = returns.map(ret => {
+      const detailsStr = ret.details ? ret.details.map(d => 
+        `${d.batch?.medicine?.medicineName || ''} (Lô: ${d.batch?.batchNumber || ''}, SL: ${d.quantity || 0} ${d.batch?.medicine?.unit || ''})`
+      ).join("; ") : "";
+
+      const statusStr = ret.status === 'Pending' 
+        ? 'Chờ Lãnh đạo duyệt' 
+        : ret.status === 'PendingPharmacist' 
+        ? 'Chờ Thủ kho nhận' 
+        : ret.status === 'Approved' 
+        ? 'Đã duyệt nhận' 
+        : 'Từ chối';
+
+      return [
+        getReturnCode(ret),
+        ret.department?.departmentName || '',
+        new Date(ret.returnDate).toLocaleString('vi-VN'),
+        ret.returnReason || '',
+        detailsStr,
+        statusStr
+      ];
+    });
+
+    const csvContent = "\uFEFF" + [headers.join(","), ...rows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(","))].join("\n");
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `Bao_cao_hoan_tra_thuoc_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const handleConfirmSignature = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -257,8 +299,8 @@ export default function Returns({ user }) {
 
   const handleSubmitReturn = (e, signatureData = null) => {
     if (e) e.preventDefault();
-    if (user?.role !== 'head_nurse') {
-      alert("Quyền hạn bị từ chối. Chỉ Điều dưỡng trưởng khoa mới có quyền lập đề xuất và ký số phiếu hoàn trả thuốc thừa về Kho Dược.");
+    if (user?.role !== 'head_nurse' && user?.role !== 'dispensary') {
+      alert("Quyền hạn bị từ chối. Chỉ Điều dưỡng trưởng khoa hoặc Dược sĩ phụ trách kho lẻ của khoa mới có quyền lập đề xuất và ký số phiếu hoàn trả thuốc thừa về Kho Dược.");
       return;
     }
     if (!selectedDept) return;
@@ -331,7 +373,8 @@ export default function Returns({ user }) {
       headers: { 
         'Content-Type': 'application/json',
         'X-User-Role': user?.role || '',
-        'X-User-FullName': encodeURIComponent(user?.fullName || '')
+        'X-User-FullName': encodeURIComponent(user?.fullName || ''),
+        'X-User-DeptID': user?.departmentID ? user.departmentID.toString() : ''
       },
       body: JSON.stringify(payload)
     })
@@ -481,11 +524,11 @@ export default function Returns({ user }) {
 
       <div style={{ 
         display: 'grid', 
-        gridTemplateColumns: user?.role === 'head_nurse' ? '1.2fr 1fr' : '1fr', 
+        gridTemplateColumns: (user?.role === 'head_nurse' || user?.role === 'dispensary') ? '1.2fr 1fr' : '1fr', 
         gap: '1.5rem' 
       }}>
-        {/* Left Side: Create Return Receipt - Only visible to head_nurse */}
-        {user?.role === 'head_nurse' && (
+        {/* Left Side: Create Return Receipt - Visible to head_nurse and dispensary */}
+        {(user?.role === 'head_nurse' || user?.role === 'dispensary') && (
           <div className="glass-card">
             <h3 style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <FileText size={20} color="var(--color-primary)" /> Đề Nghị Hoàn Trả Thuốc Thừa
@@ -585,14 +628,30 @@ export default function Returns({ user }) {
                       <div className="form-group" style={{ marginBottom: 0 }}>
                         <label className="form-label">Số lượng trả</label>
                         <input 
-                          type="number" 
-                          min="1"
-                          max={selectedBatch ? maxQty : undefined}
-                          step="1"
+                          type="text" 
+                          inputMode="numeric"
+                          pattern="[0-9]*"
                           className="form-input" 
                           placeholder={selectedBatch ? `Tối đa: ${maxQty}` : "Chọn thuốc trước"}
                           value={item.quantity} 
-                          onChange={e => handleItemChange(idx, 'quantity', e.target.value)}
+                          onKeyDown={handleIntegerKeyDown}
+                          onChange={e => {
+                            let clean = sanitizeInteger(e.target.value, false);
+                            if (selectedBatch && clean !== '') {
+                              const num = parseInt(clean, 10);
+                              if (num > maxQty) clean = String(maxQty);
+                            }
+                            handleItemChange(idx, 'quantity', clean);
+                          }}
+                          onPaste={e => {
+                            handleIntegerPaste(e, (clean) => {
+                              if (selectedBatch && clean !== '') {
+                                const num = parseInt(clean, 10);
+                                if (num > maxQty) clean = String(maxQty);
+                              }
+                              handleItemChange(idx, 'quantity', clean);
+                            }, false);
+                          }}
                           disabled={!item.batchID}
                         />
                       </div>
@@ -624,7 +683,7 @@ export default function Returns({ user }) {
                   lineHeight: '1.4',
                   marginBottom: '1rem'
                 }}>
-                  ⚠️ Tủ trực của khoa hiện đang trống. Khoa không có thuốc thừa nào để thực hiện quy trình hoàn trả về Kho Dược.
+                  Tủ trực của khoa hiện đang trống. Khoa không có thuốc thừa nào để thực hiện quy trình hoàn trả về Kho Dược.
                 </div>
               )}
 
@@ -637,10 +696,20 @@ export default function Returns({ user }) {
 
         {/* Right Side: Return logs and approval console */}
         <div className="glass-card">
-          <h3 style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <CheckCircle size={20} color="var(--color-secondary)" /> 
-            {user?.role === 'pharmacist' ? 'Danh Sách & Phê Duyệt Nhận Hoàn Trả Thuốc' : 'Theo Dõi Duyệt Hoàn Trả Thuốc Thừa'}
-          </h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+            <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <CheckCircle size={20} color="var(--color-secondary)" /> 
+              {user?.role === 'pharmacist' ? 'Danh Sách & Phê Duyệt Nhận Hoàn Trả Thuốc' : 'Theo Dõi Duyệt Hoàn Trả Thuốc Thừa'}
+            </h3>
+            <button 
+              type="button" 
+              className="btn-secondary" 
+              style={{ padding: '0.35rem 0.75rem', fontSize: '0.75rem', border: '1px solid var(--border-glass)' }} 
+              onClick={handleExportReturns}
+            >
+              Xuất báo cáo hoàn trả
+            </button>
+          </div>
           <div style={{ maxHeight: '600px', overflowY: 'auto', paddingRight: '0.5rem' }}>
             {returns.length === 0 ? (
               <p style={{ color: 'var(--text-muted)' }}>Chưa có phiếu hoàn trả nào.</p>

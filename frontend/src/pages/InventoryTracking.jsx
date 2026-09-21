@@ -89,6 +89,202 @@ export default function InventoryTracking({ user }) {
     return true;
   });
 
+  const handleExportInventory = () => {
+    if (reportType === 'summary') {
+      if (filteredSummary.length === 0) {
+        alert("Không có số liệu tồn kho tổng hợp để xuất.");
+        return;
+      }
+      const headers = [
+        "Mã Thuốc",
+        "Tên Thuốc",
+        "Tên Gốc / Hoạt Chất",
+        "Quy Cách",
+        "Đơn Vị Tính",
+        "Tồn Kho Chẵn",
+        "Tồn Tủ Trực",
+        "Tổng Tồn Thực Tế",
+        "Mức Tối Thiểu",
+        "Trạng Thái"
+      ];
+      const rows = filteredSummary.map(item => [
+        item.medicineCode,
+        item.medicineName,
+        item.genericName || '',
+        item.specification || '',
+        item.unit,
+        item.mainStoreQty || 0,
+        item.cabinetQty || 0,
+        item.totalQty || 0,
+        item.minInventory || 0,
+        item.isLowStock ? 'Dưới mức tối thiểu' : 'An toàn'
+      ]);
+
+      const csvContent = "\uFEFF" + [headers.join(","), ...rows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(","))].join("\n");
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `Bao_cao_nhap_xuat_ton_tong_hop_${new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } else {
+      if (filteredBatches.length === 0) {
+        alert("Không có danh sách lô thuốc để xuất.");
+        return;
+      }
+      const headers = [
+        "Mã Thuốc",
+        "Tên Thuốc",
+        "Số Lô Đăng Ký",
+        "Nơi Lưu Trữ",
+        "Đơn Giá Nhập",
+        "Hạn Sử Dụng",
+        "Số Lượng Tồn",
+        "Hạn Dùng"
+      ];
+      const rows = filteredBatches.map(item => {
+        const today = new Date();
+        const expiry = new Date(item.expiryDate);
+        const diffDays = Math.ceil((expiry - today) / (1000 * 60 * 60 * 24));
+        
+        let indicatorText = 'An toàn';
+        if (item.status === 'Cách ly') {
+          indicatorText = 'Cách ly (Khóa phát)';
+        } else if (item.status === 'Chờ tiêu hủy') {
+          indicatorText = 'Chờ tiêu hủy';
+        } else if (item.status === 'Thu hồi') {
+          indicatorText = 'Đang thu hồi';
+        } else if (item.status === 'Trả NCC') {
+          indicatorText = 'Đã trả NCC';
+        } else if (item.status === 'Tiêu hủy') {
+          indicatorText = 'Đã tiêu hủy';
+        } else if (diffDays <= 0) {
+          indicatorText = 'Hết hạn';
+        } else if (diffDays <= 90) {
+          indicatorText = `Cận hạn (${diffDays} ngày)`;
+        }
+
+        return [
+          item.medicineCode,
+          item.medicineName,
+          item.batchNumber,
+          item.location === 'MainStore' ? 'Kho Chẵn' : `Tủ trực: ${item.location}`,
+          item.importPrice || 0,
+          new Date(item.expiryDate).toLocaleDateString('vi-VN'),
+          item.quantity || 0,
+          indicatorText
+        ];
+      });
+
+      const csvContent = "\uFEFF" + [headers.join(","), ...rows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(","))].join("\n");
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `Bao_cao_nhap_xuat_ton_chi_tiet_lo_${new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+  };
+
+  const handleExportExpiring = () => {
+    fetch('/api/dashboard/summary?timeUnit=month')
+      .then(res => res.json())
+      .then(summary => {
+        const alerts = summary?.expiringAlerts || [];
+        if (!alerts.length) {
+          alert("Không có dữ liệu thuốc cận hạn sử dụng!");
+          return;
+        }
+        const headers = [
+          "Tên Thuốc / Vật Tư", 
+          "Số Lô", 
+          "Hạn Sử Dụng", 
+          "Số Ngày Còn Lại", 
+          "Tồn Kho Chẵn", 
+          "Tồn Tủ Trực", 
+          "Tổng Tồn",
+          "Trạng Thái"
+        ];
+        const rows = alerts.map(a => [
+          a.medicineName,
+          a.batchNumber,
+          new Date(a.expiryDate).toLocaleDateString('vi-VN'),
+          a.daysLeft,
+          a.mainStoreQty,
+          a.cabinetQty,
+          a.mainStoreQty + a.cabinetQty,
+          a.daysLeft <= 0 ? "Đã hết hạn" : a.daysLeft <= 30 ? "Nguy cấp" : "Sắp hết hạn"
+        ]);
+        const csvContent = "\uFEFF" + [headers.join(","), ...rows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(","))].join("\n");
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.setAttribute("href", url);
+        link.setAttribute("download", `Bao_Cao_Thuoc_Can_Han_Dung_${new Date().toISOString().slice(0, 10)}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      })
+      .catch(err => alert("Lỗi khi tải dữ liệu cận hạn: " + err.message));
+  };
+
+  const handleExportWaste = () => {
+    fetch('/api/dashboard/waste-analytics?timeUnit=month')
+      .then(res => res.json())
+      .then(wasteData => {
+        const monthlyLoss = wasteData?.monthlyLoss || [];
+        const wasteByGroup = wasteData?.wasteByGroup || [];
+        const wasteByDepartment = wasteData?.wasteByDepartment || [];
+        
+        const csvData = [];
+        
+        csvData.push(["Hạng Mục", "Thông Tin", "Giá Trị (VND)"]);
+        csvData.push(["HAO HỤT THEO THỜI GIAN", "", ""]);
+        monthlyLoss.forEach(item => {
+          csvData.push([
+            item.month,
+            "Chi phí tiêu hủy / quá hạn",
+            item.lossAmount.toLocaleString('vi-VN')
+          ]);
+        });
+        
+        csvData.push(["", "", ""]);
+        csvData.push(["CƠ CẤU HAO HỤT THEO NHÓM DƯỢC LÝ", "", ""]);
+        wasteByGroup.forEach(item => {
+          csvData.push([
+            item.medicineGroup,
+            "Tổng tiền hao hụt",
+            item.totalLoss.toLocaleString('vi-VN')
+          ]);
+        });
+
+        csvData.push(["", "", ""]);
+        csvData.push(["HAO HỤT THEO KHOA LÂM SÀNG", "", ""]);
+        wasteByDepartment.forEach(item => {
+          csvData.push([
+            item.departmentName,
+            "Tổng tiền hao hụt lâm sàng",
+            item.totalLoss.toLocaleString('vi-VN')
+          ]);
+        });
+        
+        const csvContent = "\uFEFF" + csvData.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(",")).join("\n");
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.setAttribute("href", url);
+        link.setAttribute("download", `Bao_Cao_Hao_Hut_Lang_Phi_${new Date().toISOString().slice(0, 10)}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      })
+      .catch(err => alert("Lỗi khi tải dữ liệu hao hụt: " + err.message));
+  };
+
   if (loading) return <div style={{ color: '#fff', padding: '2rem' }}>Đang tải báo cáo tồn kho bệnh viện...</div>;
 
   return (
@@ -98,9 +294,18 @@ export default function InventoryTracking({ user }) {
           <h1 className="page-title">Báo Cáo Nhập - Xuất - Tồn Kho</h1>
           <p className="page-subtitle">Theo dõi số lượng tồn kho tổng hợp và chi tiết các lô thuốc đang lưu hành.</p>
         </div>
-        <div style={{ display: 'flex', gap: '1rem' }}>
-          <button className="btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }} onClick={fetchReports}>
-            <RefreshCw size={16} /> Làm mới
+        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+          <button className="btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.8rem' }} onClick={fetchReports}>
+            <RefreshCw size={14} /> Làm mới
+          </button>
+          <button className="btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.8rem' }} onClick={handleExportInventory}>
+            Xuất BC Nhập-Xuất-Tồn
+          </button>
+          <button className="btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.8rem' }} onClick={handleExportExpiring}>
+            Xuất BC Cận Hạn
+          </button>
+          <button className="btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.8rem' }} onClick={handleExportWaste}>
+            Xuất BC Hao Hụt
           </button>
         </div>
       </div>

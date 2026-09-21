@@ -13,6 +13,7 @@ import {
   Trash,
   ChevronRight
 } from 'lucide-react';
+import { handleIntegerKeyDown, sanitizeInteger, handleIntegerPaste } from '../utils/numberInputUtils';
 const SIG = {
   duoc: (
     <svg width="100" height="50" viewBox="0 0 120 60" style={{ display: 'block', margin: 'auto' }}>
@@ -61,6 +62,8 @@ export default function RestockManagement({ user }) {
   const [proposals, setProposals] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
   const [medicines, setMedicines] = useState([]); // Full medicines catalog for manual adding
+  const [filteredMedicines, setFilteredMedicines] = useState([]); // Filtered medicines based on supplier
+  const [supplierMedicineIds, setSupplierMedicineIds] = useState(new Set()); // IDs of medicines belonging to the selected supplier
   const [checkedItemIDs, setCheckedItemIDs] = useState([]); // Checked items in low-stock table
   const [loading, setLoading] = useState(true);
 
@@ -104,6 +107,7 @@ export default function RestockManagement({ user }) {
       setProposals(proposalsData);
       setSuppliers(suppliersData);
       setMedicines(medicinesData);
+      setFilteredMedicines(medicinesData);
       
       // Auto-check all items by default on load or refresh
       setCheckedItemIDs(lowStockData.map(item => item.medicineID));
@@ -127,6 +131,28 @@ export default function RestockManagement({ user }) {
     window.addEventListener('pharmacy-update', handleUpdate);
     return () => window.removeEventListener('pharmacy-update', handleUpdate);
   }, []);
+
+  // Fetch medicines for selected supplier when selectedSupplier changes
+  useEffect(() => {
+    if (!selectedSupplier) {
+      setFilteredMedicines(medicines);
+      setSupplierMedicineIds(new Set());
+      return;
+    }
+
+    const t = Date.now();
+    fetch(`/api/import/medicines?supplierId=${selectedSupplier}&_t=${t}`)
+      .then(res => res.json())
+      .then(data => {
+        setFilteredMedicines(data);
+        setSupplierMedicineIds(new Set(data.map(m => m.medicineID)));
+      })
+      .catch(err => {
+        console.error("Lỗi khi tải thuốc theo nhà cung cấp:", err);
+        setFilteredMedicines([]);
+        setSupplierMedicineIds(new Set());
+      });
+  }, [selectedSupplier, medicines]);
 
   // Handle opening creation modal
   const handleOpenProposalModal = () => {
@@ -155,7 +181,7 @@ export default function RestockManagement({ user }) {
 
   const handleQtyChange = (idx, val) => {
     const updated = [...proposalItems];
-    updated[idx].suggestedQuantity = parseInt(val) || 0;
+    updated[idx].suggestedQuantity = val === "" ? "" : (parseInt(val) || 0);
     setProposalItems(updated);
   };
 
@@ -210,7 +236,10 @@ export default function RestockManagement({ user }) {
       alert("Vui lòng chọn đầy đủ thuốc cho các dòng mới thêm.");
       return;
     }
-    if (proposalItems.some(item => item.suggestedQuantity <= 0)) {
+    if (proposalItems.some(item => {
+      const q = parseInt(item.suggestedQuantity, 10);
+      return isNaN(q) || q <= 0;
+    })) {
       alert("Vui lòng điền số lượng mua lớn hơn 0.");
       return;
     }
@@ -420,6 +449,56 @@ export default function RestockManagement({ user }) {
       });
   };
 
+  const handleExportProposals = () => {
+    if (!proposals || proposals.length === 0) {
+      alert("Không có dữ liệu đề xuất mua hàng để xuất báo cáo.");
+      return;
+    }
+
+    const headers = [
+      "Mã Đề Xuất",
+      "Nhà Cung Cấp",
+      "Lý Do Mua Mới",
+      "Người Đề Xuất",
+      "Người Phê Duyệt",
+      "Ngày Đề Xuất",
+      "Dược Phẩm Đề Xuất Chi Tiết",
+      "Trạng Thái"
+    ];
+
+    const rows = proposals.map(p => {
+      const detailsStr = p.details ? p.details.map(d => 
+        `${d.medicine?.medicineName || ''} (SL: ${d.suggestedQuantity || 0} ${d.medicine?.unit || ''})`
+      ).join("; ") : "";
+
+      let statusStr = p.status;
+      if (p.status === 'Pending') statusStr = 'Chờ duyệt';
+      else if (p.status === 'Approved') statusStr = 'Đã duyệt mua';
+      else if (p.status === 'Rejected') statusStr = 'Đã từ chối';
+
+      return [
+        getProposalCode(p),
+        p.supplierName || p.supplier?.supplierName || 'Nhiều nhà cung cấp',
+        p.reason || '',
+        p.createdBy || '',
+        p.approvedBy || '',
+        new Date(p.proposalDate).toLocaleString('vi-VN'),
+        detailsStr,
+        statusStr
+      ];
+    });
+
+    const csvContent = "\uFEFF" + [headers.join(","), ...rows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(","))].join("\n");
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `Bao_cao_de_xuat_mua_thuoc_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   if (loading && proposals.length === 0 && lowStockItems.length === 0) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh', color: '#94a3b8' }}>
@@ -442,6 +521,9 @@ export default function RestockManagement({ user }) {
         <div style={{ display: 'flex', gap: '0.75rem' }}>
           <button className="btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }} onClick={fetchInitialData}>
             <RefreshCw size={16} /> Làm mới dữ liệu
+          </button>
+          <button className="btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }} onClick={handleExportProposals}>
+            Xuất báo cáo
           </button>
           {user?.role === 'pharmacist' && (
             <button className="btn-premium" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }} onClick={handleOpenProposalModal}>
@@ -651,7 +733,7 @@ export default function RestockManagement({ user }) {
                       <td>
                         {p.status === 'Approved' ? (
                           <span style={{ color: 'var(--color-success)', fontSize: '0.8rem', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
-                            ✍️ Đã ký điện tử
+                            Đã ký điện tử
                           </span>
                         ) : (
                           <span style={{ color: 'var(--text-dim)', fontSize: '0.8rem' }}>Chưa ký</span>
@@ -760,88 +842,101 @@ export default function RestockManagement({ user }) {
                   </p>
                 ) : (
                   <div style={{ maxHeight: '300px', overflowY: 'auto', paddingRight: '0.5rem' }}>
-                    {proposalItems.map((item, idx) => (
-                      <div key={idx} style={{
-                        display: 'grid',
-                        gridTemplateColumns: '2fr 1fr 1fr 1fr 0.4fr',
-                        gap: '0.75rem',
-                        background: 'rgba(255,255,255,0.01)',
-                        border: '1px solid var(--border-glass)',
-                        borderRadius: '10px',
-                        padding: '0.75rem 0.9rem',
-                        marginBottom: '0.5rem',
-                        alignItems: 'center',
-                        position: 'relative'
-                      }}>
-                        {/* Cột 1: Tên thuốc hoặc Ô chọn thuốc */}
-                        <div>
-                          {item.isManual ? (
-                            <select
-                              className="form-input"
-                              value={item.medicineID}
-                              onChange={e => handleManualMedicineChange(idx, e.target.value)}
-                              style={{ height: '35px', fontSize: '0.8rem', padding: '0.2rem 0.5rem' }}
-                              required
-                            >
-                              <option value="">-- Chọn thuốc cần mua --</option>
-                              {medicines.map(med => (
-                                <option key={med.medicineID} value={med.medicineID}>{med.medicineName} ({med.medicineCode})</option>
-                              ))}
-                            </select>
-                          ) : (
-                            <>
-                              <div style={{ fontWeight: '600', fontSize: '0.85rem' }}>{item.medicineName}</div>
-                              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Mã: {item.medicineCode} - ĐVT: {item.unit}</div>
-                            </>
+                    {proposalItems.map((item, idx) => {
+                      const isMismatch = selectedSupplier && item.medicineID && !supplierMedicineIds.has(parseInt(item.medicineID));
+                      return (
+                        <div key={idx} style={{ marginBottom: '0.75rem' }}>
+                          <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: '2fr 1fr 1fr 1fr 0.4fr',
+                            gap: '0.75rem',
+                            background: isMismatch ? 'rgba(239, 68, 68, 0.03)' : 'rgba(255,255,255,0.01)',
+                            border: '1px solid var(--border-glass)',
+                            borderColor: isMismatch ? 'rgba(239, 68, 68, 0.4)' : 'var(--border-glass)',
+                            borderRadius: '10px',
+                            padding: '0.75rem 0.9rem',
+                            alignItems: 'center',
+                            position: 'relative'
+                          }}>
+                            {/* Cột 1: Tên thuốc hoặc Ô chọn thuốc */}
+                            <div>
+                              {item.isManual ? (
+                                <select
+                                  className="form-input"
+                                  value={item.medicineID}
+                                  onChange={e => handleManualMedicineChange(idx, e.target.value)}
+                                  style={{ height: '35px', fontSize: '0.8rem', padding: '0.2rem 0.5rem' }}
+                                  required
+                                >
+                                  <option value="">-- Chọn thuốc cần mua --</option>
+                                  {filteredMedicines.map(med => (
+                                    <option key={med.medicineID} value={med.medicineID}>{med.medicineName} ({med.medicineCode})</option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <>
+                                  <div style={{ fontWeight: '600', fontSize: '0.85rem' }}>{item.medicineName}</div>
+                                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Mã: {item.medicineCode} - ĐVT: {item.unit}</div>
+                                </>
+                              )}
+                            </div>
+
+                            {/* Cột 2: Tồn thực tế */}
+                            <div style={{ fontSize: '0.8rem' }}>
+                              {item.isManual ? (
+                                <>ĐVT: <strong>{item.unit || '-'}</strong></>
+                              ) : (
+                                <>Tồn: <strong>{item.currentQuantity}</strong></>
+                              )}
+                            </div>
+
+                            {/* Cột 3: Định mức tối thiểu */}
+                            <div style={{ fontSize: '0.8rem' }}>
+                              {item.isManual ? (
+                                <>Tối thiểu: <strong>{item.minInventory}</strong></>
+                              ) : (
+                                <>Định mức: <strong>{item.minInventory}</strong></>
+                              )}
+                            </div>
+
+                            {/* Cột 4: Số lượng mua */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Mua:</span>
+                              <input 
+                                type="text"
+                                inputMode="numeric"
+                                pattern="[0-9]*"
+                                className="form-input"
+                                style={{ width: '70px', padding: '0.2rem 0.4rem', height: '32px', fontSize: '0.8rem', textAlign: 'center' }}
+                                value={item.suggestedQuantity}
+                                onKeyDown={handleIntegerKeyDown}
+                                onChange={e => handleQtyChange(idx, sanitizeInteger(e.target.value, false))}
+                                onPaste={e => handleIntegerPaste(e, val => handleQtyChange(idx, val), false)}
+                                required
+                              />
+                            </div>
+
+                            {/* Cột 5: Nút xóa dòng */}
+                            <div style={{ display: 'flex', justifyContent: 'center' }}>
+                              <button 
+                                type="button" 
+                                className="btn-danger" 
+                                style={{ padding: '0.25rem', borderRadius: '4px', background: 'rgba(239, 68, 68, 0.1)', borderColor: 'rgba(239, 68, 68, 0.2)', color: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                onClick={() => handleRemoveItem(idx)}
+                                title="Xóa dòng này"
+                              >
+                                <Trash size={12} />
+                              </button>
+                            </div>
+                          </div>
+                          {isMismatch && (
+                            <div style={{ color: '#ef4444', fontSize: '0.72rem', marginTop: '0.25rem', paddingLeft: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.25rem', fontWeight: '500' }}>
+                              ⚠️ Thuốc này không nằm trong danh mục trúng thầu của nhà cung cấp đã chọn.
+                            </div>
                           )}
                         </div>
-
-                        {/* Cột 2: Tồn thực tế */}
-                        <div style={{ fontSize: '0.8rem' }}>
-                          {item.isManual ? (
-                            <>ĐVT: <strong>{item.unit || '-'}</strong></>
-                          ) : (
-                            <>Tồn: <strong>{item.currentQuantity}</strong></>
-                          )}
-                        </div>
-
-                        {/* Cột 3: Định mức tối thiểu */}
-                        <div style={{ fontSize: '0.8rem' }}>
-                          {item.isManual ? (
-                            <>Tối thiểu: <strong>{item.minInventory}</strong></>
-                          ) : (
-                            <>Định mức: <strong>{item.minInventory}</strong></>
-                          )}
-                        </div>
-
-                        {/* Cột 4: Số lượng mua */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Mua:</span>
-                          <input 
-                            type="number"
-                            className="form-input"
-                            style={{ width: '70px', padding: '0.2rem 0.4rem', height: '32px', fontSize: '0.8rem' }}
-                            value={item.suggestedQuantity}
-                            min="1"
-                            onChange={e => handleQtyChange(idx, e.target.value)}
-                            required
-                          />
-                        </div>
-
-                        {/* Cột 5: Nút xóa dòng */}
-                        <div style={{ display: 'flex', justifyContent: 'center' }}>
-                          <button 
-                            type="button" 
-                            className="btn-danger" 
-                            style={{ padding: '0.25rem', borderRadius: '4px', background: 'rgba(239, 68, 68, 0.1)', borderColor: 'rgba(239, 68, 68, 0.2)', color: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                            onClick={() => handleRemoveItem(idx)}
-                            title="Xóa dòng này"
-                          >
-                            <Trash size={12} />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>

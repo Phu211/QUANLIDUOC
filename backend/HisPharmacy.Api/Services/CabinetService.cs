@@ -28,7 +28,7 @@ public class CabinetService
                 throw new InvalidOperationException("Số lượng tồn trong tủ trực tại khoa phòng không đủ để xuất phát.");
             }
 
-            if (stock.Batch != null && stock.Batch.Status != "Bình thường")
+            if (stock.Batch != null && stock.Batch.Status != "Bình thường" && stock.Batch.Status != "Đang sử dụng")
             {
                 throw new InvalidOperationException($"Lô thuốc {stock.Batch.BatchNumber} đang bị đình chỉ hoặc thu hồi (Trạng thái: {stock.Batch.Status}). Không thể cấp phát cho bệnh nhân!");
             }
@@ -88,7 +88,7 @@ public class CabinetService
                     throw new InvalidOperationException($"Số lượng tồn trong tủ trực tại khoa phòng không đủ để xuất phát.");
                 }
 
-                if (stock.Batch != null && stock.Batch.Status != "Bình thường")
+                if (stock.Batch != null && stock.Batch.Status != "Bình thường" && stock.Batch.Status != "Đang sử dụng")
                 {
                     throw new InvalidOperationException($"Lô thuốc {stock.Batch.BatchNumber} đang bị đình chỉ hoặc thu hồi (Trạng thái: {stock.Batch.Status}). Không thể cấp phát cho bệnh nhân!");
                 }
@@ -159,6 +159,9 @@ public class CabinetService
             if (!pendingTxs.Any())
                 return null; // Nothing to refill
 
+            // Ensure current accounting period is not locked
+            await AccountingPeriodHelper.EnsurePeriodNotLockedAsync(_context, DateTime.Today);
+
             // Group by Medicine ID to calculate total required quantity for each item
             var refillItems = pendingTxs
                 .GroupBy(t => t.Batch!.MedicineID)
@@ -168,6 +171,23 @@ public class CabinetService
                     TotalQuantity = g.Sum(t => t.Quantity)
                 })
                 .ToList();
+
+            // Strict Clinical Check: Prohibit automated cabinet refill for Narcotic / Psychotropic drugs without specific patient code
+            foreach (var item in refillItems)
+            {
+                var med = await _context.Medicines.FindAsync(item.MedicineID);
+                if (med != null && med.DrugClassification == "NarcoticPsychotropic")
+                {
+                    var unassignedTxs = pendingTxs
+                        .Where(t => t.Batch!.MedicineID == item.MedicineID && string.IsNullOrWhiteSpace(t.PatientCode))
+                        .ToList();
+
+                    if (unassignedTxs.Any())
+                    {
+                        throw new InvalidOperationException($"Dược phẩm '{med.MedicineName}' thuộc nhóm Hướng thần / Gây nghiện (Kiểm soát đặc biệt). Cấm cấp phát bù tự động vào cơ số tủ trực nếu không có chỉ định đích danh bệnh nhân (Theo Thông tư 20/2017/TT-BYT). Vui lòng lập phiếu dự trù đích danh theo hồ sơ bệnh án.");
+                    }
+                }
+            }
 
             // Create a new Requisition of type 'CabinetRefill'
             var requisition = new MedicineRequisition

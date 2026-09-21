@@ -34,6 +34,26 @@ public class StockService
             if (req.Status != "Pending")
                 throw new InvalidOperationException("Phiếu dự trù đã được phê duyệt hoặc từ chối trước đó.");
 
+            // Check period lock
+            await AccountingPeriodHelper.EnsurePeriodNotLockedAsync(_context, req.RequisitionDate);
+
+            // Strict Clinical Check: Narcotic and Psychotropic classification
+            foreach (var detail in req.Details)
+            {
+                var med = await _context.Medicines.FindAsync(detail.MedicineID);
+                if (med != null && med.DrugClassification == "NarcoticPsychotropic")
+                {
+                    if (req.RequisitionType == "CabinetRefill")
+                    {
+                        throw new InvalidOperationException($"Thuốc '{med.MedicineName}' thuộc nhóm Hướng thần / Gây nghiện - Cấm cấp phát bù tự động vào cơ số tủ trực khi không có chỉ định đích danh bệnh nhân (Theo Thông tư 20/2017/TT-BYT).");
+                    }
+                    if (string.IsNullOrWhiteSpace(approverSignature))
+                    {
+                        throw new InvalidOperationException($"Thuốc '{med.MedicineName}' thuộc danh mục kiểm soát đặc biệt. Bắt buộc Dược sĩ xuất kho phải ký số và đối soát từng đơn vị số lô.");
+                    }
+                }
+            }
+
             // Save approver and delivery details
             req.ApproverSignature = approverSignature;
             req.ApproverName = approverName;
@@ -145,6 +165,10 @@ public class StockService
 
             req.Status = "InTransit"; // Đang vận chuyển
             req.DispenseDate = DateTime.Now;
+
+            // Compute Canonical Hash for Document Integrity (DocumentHash)
+            var canonical = DocumentSecurityHelper.BuildCanonicalString(req);
+            req.DocumentHash = DocumentSecurityHelper.ComputeSha256(canonical);
 
             // Log User Action to AuditLogs
             _context.AuditLogs.Add(new AuditLog
@@ -378,6 +402,9 @@ public class StockService
         using var transaction = await _context.Database.BeginTransactionAsync();
         try
         {
+            // Ensure accounting period is not locked
+            await AccountingPeriodHelper.EnsurePeriodNotLockedAsync(_context, DateTime.Today);
+
             // Tự động sinh Số phiếu nhập nội bộ quy chuẩn: PNK-YYYYMMDD-XXXX
             var todayStr = DateTime.Today.ToString("yyyyMMdd");
             var prefix = $"PNK-{todayStr}-";
@@ -512,6 +539,12 @@ public class StockService
 
             await _context.SaveChangesAsync();
             await RecalculateForReceiptAsync(import.ImportID);
+
+            // Compute canonical document hash
+            var canonicalImport = DocumentSecurityHelper.BuildCanonicalString(import);
+            import.DocumentHash = DocumentSecurityHelper.ComputeSha256(canonicalImport);
+            await _context.SaveChangesAsync();
+
             await transaction.CommitAsync();
 
             return import;
@@ -542,6 +575,14 @@ public class StockService
         {
             import.ApproverName = approverName;
         }
+
+        // Check period lock
+        await AccountingPeriodHelper.EnsurePeriodNotLockedAsync(_context, import.ImportDate);
+
+        // Compute canonical document hash
+        var canonicalApproved = DocumentSecurityHelper.BuildCanonicalString(import);
+        import.DocumentHash = DocumentSecurityHelper.ComputeSha256(canonicalApproved);
+
         await _context.SaveChangesAsync();
         await RecalculateForReceiptAsync(import.ImportID);
     }
@@ -694,6 +735,12 @@ public class StockService
 
             await _context.SaveChangesAsync();
             await RecalculateForReceiptAsync(import.ImportID);
+
+            // Compute canonical document hash
+            var canonicalInspection = DocumentSecurityHelper.BuildCanonicalString(import);
+            import.DocumentHash = DocumentSecurityHelper.ComputeSha256(canonicalInspection);
+            await _context.SaveChangesAsync();
+
             await transaction.CommitAsync();
 
             return import;
@@ -718,6 +765,9 @@ public class StockService
 
             if (import == null)
                 throw new KeyNotFoundException("Không tìm thấy phiếu nhập kho cần điều chỉnh.");
+
+            // Check period lock
+            await AccountingPeriodHelper.EnsurePeriodNotLockedAsync(_context, import.ImportDate);
 
             // Kiểm tra bảo mật: Chỉ cho phép điều chỉnh khi phiếu ở trạng thái Chờ kiểm nhập (Nháp)
             if (import.Status != "Chờ kiểm nhập" && import.Status != "Pending")
@@ -972,6 +1022,11 @@ public class StockService
                 }
                 await _context.SaveChangesAsync();
             }
+
+            // Compute canonical document hash
+            var canonicalUpdated = DocumentSecurityHelper.BuildCanonicalString(import);
+            import.DocumentHash = DocumentSecurityHelper.ComputeSha256(canonicalUpdated);
+            await _context.SaveChangesAsync();
 
             await transaction.CommitAsync();
 

@@ -7,7 +7,8 @@ import {
   TrendingUp, 
   PieChart, 
   BarChart4,
-  Users
+  Users,
+  Download
 } from 'lucide-react';
 
 export default function Dashboard({ setPage, user }) {
@@ -19,6 +20,7 @@ export default function Dashboard({ setPage, user }) {
   const [analyticsTab, setAnalyticsTab] = useState('inventory'); // 'inventory' or 'waste'
   const [wasteData, setWasteData] = useState(null);
   const [loadingWaste, setLoadingWaste] = useState(false);
+  const [wasteTimeUnit, setWasteTimeUnit] = useState('month');
 
   const getRequisitionCode = (req) => {
     if (!req) return '';
@@ -81,9 +83,9 @@ export default function Dashboard({ setPage, user }) {
       });
   };
 
-  const fetchWasteData = () => {
+  const fetchWasteData = (currentUnit = wasteTimeUnit) => {
     setLoadingWaste(true);
-    fetch('/api/dashboard/waste-analytics')
+    fetch(`/api/dashboard/waste-analytics?timeUnit=${currentUnit}`)
       .then(res => res.json())
       .then(data => {
         setWasteData(data);
@@ -98,20 +100,79 @@ export default function Dashboard({ setPage, user }) {
   useEffect(() => {
     fetchSummary(timeUnit);
     if (analyticsTab === 'waste') {
-      fetchWasteData();
+      fetchWasteData(wasteTimeUnit);
     }
 
     const handleUpdate = (e) => {
       if (e.detail === 'Dashboard' || e.detail === 'Inventory' || e.detail === 'Requisitions') {
         fetchSummary(timeUnit);
         if (analyticsTab === 'waste') {
-          fetchWasteData();
+          fetchWasteData(wasteTimeUnit);
         }
       }
     };
     window.addEventListener('pharmacy-update', handleUpdate);
     return () => window.removeEventListener('pharmacy-update', handleUpdate);
-  }, [user, timeUnit, analyticsTab]);
+  }, [user, timeUnit, analyticsTab, wasteTimeUnit]);
+
+  const handleExportOverview = () => {
+    if (!summary) {
+      alert("Không có dữ liệu để xuất báo cáo!");
+      return;
+    }
+
+    const csvData = [];
+    csvData.push(["BÁO CÁO TỔNG QUAN PHÂN HỆ DƯỢC BỆNH VIỆN", ""]);
+    csvData.push([`Ngày lập báo cáo: ${new Date().toLocaleDateString('vi-VN')} ${new Date().toLocaleTimeString('vi-VN')}`, ""]);
+    csvData.push(["Đối tượng báo cáo:", user?.departmentID ? `Khoa lâm sàng (Mã khoa: ${user.departmentID})` : "Toàn bệnh viện"]);
+    csvData.push(["", ""]);
+
+    csvData.push(["Chỉ số tổng hợp", "Giá trị"]);
+    if (user?.departmentID) {
+      csvData.push(["Cơ số thuốc tủ trực", summary.totalMedicines || 0]);
+      csvData.push(["Số dự trù chờ duyệt", summary.pendingRequisitions || 0]);
+      csvData.push(["Cảnh báo tồn thấp tại khoa", summary.lowStockCount || 0]);
+      csvData.push(["Lô thuốc sắp hết hạn tại khoa (trong 90 ngày)", summary.expiringBatchesCount || 0]);
+      csvData.push(["Lô thuốc đã hết hạn tại khoa", summary.expiredBatchesCount || 0]);
+    } else {
+      csvData.push(["Danh mục thuốc & vật tư hoạt động", summary.totalMedicines || 0]);
+      csvData.push(["Nhà cung cấp liên kết", summary.totalSuppliers || 0]);
+      csvData.push(["Phiếu lĩnh đang chờ duyệt", summary.pendingRequisitions || 0]);
+      csvData.push(["Cảnh báo tồn thấp hệ thống", summary.lowStockCount || 0]);
+      csvData.push(["Lô thuốc sắp hết hạn (trong 90 ngày)", summary.expiringBatchesCount || 0]);
+      csvData.push(["Lô thuốc đã hết hạn sử dụng", summary.expiredBatchesCount || 0]);
+      csvData.push(["Đang vận chuyển", summary.inTransitCount || 0]);
+      csvData.push(["Số chuyến giao vi phạm SLA", summary.slaBreachedCount || 0]);
+      csvData.push(["Số chuyến bị từ chối nhận hàng", summary.rejectedOnReceiveCount || 0]);
+      csvData.push(["Thời gian vận chuyển trung bình (phút)", summary.averageTransitMinutes ? summary.averageTransitMinutes.toFixed(1) : "0.0"]);
+    }
+
+    // Include recent activities if present
+    if (summary.recentRequisitions && summary.recentRequisitions.length > 0) {
+      csvData.push(["", ""]);
+      csvData.push(["DANH SÁCH YÊU CẦU LĨNH / DỰ TRÙ GẦN ĐÂY", ""]);
+      csvData.push(["Mã Phiếu", "Khoa Yêu Cầu", "Loại Yêu Cầu", "Trạng Thái", "Ngày Yêu Cầu"]);
+      summary.recentRequisitions.forEach(r => {
+        csvData.push([
+          getRequisitionCode(r),
+          r.departmentName,
+          r.requisitionType === 'Regular' ? 'Định kỳ' : 'Đột xuất',
+          getStatusText(r.status, null),
+          new Date(r.requisitionDate).toLocaleDateString('vi-VN')
+        ]);
+      });
+    }
+
+    const csvContent = "\uFEFF" + csvData.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `Bao_Cao_Tong_Quan_${user?.departmentID ? 'Khoa_' : 'Benh_Vien_'}${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   const renderLineChart = () => {
     const data = summary?.importCosts || [];
@@ -207,8 +268,8 @@ export default function Dashboard({ setPage, user }) {
             {/* Grid lines */}
             {yTicks.map((t, idx) => (
               <g key={idx}>
-                <line x1={left} y1={t.y} x2={width - right} y2={t.y} stroke="rgba(255,255,255,0.05)" strokeDasharray="3 3" />
-                <text x={left - 8} y={t.y + 4} textAnchor="end" fill="var(--text-dim)" fontSize="9" fontWeight="500">{t.val}{user?.departmentID ? '' : 'M'}</text>
+                <line x1={left} y1={t.y} x2={width - right} y2={t.y} stroke="var(--border-color)" strokeDasharray="3 3" />
+                <text x={left - 8} y={t.y + 4} textAnchor="end" fill="var(--text-dim)" fontSize="9" fontWeight="500">{t.val}{user?.departmentID ? '' : ' Tr'}</text>
               </g>
             ))}
 
@@ -223,7 +284,7 @@ export default function Dashboard({ setPage, user }) {
               <g key={idx}>
                 <circle cx={p.x} cy={p.y} r="4" fill="var(--color-secondary)" stroke="var(--bg-primary)" strokeWidth="2" />
                 <text x={p.x} y={height - 8} textAnchor="middle" fill="var(--text-muted)" fontSize="9.5" fontWeight="600">{p.name}</text>
-                <text x={p.x} y={p.y - 10} textAnchor="middle" fill="var(--color-secondary)" fontSize="9" fontWeight="700">{p.value.toFixed(0)}{user?.departmentID ? '' : 'M'}</text>
+                <text x={p.x} y={p.y - 10} textAnchor="middle" fill="var(--color-secondary)" fontSize="9" fontWeight="700">{p.value.toFixed(0)}{user?.departmentID ? '' : ' Tr'}</text>
               </g>
             ))}
           </svg>
@@ -277,7 +338,7 @@ export default function Dashboard({ setPage, user }) {
         <div style={{ display: 'flex', alignItems: 'center', height: '100%' }}>
           <div style={{ width: '160px', height: '160px', position: 'relative', flexShrink: 0 }}>
             <svg width="100%" height="100%" viewBox="0 0 180 180">
-              <circle cx={cx} cy={cy} r={r} fill="transparent" stroke="rgba(255,255,255,0.03)" strokeWidth="14" />
+              <circle cx={cx} cy={cy} r={r} fill="transparent" stroke="var(--border-color)" strokeWidth="14" />
               {segments.map((s, idx) => (
                 <circle
                   key={idx}
@@ -363,7 +424,7 @@ export default function Dashboard({ setPage, user }) {
                   <text x={left - 15} y={y + 15} textAnchor="end" fill="var(--text-main)" fontSize="11" fontWeight="600">
                     {d.name.length > 25 ? `${d.name.substring(0, 23)}...` : d.name}
                   </text>
-                  <rect x={left} y={y} width={maxBarW} height={barH} rx="4" fill="rgba(255,255,255,0.02)" />
+                  <rect x={left} y={y} width={maxBarW} height={barH} rx="4" fill="var(--bg-content)" />
                   <rect x={left} y={y} width={barW} height={barH} rx="4" fill={color} style={{ transition: 'width 0.5s ease-out' }} />
                   <text x={left + barW + 10} y={y + 15} textAnchor="start" fill="var(--color-secondary)" fontSize="11" fontWeight="700">
                     {d.value} đvt
@@ -385,6 +446,30 @@ export default function Dashboard({ setPage, user }) {
         <h4 style={{ margin: 0, fontSize: '0.88rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
           <TrendingUp size={14} color="var(--color-danger)" /> Thiệt hại tài chính do hao hụt (Triệu VND)
         </h4>
+        <div style={{ display: 'flex', background: 'rgba(255,255,255,0.05)', borderRadius: '6px', padding: '2px', border: '1px solid var(--border-glass)' }}>
+          {['week', 'month', 'year'].map(unit => (
+            <button
+              key={unit}
+              type="button"
+              style={{
+                background: wasteTimeUnit === unit ? 'var(--color-danger)' : 'none',
+                color: wasteTimeUnit === unit ? '#fff' : 'var(--text-dim)',
+                border: 'none',
+                outline: 'none',
+                cursor: 'pointer',
+                padding: '0.2rem 0.5rem',
+                borderRadius: '4px',
+                fontSize: '0.68rem',
+                fontWeight: '600',
+                textTransform: 'capitalize',
+                transition: 'all 0.15s ease'
+              }}
+              onClick={() => setWasteTimeUnit(unit)}
+            >
+              {unit === 'week' ? 'Tuần' : unit === 'month' ? 'Tháng' : 'Năm'}
+            </button>
+          ))}
+        </div>
       </div>
     );
 
@@ -448,7 +533,7 @@ export default function Dashboard({ setPage, user }) {
             {/* Grid lines */}
             {yTicks.map((t, idx) => (
               <g key={idx}>
-                <line x1={left} y1={t.y} x2={width - right} y2={t.y} stroke="rgba(255,255,255,0.05)" strokeDasharray="3 3" />
+                <line x1={left} y1={t.y} x2={width - right} y2={t.y} stroke="var(--border-color)" strokeDasharray="3 3" />
                 <text x={left - 8} y={t.y + 4} textAnchor="end" fill="var(--text-dim)" fontSize="9" fontWeight="500">{t.val} Tr</text>
               </g>
             ))}
@@ -464,7 +549,7 @@ export default function Dashboard({ setPage, user }) {
               <g key={idx}>
                 <circle cx={p.x} cy={p.y} r="4" fill="var(--color-danger)" stroke="var(--bg-primary)" strokeWidth="2" />
                 <text x={p.x} y={height - 8} textAnchor="middle" fill="var(--text-muted)" fontSize="9.5" fontWeight="600">{p.name}</text>
-                <text x={p.x} y={p.y - 10} textAnchor="middle" fill="var(--color-danger)" fontSize="9" fontWeight="700">{p.value.toFixed(1)}M</text>
+                <text x={p.x} y={p.y - 10} textAnchor="middle" fill="var(--color-danger)" fontSize="9" fontWeight="700">{p.value.toFixed(1)} Tr</text>
               </g>
             ))}
           </svg>
@@ -519,7 +604,7 @@ export default function Dashboard({ setPage, user }) {
         <div style={{ display: 'flex', alignItems: 'center', height: '100%' }}>
           <div style={{ width: '160px', height: '160px', position: 'relative', flexShrink: 0 }}>
             <svg width="100%" height="100%" viewBox="0 0 180 180">
-              <circle cx={cx} cy={cy} r={r} fill="transparent" stroke="rgba(255,255,255,0.03)" strokeWidth="14" />
+              <circle cx={cx} cy={cy} r={r} fill="transparent" stroke="var(--border-color)" strokeWidth="14" />
               {segments.map((s, idx) => (
                 <circle
                   key={idx}
@@ -537,7 +622,7 @@ export default function Dashboard({ setPage, user }) {
                 />
               ))}
               <text x={cx} y={cy - 2} textAnchor="middle" fill="var(--text-main)" fontSize="13" fontWeight="800">
-                {(total / 1000000.0).toFixed(1)}M
+                {(total / 1000000.0).toFixed(1)} Tr
               </text>
               <text x={cx} y={cy + 13} textAnchor="middle" fill="var(--text-dim)" fontSize="8.5" fontWeight="600" letterSpacing="0.5">
                 THIỆT HẠI
@@ -606,7 +691,7 @@ export default function Dashboard({ setPage, user }) {
                   <text x={left - 15} y={y + 15} textAnchor="end" fill="var(--text-main)" fontSize="11" fontWeight="600">
                     {d.departmentName.length > 25 ? `${d.departmentName.substring(0, 23)}...` : d.departmentName}
                   </text>
-                  <rect x={left} y={y} width={maxBarW} height={barH} rx="4" fill="rgba(255,255,255,0.02)" />
+                  <rect x={left} y={y} width={maxBarW} height={barH} rx="4" fill="var(--bg-content)" />
                   <rect x={left} y={y} width={barW} height={barH} rx="4" fill={color} style={{ transition: 'width 0.5s ease-out' }} />
                   <text x={left + barW + 10} y={y + 15} textAnchor="start" fill="var(--color-danger)" fontSize="11" fontWeight="700">
                     {d.totalLoss.toLocaleString('vi-VN')} đ
@@ -638,9 +723,14 @@ export default function Dashboard({ setPage, user }) {
           <h1 className="page-title">{user?.departmentID ? 'Tổng Quan Tủ Trực Khoa' : 'Tổng Quan Phân Hệ Dược'}</h1>
           <p className="page-subtitle">{user?.departmentID ? 'Giám sát cơ số thuốc tủ trực, đề xuất bù cơ số và quản lý hạn sử dụng thuốc tại khoa.' : 'Giám sát tồn kho, điều phối FEFO và cảnh báo an toàn thuốc bệnh viện.'}</p>
         </div>
-        <button className="btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }} onClick={fetchSummary}>
-          <RefreshCw size={16} /> Làm mới
-        </button>
+        <div style={{ display: 'flex', gap: '0.75rem' }}>
+          <button className="btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }} onClick={fetchSummary}>
+            <RefreshCw size={16} /> Làm mới
+          </button>
+          <button className="btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }} onClick={handleExportOverview}>
+            <Download size={16} /> Xuất BC Tổng Quan
+          </button>
+        </div>
       </div>
 
       {/* Metric Cards Grid */}
@@ -702,7 +792,12 @@ export default function Dashboard({ setPage, user }) {
         </div>
 
         {/* Card 5: Near Expiry */}
-        <div className="glass-card metric-card">
+        <div 
+          className="glass-card metric-card" 
+          style={{ cursor: setPage ? 'pointer' : 'default', transition: 'transform 0.2s, box-shadow 0.2s' }}
+          onClick={() => setPage && setPage('clearance')}
+          title="Bấm để xem Phân tích & Điều chuyển thuốc cận date"
+        >
           <div className="metric-info">
             <h4>{user?.departmentID ? 'Sắp hết hạn (khoa)' : 'Thuốc sắp hết hạn'}</h4>
             <div className="value" style={{ color: summary?.expiringBatchesCount > 0 ? 'var(--color-warning)' : 'inherit' }}>
@@ -771,7 +866,7 @@ export default function Dashboard({ setPage, user }) {
           <div className="metric-info">
             <h4>TG Vận chuyển TB</h4>
             <div className="value">
-              {summary?.averageTransitMinutes ? `${summary.averageTransitMinutes.toFixed(1)}m` : '0.0m'}
+              {summary?.averageTransitMinutes ? `${summary.averageTransitMinutes.toFixed(1)} phút` : '0.0 phút'}
             </div>
           </div>
           <div className="metric-icon-wrapper green" style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#10b981' }}>
@@ -784,50 +879,54 @@ export default function Dashboard({ setPage, user }) {
       <div style={{ marginTop: '1.75rem', marginBottom: '1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
           <h3 style={{ fontSize: '1.1rem', fontWeight: '700', color: 'var(--color-primary)', display: 'flex', alignItems: 'center', gap: '0.5rem', margin: '0 0 0.25rem 0' }}>
-            📊 {user?.departmentID ? 'Báo cáo Thống kê Khoa Lâm Sàng' : 'Báo cáo Thống kê Hệ thống (Visual Analytics)'}
+            {user?.departmentID ? 'Báo cáo Thống kê Khoa Lâm Sàng' : 'Báo cáo Thống kê Hệ thống (Phân tích Trực quan)'}
           </h3>
           <p style={{ color: 'var(--text-muted)', margin: 0, fontSize: '0.82rem' }}>
             {user?.departmentID ? 'Biểu đồ phân tích trực quan về cơ cấu tủ trực và lượng thuốc tiêu hao thực tế tại khoa.' : 'Biểu đồ phân tích trực quan về các chỉ số quản lý Dược bệnh viện.'}
           </p>
         </div>
-        {!user?.departmentID && (
-          <div style={{ display: 'flex', background: 'rgba(255,255,255,0.05)', borderRadius: '8px', padding: '3px', border: '1px solid var(--border-glass)' }}>
-            <button
-              type="button"
-              style={{
-                background: analyticsTab === 'inventory' ? 'var(--color-primary)' : 'none',
-                color: analyticsTab === 'inventory' ? '#fff' : 'var(--text-dim)',
-                border: 'none',
-                cursor: 'pointer',
-                padding: '0.35rem 0.85rem',
-                borderRadius: '6px',
-                fontSize: '0.78rem',
-                fontWeight: '600',
-                transition: 'all 0.2s ease'
-              }}
-              onClick={() => setAnalyticsTab('inventory')}
-            >
-              Phân tích tồn & luân chuyển
-            </button>
-            <button
-              type="button"
-              style={{
-                background: analyticsTab === 'waste' ? 'var(--color-danger)' : 'none',
-                color: analyticsTab === 'waste' ? '#fff' : 'var(--text-dim)',
-                border: 'none',
-                cursor: 'pointer',
-                padding: '0.35rem 0.85rem',
-                borderRadius: '6px',
-                fontSize: '0.78rem',
-                fontWeight: '600',
-                transition: 'all 0.2s ease'
-              }}
-              onClick={() => setAnalyticsTab('waste')}
-            >
-              Hao hụt & Lãng phí (Waste & Loss)
-            </button>
-          </div>
-        )}
+        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+
+
+          {!user?.departmentID && (
+            <div style={{ display: 'flex', background: 'rgba(255,255,255,0.05)', borderRadius: '8px', padding: '3px', border: '1px solid var(--border-glass)' }}>
+              <button
+                type="button"
+                style={{
+                  background: analyticsTab === 'inventory' ? 'var(--color-primary)' : 'none',
+                  color: analyticsTab === 'inventory' ? '#fff' : 'var(--text-dim)',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: '0.35rem 0.85rem',
+                  borderRadius: '6px',
+                  fontSize: '0.78rem',
+                  fontWeight: '600',
+                  transition: 'all 0.2s ease'
+                }}
+                onClick={() => setAnalyticsTab('inventory')}
+              >
+                Phân tích tồn & luân chuyển
+              </button>
+              <button
+                type="button"
+                style={{
+                  background: analyticsTab === 'waste' ? 'var(--color-danger)' : 'none',
+                  color: analyticsTab === 'waste' ? '#fff' : 'var(--text-dim)',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: '0.35rem 0.85rem',
+                  borderRadius: '6px',
+                  fontSize: '0.78rem',
+                  fontWeight: '600',
+                  transition: 'all 0.2s ease'
+                }}
+                onClick={() => setAnalyticsTab('waste')}
+              >
+                Hao hụt & Lãng phí
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {analyticsTab === 'inventory' ? (
@@ -884,7 +983,7 @@ export default function Dashboard({ setPage, user }) {
                       <td>{req.departmentName}</td>
                       <td>
                         <span className={`badge-status ${req.requisitionType === 'Regular' ? 'regular' : req.requisitionType === 'Urgent' ? 'urgent' : req.requisitionType === 'DirectTransfer' ? 'approved' : 'refill'}`}>
-                          {req.requisitionType === 'Regular' ? 'Lĩnh thường quy' : req.requisitionType === 'Urgent' ? '🚨 Lĩnh khẩn' : req.requisitionType === 'DirectTransfer' ? 'Xuất chuyển chủ động' : 'Bù tủ trực'}
+                          {req.requisitionType === 'Regular' ? 'Lĩnh thường quy' : req.requisitionType === 'Urgent' ? 'Lĩnh khẩn' : req.requisitionType === 'DirectTransfer' ? 'Xuất chuyển chủ động' : 'Bù tủ trực'}
                         </span>
                       </td>
                       <td>{new Date(req.requisitionDate).toLocaleString('vi-VN')}</td>
@@ -920,9 +1019,9 @@ export default function Dashboard({ setPage, user }) {
                   flexDirection: 'column',
                   gap: '0.25rem'
                 }}>
-                  <div style={{ display: 'flex', justifyContext: 'space-between', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <span style={{ fontWeight: '600', fontSize: '0.9rem' }}>{alert.medicineName}</span>
-                    <span className={`badge-alert ${alert.daysLeft <= 30 ? 'danger' : 'warning'}`} style={{ fontSize: '0.75rem', padding: '0.15rem 0.5rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontWeight: '600', fontSize: '0.9rem', color: '#ffffff' }}>{alert.medicineName}</span>
+                    <span className={`expiry-indicator ${alert.daysLeft <= 30 ? 'critical' : 'warning'}`} style={{ fontSize: '0.7rem' }}>
                       {alert.daysLeft} ngày
                     </span>
                   </div>

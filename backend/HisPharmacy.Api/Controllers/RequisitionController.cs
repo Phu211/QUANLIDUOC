@@ -32,7 +32,43 @@ public class RequisitionController : ControllerBase
             .Include(r => r.Details)!.ThenInclude(d => d.Medicine)
             .OrderByDescending(r => r.RequisitionDate)
             .ToListAsync();
-        return Ok(list);
+
+        var result = list.Select(r =>
+        {
+            var canonical = DocumentSecurityHelper.BuildCanonicalString(r);
+            var isIntegrityValid = !string.IsNullOrEmpty(r.DocumentHash) &&
+                                  DocumentSecurityHelper.VerifyIntegrity(r.DocumentHash, canonical);
+            return new
+            {
+                r.RequisitionID,
+                r.DepartmentID,
+                r.Department,
+                r.RequisitionDate,
+                r.RequisitionType,
+                r.Status,
+                r.DispenseDate,
+                r.ReceiveDate,
+                r.DigitalSignature,
+                r.ApproverSignature,
+                r.ApproverName,
+                r.ReceiverSignature,
+                r.HeadSignature,
+                r.HeadApproveDate,
+                r.DelegatedBy,
+                r.DelegatedTo,
+                r.DelegationActivatedAt,
+                r.RejectReason,
+                r.DeliveryBy,
+                r.DeliveryPhone,
+                r.DeliveredAt,
+                r.ProposerName,
+                r.DocumentHash,
+                IsIntegrityValid = isIntegrityValid,
+                Details = r.Details
+            };
+        });
+
+        return Ok(result);
     }
 
     [HttpGet("transfers")]
@@ -68,6 +104,9 @@ public class RequisitionController : ControllerBase
 
         if (req == null || req.DepartmentID <= 0 || !req.Details.Any())
             return BadRequest(new { Error = "Thông tin phiếu lĩnh không hợp lệ." });
+
+        // Ensure period not locked
+        await AccountingPeriodHelper.EnsurePeriodNotLockedAsync(_context, DateTime.Today);
 
         if (userRole == "head")
         {
@@ -190,6 +229,9 @@ public class RequisitionController : ControllerBase
             if (req == null) return NotFound();
             if (req.Status != "InTransit") return BadRequest("Phiếu chưa ở trạng thái đang vận chuyển (InTransit).");
             if (req.ReceiveDate != null) return BadRequest("Phiếu đã được xác nhận nhận thuốc trước đó.");
+
+            // Ensure period not locked
+            await AccountingPeriodHelper.EnsurePeriodNotLockedAsync(_context, req.RequisitionDate);
 
             // Load associated InternalTransfer to find dispensed batches & quantities
             var transfer = await _context.InternalTransfers
@@ -364,6 +406,10 @@ public class RequisitionController : ControllerBase
                 CreatedAt = DateTime.Now
             });
 
+            // Re-calculate Canonical Hash for Document Integrity
+            var canonical = DocumentSecurityHelper.BuildCanonicalString(req);
+            req.DocumentHash = DocumentSecurityHelper.ComputeSha256(canonical);
+
             await _context.SaveChangesAsync();
             await transaction.CommitAsync();
 
@@ -486,6 +532,9 @@ public class RequisitionController : ControllerBase
         if (request == null || request.DepartmentID <= 0 || request.Items == null || !request.Items.Any())
             return BadRequest(new { Error = "Thông tin cấp phát không hợp lệ." });
 
+        // Check period lock
+        await AccountingPeriodHelper.EnsurePeriodNotLockedAsync(_context, DateTime.Today);
+
         // Check lock MainStore
         var isMainStoreLocked = await _context.InventoryAudits.AnyAsync(a => a.LocationType == "MainStore" && (a.Status == "Nháp" || a.Status == "Chờ xác nhận" || a.Status == "Có chênh lệch"));
         if (isMainStoreLocked)
@@ -589,6 +638,10 @@ public class RequisitionController : ControllerBase
                     CreatedAt = DateTime.Now
                 });
             }
+
+            // Compute Canonical Hash for Document Integrity (DocumentHash)
+            var canonicalDirect = DocumentSecurityHelper.BuildCanonicalString(requisition);
+            requisition.DocumentHash = DocumentSecurityHelper.ComputeSha256(canonicalDirect);
 
             await _context.SaveChangesAsync();
             await transaction.CommitAsync();

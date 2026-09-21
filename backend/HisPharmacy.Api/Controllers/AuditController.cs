@@ -1,4 +1,5 @@
 using HisPharmacy.Api.Data;
+using HisPharmacy.Api.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
@@ -346,6 +347,9 @@ namespace HisPharmacy.Api.Controllers
                 return BadRequest(new { message = "Phiếu kiểm kê đã được xác nhận hoặc hủy." });
             }
 
+            // Check period lock
+            await AccountingPeriodHelper.EnsurePeriodNotLockedAsync(_context, audit.AuditDate);
+
             // Ghi nhận chữ ký
             audit.CheckerSignature = request.Signature;
             audit.CheckerSignedBy = request.SignedBy;
@@ -398,6 +402,10 @@ namespace HisPharmacy.Api.Controllers
             });
             audit.TimelineJson = JsonSerializer.Serialize(timeline);
 
+            // Compute Canonical Hash for Document Integrity (DocumentHash)
+            var canonical = DocumentSecurityHelper.BuildCanonicalString(audit);
+            audit.DocumentHash = DocumentSecurityHelper.ComputeSha256(canonical);
+
             await _context.SaveChangesAsync();
             return Ok(audit);
         }
@@ -438,6 +446,13 @@ namespace HisPharmacy.Api.Controllers
             });
             audit.TimelineJson = JsonSerializer.Serialize(timeline);
 
+            // Check period lock
+            await AccountingPeriodHelper.EnsurePeriodNotLockedAsync(_context, audit.AuditDate);
+
+            // Compute Canonical Hash for Document Integrity (DocumentHash)
+            var canonicalApprove = DocumentSecurityHelper.BuildCanonicalString(audit);
+            audit.DocumentHash = DocumentSecurityHelper.ComputeSha256(canonicalApprove);
+
             await _context.SaveChangesAsync();
             return Ok(audit);
         }
@@ -468,6 +483,11 @@ namespace HisPharmacy.Api.Controllers
             if (audit.Status == "Đã điều chỉnh" || audit.Status == "Đã hủy")
             {
                 return BadRequest(new { message = "Không thể hủy phiếu kiểm kê đã hoàn tất điều chỉnh tồn kho hoặc đã hủy trước đó." });
+            }
+
+            if (userRole != "director" && (audit.Status == "Có chênh lệch" || audit.Status == "Đã xác nhận"))
+            {
+                return StatusCode(403, new { message = "Phiếu kiểm kê đã phát hiện chênh lệch hoặc đã được đối chiếu xác nhận. Chỉ Ban Giám Đốc mới có thẩm quyền hủy bỏ phiếu kiểm kê này." });
             }
 
             audit.Status = "Đã hủy";

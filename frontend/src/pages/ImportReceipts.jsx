@@ -3,9 +3,12 @@ import {
   Plus, Trash, FileText, Printer, Check, X, RefreshCw,
   FileSpreadsheet, AlertTriangle, Building2, User, FileEdit,
   ArrowRight, ArrowLeft, Upload, Eye, Download, Image,
-  FileCheck, ShieldAlert, AlertCircle, Layers, PenTool, Eraser, ThumbsUp
+  FileCheck, ShieldAlert, AlertCircle, Layers, PenTool, Eraser, ThumbsUp,
+  ScanLine, Sparkles
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { handleIntegerKeyDown, sanitizeInteger, handleIntegerPaste } from '../utils/numberInputUtils';
+import InvoiceOcrModal from '../components/InvoiceOcrModal';
 
 const SIG = {
   duoc: (
@@ -74,6 +77,37 @@ export default function ImportReceipts({ user }) {
   const [anomalyDescription, setAnomalyDescription] = useState('');
   const [uploadedDocs, setUploadedDocs] = useState([]); // Array of { type, name, base64 }
   const [isUploadingFile, setIsUploadingFile] = useState(false);
+  const [showOcrModal, setShowOcrModal] = useState(false);
+
+  // Áp dụng dữ liệu trích xuất từ Smart OCR vào Form
+  const handleApplyOcrData = (ocrData) => {
+    if (ocrData.supplierID) {
+      setSelectedSupplier(String(ocrData.supplierID));
+      const matchedSupplier = suppliers.find(s => s.supplierID.toString() === ocrData.supplierID.toString());
+      if (matchedSupplier) {
+        setContractNumber(matchedSupplier.contractNumber || 'Chưa cấu hình hợp đồng');
+      }
+    }
+    if (ocrData.invoiceNumber) setInvoiceNumber(ocrData.invoiceNumber);
+    if (ocrData.invoiceDate) setInvoiceDate(ocrData.invoiceDate);
+    if (ocrData.deliveryNoteNumber) setDeliveryNoteNumber(ocrData.deliveryNoteNumber);
+
+    setCheckInvoiceMatches(true);
+    setCheckDeliveryRecordSigned(true);
+    setCheckDeliverySlipUploaded(true);
+    setCheckContractUploaded(true);
+
+    if (ocrData.items && ocrData.items.length > 0) {
+      setItems(ocrData.items.map(it => ({
+        medicineID: it.medicineID ? String(it.medicineID) : '',
+        batchNumber: it.batchNumber || '',
+        productionDate: '',
+        expiryDate: it.expiryDate || '',
+        importPrice: String(it.importPrice || ''),
+        quantity: String(it.quantity || '1')
+      })));
+    }
+  };
 
   // Cấu hình dịch vụ lưu trữ đám mây Cloudinary
   const CLOUDINARY_CONFIG = {
@@ -466,6 +500,63 @@ export default function ImportReceipts({ user }) {
       });
   };
 
+  const handleExportImports = () => {
+    if (!imports || imports.length === 0) {
+      alert("Không có dữ liệu nhập kho để xuất báo cáo.");
+      return;
+    }
+
+    const headers = [
+      "Mã Phiếu Nhập",
+      "Nhà Cung Cấp",
+      "Số Hợp Đồng",
+      "Số Hóa Đơn",
+      "Ngày Hóa Đơn",
+      "Số Phiếu Xuất",
+      "Người Lập Phiếu",
+      "Người Kiểm Thứ Hai",
+      "Người Giao Hàng",
+      "Chi Tiết Thuốc/Vật Tư Nhập",
+      "Tổng Giá Trị (VND)",
+      "Ngày Tạo",
+      "Trạng Thái"
+    ];
+
+    const rows = imports.map(imp => {
+      const detailsStr = imp.details ? imp.details.map(d => 
+        `${d.batch?.medicine?.medicineName || ''} (Lô: ${d.batch?.batchNumber || ''}, SL: ${d.quantity || 0} ${d.batch?.medicine?.unit || ''}, Đơn giá: ${d.batch?.importPrice || 0})`
+      ).join("; ") : "";
+
+      const totalVal = imp.details ? imp.details.reduce((sum, d) => sum + (d.quantity * (d.batch?.importPrice || 0)), 0) : 0;
+
+      return [
+        imp.importCode || `PNK-${imp.importID}`,
+        imp.supplier?.supplierName || '',
+        imp.contractNumber || '',
+        imp.invoiceNumber || '',
+        imp.invoiceDate ? new Date(imp.invoiceDate).toLocaleDateString('vi-VN') : '',
+        imp.deliveryNoteNumber || '',
+        imp.createdBy || '',
+        imp.secondInspector || '',
+        imp.deliveryPersonName || '',
+        detailsStr,
+        totalVal,
+        new Date(imp.createdAt).toLocaleString('vi-VN'),
+        imp.status || ''
+      ];
+    });
+
+    const csvContent = "\uFEFF" + [headers.join(","), ...rows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(","))].join("\n");
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `Bao_cao_nhap_kho_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   useEffect(() => {
     fetchInitialData();
 
@@ -695,8 +786,7 @@ export default function ImportReceipts({ user }) {
       if (val < 0) value = '0';
     }
     if (field === 'quantity') {
-      const val = parseInt(value, 10);
-      if (val < 1) value = '1';
+      value = sanitizeInteger(value, false);
     }
     newItems[index][field] = value;
 
@@ -1584,9 +1674,27 @@ export default function ImportReceipts({ user }) {
               {/* WIZARD STEP 1: HỒ SƠ & CHỨNG TỪ */}
               {activeStep === 1 && (
                 <div style={{ animation: 'fadeIn 0.3s ease-in-out' }}>
-                  <h4 style={{ color: 'var(--text-main)', fontSize: '0.9rem', fontWeight: '600', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                    <FileCheck size={16} color="var(--color-primary)" /> Bước 1: Tiếp nhận & Đối chiếu Hồ sơ Pháp lý từ NCC
-                  </h4>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                    <h4 style={{ color: 'var(--text-main)', fontSize: '0.9rem', fontWeight: '600', margin: 0, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                      <FileCheck size={16} color="var(--color-primary)" /> Bước 1: Tiếp nhận & Đối chiếu Hồ sơ Pháp lý từ NCC
+                    </h4>
+                    <button
+                      type="button"
+                      className="btn-premium"
+                      onClick={() => setShowOcrModal(true)}
+                      style={{
+                        padding: '0.4rem 0.9rem',
+                        fontSize: '0.78rem',
+                        background: 'linear-gradient(135deg, #0284c7, #0d9488)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.4rem',
+                        boxShadow: '0 2px 8px rgba(2, 132, 199, 0.25)'
+                      }}
+                    >
+                      <ScanLine size={15} /> Quét Hóa Đơn Bằng AI (Smart OCR)
+                    </button>
+                  </div>
 
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
                     <div className="form-group" style={{ marginBottom: 0 }}>
@@ -1844,8 +1952,24 @@ export default function ImportReceipts({ user }) {
                       <FileCheck size={16} color="#10b981" /> Bước 2: Kiểm nhập thực tế số lượng & Cảm quan lâm sàng
                     </h4>
 
-                    {/* Excel tools */}
+                    {/* Excel & OCR tools */}
                     <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                      <button
+                        type="button"
+                        className="btn-premium"
+                        onClick={() => setShowOcrModal(true)}
+                        style={{
+                          padding: '0.3rem 0.65rem',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.3rem',
+                          fontSize: '0.72rem',
+                          background: 'linear-gradient(135deg, #0284c7, #0d9488)',
+                          boxShadow: '0 2px 6px rgba(2, 132, 199, 0.2)'
+                        }}
+                      >
+                        <ScanLine size={13} /> Quét Hóa Đơn OCR
+                      </button>
                       <button
                         type="button"
                         className="btn-secondary"
@@ -1921,7 +2045,7 @@ export default function ImportReceipts({ user }) {
                                   <span>Còn lại: <strong style={{ color: remainingQty <= 0 ? '#ef4444' : 'inherit' }}>{remainingQty?.toLocaleString('vi-VN')}</strong> / {selectedMed.contractQuantity?.toLocaleString('vi-VN')}</span>
                                   <span>Tồn kho chẵn: <strong style={{ color: selectedMed.currentStock > 0 ? 'var(--color-secondary)' : '#ef4444' }}>{selectedMed.currentStock || 0}</strong></span>
                                   {selectedMed.contractQuantity > 0 && selectedMed.importedQuantity >= 0.9 * selectedMed.contractQuantity && (
-                                    <span style={{ color: '#f59e0b', fontWeight: 'bold', background: 'rgba(245,158,11,0.1)', padding: '1px 4px', borderRadius: '3px' }}>⚠️ Đã dùng {((selectedMed.importedQuantity / selectedMed.contractQuantity) * 100).toFixed(0)}% thầu!</span>
+                                    <span style={{ color: '#f59e0b', fontWeight: 'bold', background: 'rgba(245,158,11,0.1)', padding: '1px 4px', borderRadius: '3px' }}>Đã dùng {((selectedMed.importedQuantity / selectedMed.contractQuantity) * 100).toFixed(0)}% thầu!</span>
                                   )}
                                 </div>
                               )}
@@ -1989,12 +2113,15 @@ export default function ImportReceipts({ user }) {
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
                               <label style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: '600', margin: 0 }}>Số lượng (SL)</label>
                               <input
-                                type="number"
+                                type="text"
+                                inputMode="numeric"
+                                pattern="[0-9]*"
                                 className="form-input"
                                 placeholder="SL"
-                                min="1"
                                 value={item.quantity}
+                                onKeyDown={handleIntegerKeyDown}
                                 onChange={e => handleItemChange(idx, 'quantity', e.target.value)}
+                                onPaste={e => handleIntegerPaste(e, val => handleItemChange(idx, 'quantity', val), false)}
                                 style={{ height: '33px', fontSize: '0.78rem', padding: '0 0.5rem' }}
                               />
                               {qtyError && (
@@ -2379,9 +2506,19 @@ export default function ImportReceipts({ user }) {
           flexDirection: 'column',
           width: '100%'
         }}>
-          <h3 style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.5rem', fontSize: '1.05rem' }}>
-            <Printer size={18} color="var(--color-secondary)" /> {user?.role === 'director' ? 'Danh sách hồ sơ chờ duyệt nhập kho' : 'Bộ chứng từ kiểm nhận gần đây'}
-          </h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.5rem' }}>
+            <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '1.05rem' }}>
+              <Printer size={18} color="var(--color-secondary)" /> {user?.role === 'director' ? 'Danh sách hồ sơ chờ duyệt nhập kho' : 'Bộ chứng từ kiểm nhận gần đây'}
+            </h3>
+            <button 
+              type="button" 
+              className="btn-secondary" 
+              style={{ padding: '0.35rem 0.75rem', fontSize: '0.75rem', border: '1px solid var(--border-glass)' }} 
+              onClick={handleExportImports}
+            >
+              Xuất báo cáo nhập kho
+            </button>
+          </div>
 
           {/* Top Filter Tabs Bar */}
           <div style={{
@@ -3015,6 +3152,54 @@ export default function ImportReceipts({ user }) {
                 );
               })()}
 
+              {/* Digital Signature Integrity Verification Card (SHA-256) */}
+              {activeReceiptForPrint.documentHash && (
+                <div style={{
+                  margin: '1.25rem 0',
+                  padding: '0.75rem 1rem',
+                  borderRadius: '6px',
+                  background: activeReceiptForPrint.isIntegrityValid === false ? '#fee2e2' : '#ecfdf5',
+                  border: activeReceiptForPrint.isIntegrityValid === false ? '2px solid #ef4444' : '2px solid #10b981',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '1rem'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                    {activeReceiptForPrint.isIntegrityValid === false ? (
+                      <AlertTriangle size={22} style={{ color: '#dc2626', flexShrink: 0 }} />
+                    ) : (
+                      <Check size={22} style={{ color: '#059669', flexShrink: 0 }} />
+                    )}
+                    <div>
+                      <div style={{ 
+                        fontWeight: 'bold', 
+                        fontSize: '0.85rem', 
+                        color: activeReceiptForPrint.isIntegrityValid === false ? '#b91c1c' : '#047857' 
+                      }}>
+                        {activeReceiptForPrint.isIntegrityValid === false 
+                          ? '⚠ CẢNH BÁO TOÀN VẸN: Dữ liệu đã bị can thiệp sau khi ký! (Integrity Violation)' 
+                          : '✓ Chứng thư chữ ký số toàn vẹn (SHA-256 Document Verified)'}
+                      </div>
+                      <div style={{ fontSize: '0.72rem', color: '#475569', marginTop: '2px', fontFamily: 'monospace' }}>
+                        Mã băm SHA-256: {activeReceiptForPrint.documentHash}
+                      </div>
+                    </div>
+                  </div>
+                  <span style={{
+                    fontSize: '0.75rem',
+                    fontWeight: 'bold',
+                    padding: '0.2rem 0.6rem',
+                    borderRadius: '4px',
+                    background: activeReceiptForPrint.isIntegrityValid === false ? '#ef4444' : '#10b981',
+                    color: '#ffffff',
+                    whiteSpace: 'nowrap'
+                  }}>
+                    {activeReceiptForPrint.isIntegrityValid === false ? 'BỊ SỬA ĐỔI' : 'TOÀN VẸN'}
+                  </span>
+                </div>
+              )}
+
               {/* Printable Attachments / Sensory Images Section */}
               {(() => {
                 let docs = [];
@@ -3296,9 +3481,56 @@ export default function ImportReceipts({ user }) {
             <h3 style={{ marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem', borderBottom: '1px solid var(--border-glass)', paddingBottom: '0.5rem' }}>
               <Eye size={20} color="var(--color-secondary)" /> Xem Lại Hồ Sơ Chứng Từ: {activeReceiptForDossier.importCode}
             </h3>
-            <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem', marginBottom: '1.5rem' }}>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem', marginBottom: '1rem' }}>
               Danh sách tài liệu pháp lý thầu, hóa đơn VAT, biên bản bàn giao và hình ảnh kiểm nhận cảm quan thực tế đã lưu trữ.
             </p>
+
+            {/* SHA-256 Digital Signature Integrity Card */}
+            {activeReceiptForDossier.documentHash && (
+              <div style={{
+                marginBottom: '1.25rem',
+                padding: '0.65rem 1rem',
+                borderRadius: '8px',
+                background: activeReceiptForDossier.isIntegrityValid === false ? 'rgba(239, 68, 68, 0.1)' : 'rgba(16, 185, 129, 0.1)',
+                border: activeReceiptForDossier.isIntegrityValid === false ? '1px solid #ef4444' : '1px solid #10b981',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '1rem'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                  {activeReceiptForDossier.isIntegrityValid === false ? (
+                    <AlertCircle size={20} style={{ color: '#ef4444', flexShrink: 0 }} />
+                  ) : (
+                    <FileCheck size={20} style={{ color: '#10b981', flexShrink: 0 }} />
+                  )}
+                  <div>
+                    <div style={{ 
+                      fontSize: '0.85rem', 
+                      fontWeight: 700, 
+                      color: activeReceiptForDossier.isIntegrityValid === false ? '#ef4444' : '#10b981' 
+                    }}>
+                      {activeReceiptForDossier.isIntegrityValid === false 
+                        ? '⚠ Dữ liệu phiếu nhập đã bị can thiệp sau khi ký duyệt!' 
+                        : '✓ Chữ ký số điện tử toàn vẹn (SHA-256 Integrity Verified)'}
+                    </div>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'monospace', marginTop: '2px' }}>
+                      Hash: {activeReceiptForDossier.documentHash}
+                    </div>
+                  </div>
+                </div>
+                <span style={{ 
+                  fontSize: '0.72rem', 
+                  fontWeight: 700, 
+                  padding: '0.2rem 0.5rem', 
+                  borderRadius: '12px',
+                  background: activeReceiptForDossier.isIntegrityValid === false ? '#ef4444' : '#10b981',
+                  color: '#ffffff'
+                }}>
+                  {activeReceiptForDossier.isIntegrityValid === false ? 'BỊ SỬA ĐỔI' : 'TOÀN VẸN'}
+                </span>
+              </div>
+            )}
 
             {(() => {
               let docs = [];
@@ -3527,6 +3759,15 @@ export default function ImportReceipts({ user }) {
           </div>
         </div>
       )}
+
+      {/* Smart Invoice OCR Modal */}
+      <InvoiceOcrModal
+        isOpen={showOcrModal}
+        onClose={() => setShowOcrModal(false)}
+        onApplyData={handleApplyOcrData}
+        medicines={medicines}
+        suppliers={suppliers}
+      />
     </div>
   );
 }

@@ -445,7 +445,7 @@ public class DashboardController : ControllerBase
     }
 
     [HttpGet("waste-analytics")]
-    public async Task<IActionResult> GetWasteAnalytics()
+    public async Task<IActionResult> GetWasteAnalytics([FromQuery] string timeUnit = "month")
     {
         var returns = await _context.ReturnReceiptDetails
             .Include(d => d.Batch)
@@ -508,32 +508,97 @@ public class DashboardController : ControllerBase
             .ToList();
 
         var today = DateTime.Today;
-        var startMonth = today.AddMonths(-5);
-        var monthsList = Enumerable.Range(0, 6)
-            .Select(i => startMonth.AddMonths(i))
-            .Select(m => new { m.Year, m.Month })
-            .ToList();
-
         var monthlyLossList = new List<object>();
-        foreach (var m in monthsList)
+
+        if (timeUnit == "week")
         {
-            var returnSum = returns
-                .Where(d => returnReceiptDict.ContainsKey(d.ReturnID) &&
-                            returnReceiptDict[d.ReturnID].ReturnDate.Year == m.Year &&
-                            returnReceiptDict[d.ReturnID].ReturnDate.Month == m.Month)
-                .Sum(d => d.Quantity * (d.Batch?.ImportPrice ?? 0));
+            var cal = System.Globalization.CultureInfo.InvariantCulture.Calendar;
+            var startWeekDate = today.AddDays(-35); // Approx 6 weeks
+            
+            var weeksList = Enumerable.Range(0, 6)
+                .Select(i => {
+                    var d = startWeekDate.AddDays(i * 7);
+                    int weekNum = cal.GetWeekOfYear(d, System.Globalization.CultureInfo.InvariantCulture.DateTimeFormat.CalendarWeekRule, System.Globalization.CultureInfo.InvariantCulture.DateTimeFormat.FirstDayOfWeek);
+                    return new { d.Year, Week = weekNum };
+                })
+                .Distinct()
+                .Take(6)
+                .ToList();
 
-            var liquidationSum = liquidations
-                .Where(d => liquidationReceiptDict.ContainsKey(d.LiquidationID) &&
-                            liquidationReceiptDict[d.LiquidationID].LiquidationDate.Year == m.Year &&
-                            liquidationReceiptDict[d.LiquidationID].LiquidationDate.Month == m.Month)
-                .Sum(d => d.Quantity * (d.Batch?.ImportPrice ?? 0));
-
-            monthlyLossList.Add(new
+            foreach (var w in weeksList)
             {
-                Month = $"T{m.Month}/{m.Year}",
-                LossAmount = (double)(returnSum + liquidationSum)
-            });
+                var returnSum = returns
+                    .Where(d => returnReceiptDict.ContainsKey(d.ReturnID) &&
+                                returnReceiptDict[d.ReturnID].ReturnDate.Year == w.Year &&
+                                cal.GetWeekOfYear(returnReceiptDict[d.ReturnID].ReturnDate, System.Globalization.CultureInfo.InvariantCulture.DateTimeFormat.CalendarWeekRule, System.Globalization.CultureInfo.InvariantCulture.DateTimeFormat.FirstDayOfWeek) == w.Week)
+                    .Sum(d => d.Quantity * (d.Batch?.ImportPrice ?? 0));
+
+                var liquidationSum = liquidations
+                    .Where(d => liquidationReceiptDict.ContainsKey(d.LiquidationID) &&
+                                liquidationReceiptDict[d.LiquidationID].LiquidationDate.Year == w.Year &&
+                                cal.GetWeekOfYear(liquidationReceiptDict[d.LiquidationID].LiquidationDate, System.Globalization.CultureInfo.InvariantCulture.DateTimeFormat.CalendarWeekRule, System.Globalization.CultureInfo.InvariantCulture.DateTimeFormat.FirstDayOfWeek) == w.Week)
+                    .Sum(d => d.Quantity * (d.Batch?.ImportPrice ?? 0));
+
+                monthlyLossList.Add(new
+                {
+                    Month = $"T.{w.Week}",
+                    LossAmount = (double)(returnSum + liquidationSum)
+                });
+            }
+        }
+        else if (timeUnit == "year")
+        {
+            var yearsList = Enumerable.Range(0, 3)
+                .Select(i => today.Year - 2 + i)
+                .ToList();
+
+            foreach (var yr in yearsList)
+            {
+                var returnSum = returns
+                    .Where(d => returnReceiptDict.ContainsKey(d.ReturnID) &&
+                                returnReceiptDict[d.ReturnID].ReturnDate.Year == yr)
+                    .Sum(d => d.Quantity * (d.Batch?.ImportPrice ?? 0));
+
+                var liquidationSum = liquidations
+                    .Where(d => liquidationReceiptDict.ContainsKey(d.LiquidationID) &&
+                                liquidationReceiptDict[d.LiquidationID].LiquidationDate.Year == yr)
+                    .Sum(d => d.Quantity * (d.Batch?.ImportPrice ?? 0));
+
+                monthlyLossList.Add(new
+                {
+                    Month = $"Năm {yr}",
+                    LossAmount = (double)(returnSum + liquidationSum)
+                });
+            }
+        }
+        else // month
+        {
+            var startMonth = today.AddMonths(-5);
+            var monthsList = Enumerable.Range(0, 6)
+                .Select(i => startMonth.AddMonths(i))
+                .Select(m => new { m.Year, m.Month })
+                .ToList();
+
+            foreach (var m in monthsList)
+            {
+                var returnSum = returns
+                    .Where(d => returnReceiptDict.ContainsKey(d.ReturnID) &&
+                                returnReceiptDict[d.ReturnID].ReturnDate.Year == m.Year &&
+                                returnReceiptDict[d.ReturnID].ReturnDate.Month == m.Month)
+                    .Sum(d => d.Quantity * (d.Batch?.ImportPrice ?? 0));
+
+                var liquidationSum = liquidations
+                    .Where(d => liquidationReceiptDict.ContainsKey(d.LiquidationID) &&
+                                liquidationReceiptDict[d.LiquidationID].LiquidationDate.Year == m.Year &&
+                                liquidationReceiptDict[d.LiquidationID].LiquidationDate.Month == m.Month)
+                    .Sum(d => d.Quantity * (d.Batch?.ImportPrice ?? 0));
+
+                monthlyLossList.Add(new
+                {
+                    Month = $"Thg {m.Month}/{m.Year}",
+                    LossAmount = (double)(returnSum + liquidationSum)
+                });
+            }
         }
 
         return Ok(new
