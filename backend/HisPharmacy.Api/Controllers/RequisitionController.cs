@@ -120,6 +120,25 @@ public class RequisitionController : ControllerBase
         req.RequisitionDate = DateTime.Now;
 
         _context.MedicineRequisitions.Add(req);
+
+        var userFullName = System.Net.WebUtility.UrlDecode(Request.Headers["X-User-FullName"].ToString());
+        if (string.IsNullOrEmpty(userFullName)) userFullName = req.ProposerName ?? "Điều dưỡng khoa";
+
+        _context.AuditLogs.Add(new AuditLog
+        {
+            DepartmentID = req.DepartmentID,
+            Username = userFullName,
+            UserRole = userRole,
+            Action = "CREATE_REQUISITION",
+            EntityName = "MedicineRequisition",
+            EntityID = req.RequisitionID,
+            BeforeData = null,
+            AfterData = $"Lập phiếu lĩnh bù cơ số ({req.Details?.Count ?? 0} khoản), Trạng thái: {req.Status}",
+            IPAddress = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "127.0.0.1",
+            Device = "Web Browser (Clinical)",
+            CreatedAt = DateTime.Now
+        });
+
         await _context.SaveChangesAsync();
 
         var result = await _context.MedicineRequisitions
@@ -191,6 +210,24 @@ public class RequisitionController : ControllerBase
             {
                 req.Status = "Pending";
             }
+
+            var approverFullName = System.Net.WebUtility.UrlDecode(Request.Headers["X-User-FullName"].ToString());
+            if (string.IsNullOrEmpty(approverFullName)) approverFullName = payload.SignerName ?? "Trưởng khoa lâm sàng";
+
+            _context.AuditLogs.Add(new AuditLog
+            {
+                DepartmentID = req.DepartmentID,
+                Username = approverFullName,
+                UserRole = userRole,
+                Action = "HEAD_APPROVE_REQUISITION",
+                EntityName = "MedicineRequisition",
+                EntityID = req.RequisitionID,
+                BeforeData = "PendingHead",
+                AfterData = "Trưởng khoa phê duyệt ký số phiếu lĩnh, Chuyển kho Dược cấp phát",
+                IPAddress = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "127.0.0.1",
+                Device = "Web Browser (Clinical)",
+                CreatedAt = DateTime.Now
+            });
 
             await _context.SaveChangesAsync();
 
@@ -394,6 +431,7 @@ public class RequisitionController : ControllerBase
             // Log User Action to AuditLogs
             _context.AuditLogs.Add(new AuditLog
             {
+                DepartmentID = req.DepartmentID,
                 Username = userFullName,
                 UserRole = userRole,
                 Action = $"CONFIRM_RECEIPT_{payload.DeliveryConfirmStatus.ToUpper()}",

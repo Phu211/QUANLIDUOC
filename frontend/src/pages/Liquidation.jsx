@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { AlertOctagon, FileText, Check, Trash2, Printer, RefreshCw, Layers, PenTool, Eraser, ThumbsUp, X } from 'lucide-react';
 import { handleIntegerKeyDown, sanitizeInteger, handleIntegerPaste } from '../utils/numberInputUtils';
+import { exportExcelReport } from '../utils/excelExportHelper';
 
 const SIG = {
   duoc: (
@@ -308,7 +309,7 @@ export default function Liquidation({ user }) {
     setShowSignatureModal(true);
   };
 
-  const handleExportLiquidations = () => {
+  const handleExportLiquidations = async () => {
     if (!liquidations || liquidations.length === 0) {
       alert("Không có dữ liệu thanh lý/tiêu hủy để xuất báo cáo.");
       return;
@@ -347,15 +348,23 @@ export default function Liquidation({ user }) {
       ];
     });
 
-    const csvContent = "\uFEFF" + [headers.join(","), ...rows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(","))].join("\n");
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", `Bao_cao_thanh_ly_tieu_huy_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    try {
+      await exportExcelReport({
+        fileName: `Bao_cao_thanh_ly_tieu_huy_${new Date().toISOString().slice(0, 10)}`,
+        sheetName: 'Thanh lý tiêu hủy',
+        departmentName: 'Hội Đồng Hủy Dược Phẩm',
+        reportTitle: 'BÁO CÁO TỔNG HỢP HỦY & THANH LÝ THUỐC HƯ HAO / HẾT HẠN',
+        subtitle: `Biên bản hủy thuốc theo Hội đồng kiểm nghiệm y tế (${liquidations.length} biên bản)`,
+        creator: user?.fullName || user?.username || 'Chủ tịch hội đồng hủy thuốc',
+        headers,
+        rows,
+        includeIndex: true,
+        showSignatures: true
+      });
+    } catch (err) {
+      console.error('Lỗi xuất Excel:', err);
+      alert('Không thể xuất báo cáo Excel: ' + err.message);
+    }
   };
 
   const handleRejectLiquidation = (id) => {

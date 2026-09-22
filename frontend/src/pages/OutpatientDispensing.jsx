@@ -866,41 +866,41 @@ export default function OutpatientDispensing({ user, setPage }) {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
-            {/* Department Switcher for Director */}
-            {user?.role === 'director' && (
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.45rem',
-                padding: '0.35rem 0.75rem',
-                borderRadius: '8px',
-                background: 'var(--bg-secondary)',
-                border: '1px solid var(--border-glass)',
-                fontSize: '0.8rem'
-              }}>
-                <Building2 size={15} color="var(--color-primary)" />
-                <span style={{ color: 'var(--text-muted)' }}>Kho lẻ:</span>
-                <select
-                  value={selectedDeptId}
-                  onChange={(e) => handleDepartmentChange(parseInt(e.target.value))}
-                  className="form-input"
-                  style={{
-                    padding: '0.2rem 0.5rem',
-                    fontSize: '0.8rem',
-                    borderRadius: '6px',
-                    fontWeight: '700',
-                    color: 'var(--color-primary)',
-                    cursor: 'pointer'
-                  }}
-                >
-                  {departmentList.map(d => (
-                    <option key={d.departmentID} value={d.departmentID}>
-                      {d.departmentName}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
+            {/* Department Switcher: Cho phép Giám Đốc, Thủ kho và Dược sĩ chuyển đổi quầy dược / phòng khám */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.45rem',
+              padding: '0.35rem 0.75rem',
+              borderRadius: '8px',
+              background: 'var(--bg-secondary)',
+              border: '1px solid var(--border-glass)',
+              fontSize: '0.8rem'
+            }}>
+              <Building2 size={15} color="var(--color-primary)" />
+              <span style={{ color: 'var(--text-muted)' }}>Quầy / Kho lẻ:</span>
+              <select
+                value={selectedDeptId}
+                onChange={(e) => handleDepartmentChange(parseInt(e.target.value))}
+                className="form-input"
+                style={{
+                  padding: '0.2rem 0.5rem',
+                  fontSize: '0.8rem',
+                  borderRadius: '6px',
+                  fontWeight: '700',
+                  color: 'var(--color-primary)',
+                  cursor: 'pointer'
+                }}
+              >
+                <option value={0}>🏥 Toàn viện (Tất cả quầy)</option>
+                {departmentList.map(d => (
+                  <option key={d.departmentID} value={d.departmentID}>
+                    {d.departmentName}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             {/* Quick Stats Chips */}
             <div style={{
               display: 'flex',
@@ -939,15 +939,14 @@ export default function OutpatientDispensing({ user, setPage }) {
               <RefreshCw size={14} /> Làm mới
             </button>
 
-            {user?.role !== 'dispensary' && user?.role !== 'pharmacist' && (
-              <button
-                className="btn-premium"
-                onClick={() => setShowCreateModal(true)}
-                style={{ height: '36px', padding: '0 1rem', fontSize: '0.82rem', gap: '0.4rem' }}
-              >
-                <Plus size={15} /> Kê Đơn Thuốc Ngoại Trú Mới
-              </button>
-            )}
+            <button
+              className="btn-premium"
+              onClick={() => setShowCreateModal(true)}
+              style={{ height: '36px', padding: '0 1rem', fontSize: '0.82rem', gap: '0.4rem' }}
+              title="Kê đơn mới hoặc tạo đơn thuốc mô phỏng để cấp phát ngay"
+            >
+              <Plus size={15} /> Kê Đơn Thuốc Mới
+            </button>
           </div>
         </div>
 

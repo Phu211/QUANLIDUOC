@@ -30,7 +30,8 @@ import {
   Edit3,
   Sparkles,
   Info,
-  Laptop
+  Laptop,
+  Building
 } from 'lucide-react';
 
 // Từ điển ánh xạ bảng dữ liệu sang nghiệp vụ bệnh viện thân thiện
@@ -42,7 +43,7 @@ export const TABLE_MAP = {
   DepartmentStocks: { label: 'Tủ Trực Khoa Lâm Sàng', icon: Package, color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.1)' },
   MedicineRequisitions: { label: 'Phiếu Lĩnh Thuốc', icon: FileText, color: '#ec4899', bg: 'rgba(236, 72, 153, 0.1)' },
   MedicineRequisition: { label: 'Phiếu Lĩnh Thuốc', icon: FileText, color: '#ec4899', bg: 'rgba(236, 72, 153, 0.1)' },
-  MedicineRequisitionDetails: { label: 'Chi Tiết Cấp Phát Thuốc', icon: FileText, color: '#a855f7', bg: 'rgba(168, 85, 247, 0.1)' },
+  MedicineRequisitionDetails: { label: 'Chi Tiết Xuất Kho Thuốc', icon: FileText, color: '#a855f7', bg: 'rgba(168, 85, 247, 0.1)' },
   ImportReceipts: { label: 'Phiếu Nhập Kho Viện', icon: Download, color: '#14b8a6', bg: 'rgba(20, 184, 166, 0.1)' },
   ImportReceiptDetails: { label: 'Chi Tiết Nhập Kho', icon: Download, color: '#06b6d4', bg: 'rgba(6, 182, 212, 0.1)' },
   BreakageReports: { label: 'Biên Bản Hư Hao Vỡ Hỏng', icon: AlertCircle, color: '#ef4444', bg: 'rgba(239, 68, 68, 0.1)' },
@@ -55,11 +56,14 @@ export const TABLE_MAP = {
 
 // Từ điển chức danh vai trò
 export const ROLE_MAP = {
-  pharmacist: 'Dược sĩ bệnh viện',
+  pharmacist: 'Thủ kho Kho Chẵn',
   director: 'Ban Giám Đốc',
   admin: 'Quản trị viên hệ thống',
+  head: 'BS. Trưởng khoa',
+  head_nurse: 'Điều dưỡng trưởng',
+  nurse: 'Điều dưỡng viên',
+  dispensary: 'Dược sĩ cấp phát đơn',
   doctor: 'Bác sĩ điều trị',
-  nurse: 'Điều dưỡng khoa',
   warehouse: 'Thủ kho Dược',
   auditor: 'Kiểm toán viên'
 };
@@ -110,8 +114,10 @@ export const COLUMN_MAP = {
 };
 
 export default function AuditTrailPage({ user }) {
+  const isClinical = user?.role === 'head' || user?.role === 'head_nurse';
   const [logs, setLogs] = useState([]);
   const [tables, setTables] = useState([]);
+  const [departments, setDepartments] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -119,6 +125,7 @@ export default function AuditTrailPage({ user }) {
   const [isFriendlyMode, setIsFriendlyMode] = useState(true);
 
   // Filter states
+  const [selectedDept, setSelectedDept] = useState(isClinical ? String(user?.departmentID || '') : 'all');
   const [selectedTable, setSelectedTable] = useState('all');
   const [selectedAction, setSelectedAction] = useState('all');
   const [searchUser, setSearchUser] = useState('');
@@ -136,8 +143,26 @@ export default function AuditTrailPage({ user }) {
 
   useEffect(() => {
     fetchDistinctTables();
+    if (!isClinical) {
+      fetchDepartments();
+    }
+  }, []);
+
+  useEffect(() => {
     fetchLogs();
-  }, [page, selectedTable, selectedAction]);
+  }, [page, selectedTable, selectedAction, selectedDept]);
+
+  const fetchDepartments = async () => {
+    try {
+      const res = await fetch('/api/audit-trail/departments');
+      if (res.ok) {
+        const data = await res.json();
+        setDepartments(data || []);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   const fetchDistinctTables = async () => {
     try {
@@ -165,13 +190,21 @@ export default function AuditTrailPage({ user }) {
       if (searchUser.trim()) params.append('username', searchUser.trim());
       if (fromDate) params.append('fromDate', fromDate);
       if (toDate) params.append('toDate', toDate);
+
+      if (isClinical) {
+        if (user?.departmentID) params.append('departmentId', user.departmentID);
+      } else if (selectedDept && selectedDept !== 'all') {
+        params.append('departmentId', selectedDept);
+      }
+
       params.append('page', page);
       params.append('pageSize', pageSize);
 
       const res = await fetch(`/api/audit-trail?${params.toString()}`, {
         headers: {
           'X-User-Role': user?.role || '',
-          'X-User-FullName': encodeURIComponent(user?.fullName || '')
+          'X-User-FullName': encodeURIComponent(user?.fullName || ''),
+          'X-User-DepartmentID': user?.departmentID ? String(user.departmentID) : ''
         }
       });
 
@@ -204,6 +237,9 @@ export default function AuditTrailPage({ user }) {
     setSearchUser('');
     setFromDate('');
     setToDate('');
+    if (!isClinical) {
+      setSelectedDept('all');
+    }
     setPage(1);
     fetchLogs();
   };
@@ -225,6 +261,107 @@ export default function AuditTrailPage({ user }) {
     const newObj = parseJson(log.newValues || log.afterData);
     const oldObj = parseJson(log.oldValues || log.beforeData);
     const changed = log.changedColumns || '';
+
+    // Hành động tủ trực & y lệnh khoa lâm sàng
+    if (act === 'CABINET_EXPORT') {
+      return { 
+        label: 'Xuất tủ trực bệnh nhân', 
+        color: '#ec4899', 
+        bg: 'rgba(236, 72, 153, 0.12)', 
+        icon: Pill, 
+        raw: act 
+      };
+    }
+    if (act === 'REFILL_REQUISITION') {
+      return { 
+        label: 'Đề xuất bù cơ số tủ', 
+        color: '#8b5cf6', 
+        bg: 'rgba(139, 92, 246, 0.12)', 
+        icon: Package, 
+        raw: act 
+      };
+    }
+    if (act === 'CREATE_REQUISITION') {
+      return { 
+        label: 'Lập phiếu lĩnh bù', 
+        color: '#0ea5e9', 
+        bg: 'rgba(14, 165, 233, 0.12)', 
+        icon: FileText, 
+        raw: act 
+      };
+    }
+    if (act === 'HEAD_APPROVE_REQUISITION') {
+      return { 
+        label: 'Trưởng khoa duyệt lĩnh', 
+        color: '#059669', 
+        bg: 'rgba(5, 150, 105, 0.12)', 
+        icon: CheckCircle2, 
+        raw: act 
+      };
+    }
+    if (act === 'APPROVE_REQUISITION') {
+      return { 
+        label: 'Xuất kho phiếu lĩnh', 
+        color: '#10b981', 
+        bg: 'rgba(16, 185, 129, 0.12)', 
+        icon: Check, 
+        raw: act 
+      };
+    }
+    if (act && act.startsWith('CONFIRM_RECEIPT')) {
+      return { 
+        label: 'Bàn giao nhận thuốc', 
+        color: '#059669', 
+        bg: 'rgba(5, 150, 105, 0.12)', 
+        icon: CheckCircle2, 
+        raw: act 
+      };
+    }
+    if (act === 'CREATE_BREAKAGE') {
+      return { 
+        label: 'Báo vỡ hỏng tủ trực', 
+        color: '#ef4444', 
+        bg: 'rgba(239, 68, 68, 0.12)', 
+        icon: AlertCircle, 
+        raw: act 
+      };
+    }
+    if (act === 'APPROVE_BREAKAGE') {
+      return { 
+        label: 'Duyệt trừ hao hụt', 
+        color: '#dc2626', 
+        bg: 'rgba(220, 38, 38, 0.12)', 
+        icon: Trash2, 
+        raw: act 
+      };
+    }
+    if (act === 'CREATE_RETURN') {
+      return { 
+        label: 'Lập phiếu hoàn trả', 
+        color: '#f59e0b', 
+        bg: 'rgba(245, 158, 11, 0.12)', 
+        icon: RefreshCw, 
+        raw: act 
+      };
+    }
+    if (act === 'LEADER_APPROVE_RETURN') {
+      return { 
+        label: 'Lãnh đạo duyệt trả', 
+        color: '#059669', 
+        bg: 'rgba(5, 150, 105, 0.12)', 
+        icon: CheckCircle2, 
+        raw: act 
+      };
+    }
+    if (act === 'PHARMACIST_APPROVE_RETURN') {
+      return { 
+        label: 'Kho Dược nhận lại', 
+        color: '#10b981', 
+        bg: 'rgba(16, 185, 129, 0.12)', 
+        icon: Check, 
+        raw: act 
+      };
+    }
 
     // Khóa sổ kỳ
     if (table === 'AccountingPeriods') {
@@ -304,7 +441,7 @@ export default function AuditTrailPage({ user }) {
     // Chi tiết phiếu lĩnh thuốc
     if (table === 'MedicineRequisitionDetails' && newObj?.DispensedQuantity !== undefined) {
       return { 
-        label: 'Cấp phát thực xuất', 
+        label: 'Số lượng thực xuất', 
         color: '#7c3aed', 
         bg: 'rgba(124, 58, 237, 0.12)', 
         icon: Check,
@@ -439,6 +576,12 @@ export default function AuditTrailPage({ user }) {
 
   // 3. Diễn giải nghiệp vụ thực tế bằng tiếng Việt (Plain Vietnamese Business Narrative)
   const getBusinessNarrative = (log) => {
+    // Nếu AfterData là mô tả văn bản trực tiếp
+    if (log.afterData && typeof log.afterData === 'string' && !log.afterData.trim().startsWith('{')) {
+      const deptPrefix = log.departmentName ? `[${log.departmentName}] ` : '';
+      return `${deptPrefix}${log.afterData}`;
+    }
+
     const table = log.tableName || log.entityName || '';
     const act = log.action;
     const newObj = parseJson(log.newValues || log.afterData);
@@ -504,9 +647,9 @@ export default function AuditTrailPage({ user }) {
     // Phiếu lĩnh thuốc
     if (table === 'MedicineRequisitions' || table === 'MedicineRequisition') {
       if (act === 'INSERT') return 'Khoa phòng gửi phiếu lĩnh thuốc mới lên kho Dược';
-      if (newObj?.Status === 'Approved') return 'Dược sĩ bệnh viện duyệt cấp phát thuốc theo phiếu lĩnh';
+      if (newObj?.Status === 'Approved') return 'Thủ kho Kho Chẵn duyệt xuất kho giao thuốc theo phiếu lĩnh';
       if (newObj?.Status === 'Completed') return 'Khoa đã xác nhận nhận đủ thuốc từ kho Dược';
-      return 'Cập nhật trạng thái / tiến độ cấp phát phiếu lĩnh';
+      return 'Cập nhật trạng thái / tiến độ xuất kho phiếu lĩnh';
     }
 
     // Chi tiết lĩnh thuốc
@@ -722,10 +865,14 @@ export default function AuditTrailPage({ user }) {
           </div>
           <div>
             <h1 className="page-title" style={{ fontSize: '1.6rem', fontWeight: 800, margin: 0 }}>
-              Nhật Ký Kiểm Toán Tự Động (Audit Trail)
+              {isClinical 
+                ? `Nhật Ký Hoạt Động - ${user?.departmentName || 'Khoa Lâm Sàng'}` 
+                : 'Nhật Ký Hoạt Động & Kiểm Toán Tự Động (Audit Trail)'}
             </h1>
             <p className="page-subtitle" style={{ fontSize: '0.88rem', color: 'var(--text-muted)', marginTop: '0.35rem' }}>
-              Theo dõi và đối soát tự động toàn bộ mọi thao tác xuất - nhập - khóa sổ - sửa xóa dữ liệu của nhân viên y tế theo thời gian thực.
+              {isClinical
+                ? `Theo dõi chi tiết lịch sử y lệnh, ký duyệt phiếu lĩnh, xuất cấp tủ trực và luân chuyển thuốc của ${user?.departmentName || 'khoa'}.`
+                : 'Theo dõi và đối soát tự động toàn bộ mọi thao tác xuất - nhập - khóa sổ - sửa xóa dữ liệu của nhân viên y tế theo thời gian thực.'}
             </p>
           </div>
         </div>
@@ -849,6 +996,46 @@ export default function AuditTrailPage({ user }) {
       }}>
         <form onSubmit={handleFilterSubmit}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr)) auto', gap: '0.85rem', alignItems: 'flex-end' }}>
+            {/* Bộ lọc Khoa Phòng */}
+            <div>
+              <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, marginBottom: '0.35rem', color: 'var(--text-muted)' }}>
+                Khoa phòng:
+              </label>
+              {!isClinical ? (
+                <select 
+                  value={selectedDept} 
+                  onChange={e => { setSelectedDept(e.target.value); setPage(1); }}
+                  style={{ width: '100%', padding: '0.55rem 0.75rem', borderRadius: '8px', border: '1px solid var(--border-color)', background: 'var(--input-bg)', color: 'var(--text-main)', fontSize: '0.85rem' }}
+                >
+                  <option value="all">-- Toàn viện (Tất cả khoa) --</option>
+                  {departments.map(d => (
+                    <option key={d.departmentID} value={d.departmentID}>
+                      {d.departmentName}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <div style={{
+                  padding: '0.55rem 0.75rem',
+                  borderRadius: '8px',
+                  border: '1px solid rgba(59, 130, 246, 0.3)',
+                  background: 'rgba(59, 130, 246, 0.08)',
+                  color: 'var(--color-primary)',
+                  fontWeight: 700,
+                  fontSize: '0.85rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  height: '38px',
+                  boxSizing: 'border-box'
+                }}>
+                  <Building size={14} />
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {user?.departmentName || 'Khoa của bạn'}
+                  </span>
+                </div>
+              )}
+            </div>
             <div>
               <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, marginBottom: '0.35rem', color: 'var(--text-muted)' }}>
                 {isFriendlyMode ? 'Phân hệ nghiệp vụ:' : 'Bảng cơ sở dữ liệu:'}
@@ -865,7 +1052,7 @@ export default function AuditTrailPage({ user }) {
                 <option value="InventoryStocks">Kho Thuốc Chẵn Viện (InventoryStocks)</option>
                 <option value="DepartmentStocks">Tủ Trực Khoa Lâm Sàng (DepartmentStocks)</option>
                 <option value="MedicineRequisitions">Phiếu Lĩnh Thuốc (MedicineRequisitions)</option>
-                <option value="MedicineRequisitionDetails">Chi Tiết Cấp Phát Thuốc (MedicineRequisitionDetails)</option>
+                <option value="MedicineRequisitionDetails">Chi Tiết Xuất Kho Thuốc (MedicineRequisitionDetails)</option>
                 <option value="ImportReceipts">Phiếu Nhập Kho Viện (ImportReceipts)</option>
                 <option value="BreakageReports">Biên Bản Vỡ Hỏng / Hư Hao (BreakageReports)</option>
                 <option value="InternalTransfers">Điều Chuyển Kho Nội Bộ (InternalTransfers)</option>
@@ -981,9 +1168,10 @@ export default function AuditTrailPage({ user }) {
               <thead>
                 <tr style={{ background: 'var(--table-header-bg)', borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                   <th style={{ padding: '0.9rem 1rem', width: '60px' }}>Mã Vết</th>
-                  <th style={{ padding: '0.9rem 1rem', width: '150px' }}>Thời Gian</th>
-                  <th style={{ padding: '0.9rem 1rem', width: '190px' }}>Người Thực Hiện</th>
-                  <th style={{ padding: '0.9rem 1rem', width: '180px' }}>
+                  <th style={{ padding: '0.9rem 1rem', width: '145px' }}>Thời Gian</th>
+                  <th style={{ padding: '0.9rem 1rem', width: '170px' }}>Khoa Phòng</th>
+                  <th style={{ padding: '0.9rem 1rem', width: '180px' }}>Người Thực Hiện</th>
+                  <th style={{ padding: '0.9rem 1rem', width: '170px' }}>
                     {isFriendlyMode ? 'Phân Hệ Nghiệp Vụ' : 'Bảng Dữ Liệu'}
                   </th>
                   <th style={{ padding: '0.9rem 1rem', minWidth: '220px' }}>
@@ -993,10 +1181,10 @@ export default function AuditTrailPage({ user }) {
                   <th style={{ padding: '0.9rem 1rem', width: '160px' }}>
                     {isFriendlyMode ? 'Đối Tượng Tác Động' : 'Khóa Chính (Key)'}
                   </th>
-                  <th style={{ padding: '0.9rem 1rem', width: '170px' }}>
+                  <th style={{ padding: '0.9rem 1rem', width: '160px' }}>
                     {isFriendlyMode ? 'Nội Dung Thay Đổi' : 'Cột Thay Đổi'}
                   </th>
-                  <th style={{ padding: '0.9rem 1rem', textAlign: 'center', width: '100px' }}>Đối Chiếu</th>
+                  <th style={{ padding: '0.9rem 1rem', textAlign: 'center', width: '90px' }}>Đối Chiếu</th>
                 </tr>
               </thead>
               <tbody>
@@ -1027,6 +1215,39 @@ export default function AuditTrailPage({ user }) {
                           <Clock size={11} style={{ opacity: 0.6 }} />
                           {new Date(log.createdAt).toLocaleTimeString('vi-VN')}
                         </div>
+                      </td>
+
+                      {/* Khoa Phòng */}
+                      <td style={{ padding: '0.9rem 1rem', fontSize: '0.82rem' }}>
+                        {log.departmentName ? (
+                          <span style={{ 
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '0.35rem',
+                            fontSize: '0.8rem',
+                            fontWeight: 700,
+                            color: '#2563eb',
+                            background: 'rgba(37, 99, 235, 0.08)',
+                            padding: '0.2rem 0.55rem',
+                            borderRadius: '6px',
+                            border: '1px solid rgba(37, 99, 235, 0.2)'
+                          }}>
+                            <Building size={12} />
+                            {log.departmentName}
+                          </span>
+                        ) : (
+                          <span style={{ 
+                            fontSize: '0.75rem', 
+                            color: 'var(--text-muted)',
+                            fontStyle: 'italic',
+                            background: 'var(--bg-primary)',
+                            padding: '0.15rem 0.45rem',
+                            borderRadius: '4px',
+                            border: '1px solid var(--border-color)'
+                          }}>
+                            {log.tableName === 'InventoryStocks' ? 'Kho Dược Chính' : 'Toàn Viện'}
+                          </span>
+                        )}
                       </td>
 
                       {/* Người Thực Hiện & Vai Trò */}
@@ -1275,10 +1496,14 @@ export default function AuditTrailPage({ user }) {
 
             <div style={{ padding: '1rem 0', flex: 1, overflowY: 'auto' }}>
               {/* Summary Cards */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.85rem', background: 'var(--bg-primary)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border-color)', marginBottom: '1rem', fontSize: '0.85rem' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.85rem', background: 'var(--bg-primary)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border-color)', marginBottom: '1rem', fontSize: '0.85rem' }}>
+                <div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '2px' }}>Khoa phòng liên quan</div>
+                  <strong style={{ color: '#2563eb' }}>{inspectLog.departmentName || 'Kho Dược Chính / Toàn Viện'}</strong>
+                </div>
                 <div>
                   <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '2px' }}>Người thực hiện</div>
-                  <strong>{inspectLog.username || 'Hệ thống'}</strong> ({ROLE_MAP[inspectLog.userRole] || inspectLog.userRole || 'Dược sĩ'})
+                  <strong>{inspectLog.username || 'Hệ thống'}</strong> ({ROLE_MAP[inspectLog.userRole] || inspectLog.userRole || 'Nhân viên'})
                 </div>
                 <div>
                   <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '2px' }}>Thời điểm ghi nhận</div>

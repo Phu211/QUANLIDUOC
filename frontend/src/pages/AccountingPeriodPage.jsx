@@ -124,7 +124,8 @@ export default function AccountingPeriodPage({ user }) {
   };
 
   const isDirector = user?.role === 'director';
-  const isAuthorizedToLock = isDirector;
+  const isPharmacist = user?.role === 'pharmacist';
+  const isAuthorizedToLock = isDirector || isPharmacist;
 
   // Metrics
   const lockedCount = periods.filter(p => p.isLocked).length;
@@ -262,8 +263,8 @@ export default function AccountingPeriodPage({ user }) {
         </div>
       </div>
 
-      {/* Banner thông báo chế độ giám sát tra cứu cho Dược sĩ */}
-      {!isDirector && (
+      {/* Banner thông báo chế độ giám sát tra cứu nếu không có quyền khóa sổ */}
+      {!isAuthorizedToLock && (
         <div style={{
           background: 'rgba(59, 130, 246, 0.08)',
           border: '1px solid rgba(59, 130, 246, 0.25)',
@@ -278,12 +279,12 @@ export default function AccountingPeriodPage({ user }) {
         }}>
           <Info size={22} color="#3b82f6" style={{ flexShrink: 0 }} />
           <div>
-            <strong style={{ color: '#3b82f6' }}>Chế độ Tra Cứu Kỳ Dược (Read-Only):</strong> Bạn đang đăng nhập với vai trò <strong style={{ color: 'var(--text-main)' }}>{user?.fullName || 'Dược sĩ / Thủ kho'}</strong>. Theo quy định bệnh viện, quyền thực hiện <strong>Khóa Sổ</strong> hoặc <strong>Mở Khóa</strong> kỳ Dược chỉ dành cho <strong>Ban Giám Đốc</strong>. Dữ liệu bên dưới được cung cấp để Dược sĩ theo dõi số dư tồn kho đã chốt và đối soát báo cáo tài chính.
+            <strong style={{ color: '#3b82f6' }}>Chế độ Tra Cứu Kỳ Dược (Read-Only):</strong> Bạn đang đăng nhập với vai trò <strong style={{ color: 'var(--text-main)' }}>{user?.fullName || 'Cán bộ Y tế'}</strong>. Quyền thực hiện <strong>Khóa Sổ</strong> hoặc <strong>Mở Khóa</strong> kỳ Dược dành cho <strong>Ban Giám Đốc</strong> và <strong>Thủ kho Dược chính</strong>. Dữ liệu bên dưới được cung cấp để theo dõi số dư tồn kho đã chốt và đối soát báo cáo.
           </div>
         </div>
       )}
 
-      {/* Action Box: Thực hiện Khóa sổ - Chỉ hiển thị cho Ban Giám Đốc */}
+      {/* Action Box: Thực hiện Khóa sổ - Hiển thị cho Ban Giám Đốc và Thủ kho Dược chính */}
       {isAuthorizedToLock && (
         <div className="card" style={{ 
           background: 'var(--bg-card)', 
@@ -300,7 +301,7 @@ export default function AccountingPeriodPage({ user }) {
                 Thực hiện Khóa Sổ Kỳ Dược Cuối Tháng
               </h3>
               <p style={{ margin: '2px 0 0 0', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-                Chỉ Ban Giám Đốc có thẩm quyền chốt sổ. Hệ thống sẽ tự động tổng hợp số dư tồn kho, tổng nhập và chi phí hao hụt.
+                Ban Giám Đốc hoặc Thủ kho Dược chính có thẩm quyền chốt sổ. Hệ thống sẽ tự động tổng hợp số dư tồn kho, tổng nhập và chi phí hao hụt.
               </p>
             </div>
           </div>
@@ -469,12 +470,12 @@ export default function AccountingPeriodPage({ user }) {
                       )}
                     </td>
                     <td style={{ padding: '1rem 1.25rem', textAlign: 'center' }}>
-                      {p.isLocked && isDirector && (
+                      {p.isLocked && isAuthorizedToLock && (
                         <button 
                           onClick={() => setUnlockTarget(p)}
                           className="btn-secondary"
                           style={{ padding: '0.4rem 0.8rem', fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: '0.35rem', color: '#f59e0b', borderColor: '#f59e0b' }}
-                          title="Chỉ Ban Giám Đốc mới có quyền mở khóa kỳ Dược đã chốt"
+                          title="Ban Giám Đốc hoặc Thủ kho Dược chính có thẩm quyền mở khóa kỳ Dược"
                         >
                           <Unlock size={13} /> Mở khóa
                         </button>

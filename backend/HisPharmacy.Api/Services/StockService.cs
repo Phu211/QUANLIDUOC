@@ -173,6 +173,7 @@ public class StockService
             // Log User Action to AuditLogs
             _context.AuditLogs.Add(new AuditLog
             {
+                DepartmentID = req.DepartmentID,
                 Username = "pharmacist",
                 UserRole = "pharmacist",
                 Action = "APPROVE_REQUISITION",

@@ -97,6 +97,8 @@ using (var scope = app.Services.CreateScope())
 
         // Data encoding patches for OutpatientPrescriptions & CabinetTransactions
         db.Database.ExecuteSqlRaw(@"
+            UPDATE Users SET FullName = N'Thủ kho Hà Lâm Đình Phú' WHERE Username IN ('thukho', 'phu');
+            UPDATE Users SET FullName = N'Thủ kho Kiều Đức Anh' WHERE Username = 'anh';
             UPDATE OutpatientPrescriptions SET DoctorName = N'BS.CKII. Nguyễn Hữu Lực' WHERE (DepartmentID = 1 OR DepartmentID IS NULL) AND (DoctorName LIKE N'%Nguy%n%' OR DoctorName LIKE N'%á»%' OR DoctorName LIKE N'%Lá»±c%');
             UPDATE OutpatientPrescriptions SET DoctorName = N'BS.CKII. Lê Văn Chương' WHERE DepartmentID = 2 OR DoctorName LIKE N'%Ch%ng%' OR DoctorName LIKE N'%LĂª%';
             UPDATE OutpatientPrescriptions SET DoctorName = N'BS.CKII. Nguyễn Đăng Đức Anh' WHERE DepartmentID = 3 OR DoctorName LIKE N'%Ä%ng%';

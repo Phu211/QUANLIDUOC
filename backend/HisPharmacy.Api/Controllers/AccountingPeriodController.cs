@@ -58,10 +58,11 @@ public class AccountingPeriodController : ControllerBase
     {
         var userRole = Request.Headers["X-User-Role"].ToString();
         var userFullName = System.Net.WebUtility.UrlDecode(Request.Headers["X-User-FullName"].ToString());
-        if (string.IsNullOrEmpty(userFullName)) userFullName = "Ban Giám Đốc";
+        if (string.IsNullOrEmpty(userFullName)) 
+            userFullName = userRole == "director" ? "Ban Giám Đốc" : "Thủ kho Dược chính";
 
-        if (userRole != "director")
-            return BadRequest(new { Error = "Quyền truy cập bị từ chối. Chỉ Ban Giám Đốc mới có thẩm quyền khóa sổ kỳ Dược." });
+        if (userRole != "director" && userRole != "pharmacist")
+            return BadRequest(new { Error = "Quyền truy cập bị từ chối. Chỉ Ban Giám Đốc hoặc Thủ kho Dược chính mới có thẩm quyền khóa sổ kỳ Dược." });
 
         if (request.Month < 1 || request.Month > 12 || request.Year < 2020 || request.Year > 2100)
             return BadRequest(new { Error = "Kỳ tháng/năm không hợp lệ." });
@@ -136,10 +137,11 @@ public class AccountingPeriodController : ControllerBase
     {
         var userRole = Request.Headers["X-User-Role"].ToString();
         var userFullName = System.Net.WebUtility.UrlDecode(Request.Headers["X-User-FullName"].ToString());
-        if (string.IsNullOrEmpty(userFullName)) userFullName = "Ban Giám Đốc";
+        if (string.IsNullOrEmpty(userFullName)) 
+            userFullName = userRole == "director" ? "Ban Giám Đốc" : "Thủ kho Dược chính";
 
-        if (userRole != "director")
-            return BadRequest(new { Error = "Quyền truy cập bị từ chối. Chỉ Ban Giám Đốc mới có thẩm quyền mở khóa kỳ Dược đã chốt." });
+        if (userRole != "director" && userRole != "pharmacist")
+            return BadRequest(new { Error = "Quyền truy cập bị từ chối. Chỉ Ban Giám Đốc hoặc Thủ kho Dược chính mới có thẩm quyền mở khóa kỳ Dược đã chốt." });
 
         var period = await _context.AccountingPeriods
             .FirstOrDefaultAsync(p => p.PeriodMonth == request.Month && p.PeriodYear == request.Year);

@@ -223,6 +223,22 @@ public class BreakageController : ControllerBase
         report.TotalLossAmount = totalLoss;
 
         _context.BreakageReports.Add(report);
+
+        _context.AuditLogs.Add(new AuditLog
+        {
+            DepartmentID = report.DepartmentID,
+            Username = userFullName,
+            UserRole = userRole,
+            Action = "CREATE_BREAKAGE",
+            EntityName = "BreakageReports",
+            EntityID = report.ReportID,
+            BeforeData = null,
+            AfterData = $"Lập biên bản vỡ hỏng {report.ReportCode}, Lý do: {report.Reason}, Thiệt hại: {report.TotalLossAmount:N0} đ",
+            IPAddress = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "127.0.0.1",
+            Device = "Web Browser (Clinical)",
+            CreatedAt = DateTime.Now
+        });
+
         await _context.SaveChangesAsync();
 
         await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Breakage");
@@ -303,6 +319,21 @@ public class BreakageController : ControllerBase
             // Compute Canonical Hash for Document Integrity
             var canonical = DocumentSecurityHelper.BuildCanonicalString(report);
             report.DocumentHash = DocumentSecurityHelper.ComputeSha256(canonical);
+
+            _context.AuditLogs.Add(new AuditLog
+            {
+                DepartmentID = report.DepartmentID,
+                Username = userFullName,
+                UserRole = userRole,
+                Action = "APPROVE_BREAKAGE",
+                EntityName = "BreakageReports",
+                EntityID = report.ReportID,
+                BeforeData = "Trạng thái: Pending",
+                AfterData = $"Duyệt biên bản {report.ReportCode}, Trừ tồn tủ trực khoa, Người duyệt: {userFullName}",
+                IPAddress = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "127.0.0.1",
+                Device = "Web Browser (Clinical)",
+                CreatedAt = DateTime.Now
+            });
 
             await _context.SaveChangesAsync();
             await transaction.CommitAsync();

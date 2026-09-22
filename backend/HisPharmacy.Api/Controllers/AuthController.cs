@@ -46,6 +46,27 @@ public class AuthController : ControllerBase
             DepartmentName = user.Department?.DepartmentName
         });
     }
+
+    [HttpGet("demo-users")]
+    public async Task<IActionResult> GetDemoUsers()
+    {
+        var users = await _context.Users
+            .Include(u => u.Department)
+            .OrderBy(u => u.Role)
+            .ThenBy(u => u.DepartmentID)
+            .Select(u => new
+            {
+                u.UserID,
+                u.Username,
+                u.FullName,
+                u.Role,
+                u.DepartmentID,
+                DepartmentName = u.Department != null ? u.Department.DepartmentName : "Bệnh viện"
+            })
+            .ToListAsync();
+
+        return Ok(users);
+    }
 }
 
 public class LoginRequest

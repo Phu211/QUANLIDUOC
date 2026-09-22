@@ -7,6 +7,7 @@ import {
   ArrowRightLeft
 } from 'lucide-react';
 import { handleIntegerKeyDown, sanitizeInteger, handleIntegerPaste } from '../utils/numberInputUtils';
+import { exportExcelReport } from '../utils/excelExportHelper';
 
 const SIG = {
   duoc: (
@@ -123,7 +124,7 @@ export default function InventoryAudit({ user }) {
     }
   };
 
-  const handleExportAudit = () => {
+  const handleExportAudit = async () => {
     if (activeTab === 'audit') {
       if (!audits || audits.length === 0) {
         alert("Không có phiếu kiểm kê nào để xuất báo cáo.");
@@ -152,15 +153,23 @@ export default function InventoryAudit({ user }) {
         a.notes || ''
       ]);
 
-      const csvContent = "\uFEFF" + [headers.join(","), ...rows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(","))].join("\n");
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.setAttribute("href", url);
-      link.setAttribute("download", `Bao_cao_kiem_ke_${new Date().toISOString().slice(0, 10)}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      try {
+        await exportExcelReport({
+          fileName: `Bao_cao_kiem_ke_${new Date().toISOString().slice(0, 10)}`,
+          sheetName: 'Biên bản kiểm kê',
+          departmentName: 'Hội Đồng Kiểm Kê Dược',
+          reportTitle: 'BÁO CÁO TỔNG HỢP CÁC KỲ KIỂM KÊ KHO & TỦ TRỰC',
+          subtitle: `Tổng số biên bản kiểm kê: ${audits.length} đợt`,
+          creator: user?.fullName || user?.username || 'Chủ tịch hội đồng kiểm kê',
+          headers,
+          rows,
+          includeIndex: true,
+          showSignatures: true
+        });
+      } catch (err) {
+        console.error('Lỗi xuất Excel:', err);
+        alert('Không thể xuất báo cáo Excel: ' + err.message);
+      }
     } else {
       if (!logs || logs.length === 0) {
         alert("Không có nhật ký điều chỉnh nào để xuất báo cáo.");
@@ -182,22 +191,30 @@ export default function InventoryAudit({ user }) {
         l.batch?.medicine?.medicineName || '',
         l.batch?.batchNumber || '',
         l.locationType === 'MainStore' ? 'Kho chẵn' : `Tủ trực: ${departments.find(d => d.departmentID === l.departmentID)?.departmentName || ''}`,
-        l.oldQuantity || 0,
-        l.newQuantity || 0,
-        l.discrepancy || 0,
+        Number(l.oldQuantity) || 0,
+        Number(l.newQuantity) || 0,
+        Number(l.discrepancy) || 0,
         l.adjustedBy || '',
         l.reason || ''
       ]);
 
-      const csvContent = "\uFEFF" + [headers.join(","), ...rows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(","))].join("\n");
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.setAttribute("href", url);
-      link.setAttribute("download", `Nhat_ky_dieu_chinh_ton_kho_${new Date().toISOString().slice(0, 10)}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      try {
+        await exportExcelReport({
+          fileName: `Nhat_ky_dieu_chinh_ton_kho_${new Date().toISOString().slice(0, 10)}`,
+          sheetName: 'Điều chỉnh tồn kho',
+          departmentName: 'Kho Dược Bệnh Viện',
+          reportTitle: 'NHẬT KÝ ĐIỀU CHỈNH CHÊNH LỆCH TỒN KHO DƯỢC',
+          subtitle: `Ghi nhận đối chiếu chênh lệch sau kiểm kê thực tế (${logs.length} lượt điều chỉnh)`,
+          creator: user?.fullName || user?.username || 'Dược sĩ quản lý kho',
+          headers,
+          rows,
+          includeIndex: true,
+          showSignatures: true
+        });
+      } catch (err) {
+        console.error('Lỗi xuất Excel:', err);
+        alert('Không thể xuất báo cáo Excel: ' + err.message);
+      }
     }
   };
 

@@ -110,6 +110,22 @@ public class ReturnController : ControllerBase
         ret.ProposerName = userFullName;
 
         _context.ReturnReceipts.Add(ret);
+
+        _context.AuditLogs.Add(new AuditLog
+        {
+            DepartmentID = ret.DepartmentID,
+            Username = userFullName,
+            UserRole = userRole,
+            Action = "CREATE_RETURN",
+            EntityName = "ReturnReceipts",
+            EntityID = ret.ReturnID,
+            BeforeData = null,
+            AfterData = $"Lập đề xuất trả thuốc thừa ({ret.Details?.Count ?? 0} khoản), Lý do: {ret.ReturnReason}",
+            IPAddress = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "127.0.0.1",
+            Device = "Web Browser (Clinical)",
+            CreatedAt = DateTime.Now
+        });
+
         await _context.SaveChangesAsync();
 
         var result = await _context.ReturnReceipts
@@ -157,6 +173,22 @@ public class ReturnController : ControllerBase
 
             await _stockService.PharmacistApproveReturnAsync(id, request?.DigitalSignature, request?.Destination, userFullName);
 
+            _context.AuditLogs.Add(new AuditLog
+            {
+                DepartmentID = ret.DepartmentID,
+                Username = userFullName,
+                UserRole = userRole,
+                Action = "PHARMACIST_APPROVE_RETURN",
+                EntityName = "ReturnReceipts",
+                EntityID = id,
+                BeforeData = "PendingPharmacist",
+                AfterData = $"Kho Dược kiểm nhận thuốc hoàn trả từ khoa, Đích nhập: {request?.Destination ?? "MainStore"}",
+                IPAddress = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "127.0.0.1",
+                Device = "Web Browser (Clinical)",
+                CreatedAt = DateTime.Now
+            });
+            await _context.SaveChangesAsync();
+
             // Broadcast real-time updates
             await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Returns");
             await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Cabinets");
@@ -180,7 +212,30 @@ public class ReturnController : ControllerBase
 
         try
         {
+            var ret = await _context.ReturnReceipts.FindAsync(id);
             await _stockService.LeaderApproveReturnAsync(id, request?.DigitalSignature);
+
+            var approverName = System.Net.WebUtility.UrlDecode(Request.Headers["X-User-FullName"].ToString());
+            if (string.IsNullOrEmpty(approverName)) approverName = userRole == "director" ? "Ban Giám Đốc" : "Trưởng khoa lâm sàng";
+
+            if (ret != null)
+            {
+                _context.AuditLogs.Add(new AuditLog
+                {
+                    DepartmentID = ret.DepartmentID,
+                    Username = approverName,
+                    UserRole = userRole,
+                    Action = "LEADER_APPROVE_RETURN",
+                    EntityName = "ReturnReceipts",
+                    EntityID = id,
+                    BeforeData = "Pending",
+                    AfterData = "Trưởng khoa / Lãnh đạo phê duyệt phiếu hoàn trả thuốc thừa",
+                    IPAddress = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "127.0.0.1",
+                    Device = "Web Browser (Clinical)",
+                    CreatedAt = DateTime.Now
+                });
+                await _context.SaveChangesAsync();
+            }
 
             // Broadcast real-time updates
             await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Returns");

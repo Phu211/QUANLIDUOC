@@ -48,21 +48,96 @@ import AccountingPeriodPage from './pages/AccountingPeriodPage';
 import AuditTrailPage from './pages/AuditTrailPage';
 import PatientPortal from './pages/PatientPortal';
 
+const sanitizeUserData = (u) => {
+  if (!u) return u;
+  const clone = { ...u };
+  if (clone.fullName && (clone.fullName.includes('á»') || clone.fullName.includes('Ă') || clone.fullName.includes('Ä') || clone.fullName.includes('ï¿½'))) {
+    if (clone.username === 'thukho' || clone.username === 'phu') {
+      clone.fullName = 'Thủ kho Hà Lâm Đình Phú';
+    } else if (clone.username === 'anh') {
+      clone.fullName = 'Thủ kho Kiều Đức Anh';
+    }
+  }
+  return clone;
+};
+
 export default function App() {
   const [user, setUser] = useState(() => {
     const saved = localStorage.getItem('his-pharmacy-user');
-    return saved ? JSON.parse(saved) : null;
+    if (!saved) return null;
+    try {
+      const parsed = JSON.parse(saved);
+      const sanitized = sanitizeUserData(parsed);
+      if (JSON.stringify(sanitized) !== saved) {
+        localStorage.setItem('his-pharmacy-user', JSON.stringify(sanitized));
+      }
+      return sanitized;
+    } catch {
+      return null;
+    }
   });
   
+  const getInitialPageForUser = (u) => {
+    if (!u) return 'dashboard';
+    switch (u.role) {
+      case 'director': return 'dashboard';
+      case 'pharmacist': return 'dashboard';
+      case 'dispensary': return 'dispensing';
+      case 'head': return 'cabinet';
+      case 'head_nurse': return 'cabinet';
+      case 'nurse': return 'cabinet';
+      default: return 'dashboard';
+    }
+  };
+
+  const isPageAllowedForRole = (p, role) => {
+    if (role === 'director') return true;
+    if (p === 'patient-portal') return true;
+    
+    switch (role) {
+      case 'pharmacist':
+        return [
+          'dashboard', 'imports', 'requisitions', 'returns', 'tracking', 
+          'audit', 'restock', 'clearance', 'recall', 'liquidation', 
+          'cabinet', 'medicine', 'accounting-period', 'audit-trail'
+        ].includes(p);
+        
+      case 'dispensary':
+        return ['dispensing', 'cabinet'].includes(p);
+        
+      case 'head':
+        return ['dashboard', 'cabinet', 'requisitions', 'returns', 'audit', 'recall', 'audit-trail'].includes(p);
+        
+      case 'head_nurse':
+        return ['cabinet', 'requisitions', 'returns', 'audit', 'recall', 'audit-trail'].includes(p);
+        
+      case 'nurse':
+        return ['cabinet'].includes(p);
+        
+      default:
+        return false;
+    }
+  };
+
   const [page, setPage] = useState(() => {
     const saved = localStorage.getItem('his-pharmacy-user');
     if (saved) {
-      const u = JSON.parse(saved);
-      const isPharm = u.role === 'dispensary' || u.role === 'pharmacist';
-      return u.role === 'nurse' ? 'cabinet' : isPharm ? 'dispensing' : 'dashboard';
+      try {
+        const u = JSON.parse(saved);
+        return getInitialPageForUser(u);
+      } catch {
+        return 'dashboard';
+      }
     }
     return 'dashboard';
   });
+
+  // Tự động điều hướng về trang mặc định của vai trò nếu trang hiện tại không được cấp quyền
+  useEffect(() => {
+    if (user && !isPageAllowedForRole(page, user.role)) {
+      setPage(getInitialPageForUser(user));
+    }
+  }, [user, page]);
 
   const [isPublicPortal, setIsPublicPortal] = useState(() => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -142,8 +217,10 @@ export default function App() {
       case 'dashboard': return 'Bảng Điều Khiển Trung Tâm';
       case 'medicine': return 'Quản Lý Danh Mục Thuốc';
       case 'imports': return 'Nhập Kho & Kiểm Nhập';
-      case 'requisitions': return 'Cấp Phát Thuốc & Vật Tư Khoa';
-      case 'cabinet': return 'Quản Lý Tủ Trực Khoa';
+      case 'requisitions': return (user?.role === 'pharmacist') ? 'Xuất Kho Theo Phiếu Lĩnh Khoa Phòng' : 'Yêu Cầu Lĩnh Thuốc & Vật Tư Khoa';
+      case 'cabinet': return (user?.role === 'director' || user?.role === 'pharmacist' || user?.role === 'dispensary')
+        ? 'Tra Cứu Tồn Kho Tủ Thuốc Từng Khoa'
+        : 'Quản Lý Tủ Trực Khoa';
       case 'returns': return 'Hoàn Trả Thuốc Thừa';
       case 'liquidation': return 'Thanh Lý Tài Sản';
       case 'recall': return 'Thu Hồi & Cách Ly Lô';
@@ -153,23 +230,16 @@ export default function App() {
       case 'clearance': return 'Cảnh Báo & Điều Chuyển Thuốc Cận Date';
       case 'dispensing': return 'Cấp Phát Thuốc Ngoại Trú & Quét Đơn Thuốc';
       case 'accounting-period': return 'Khóa Sổ Kỳ Dược Cuối Tháng';
-      case 'audit-trail': return 'Nhật Ký Kiểm Toán Tự Động';
+      case 'audit-trail': return (user?.role === 'head' || user?.role === 'head_nurse') 
+        ? `Nhật Ký Hoạt Động - ${user?.departmentName || 'Khoa Lâm Sàng'}` 
+        : 'Nhật Ký Hoạt Động & Kiểm Toán Tự Động';
       case 'patient-portal': return 'Cổng Bệnh Nhân Tra Cứu Đơn Thuốc & ADR';
       default: return 'Hệ Thống Quản Lý Dược';
     }
   };
 
-  const renderPage = () => {
-    // Dược sĩ chỉ có vai trò: Cấp phát thuốc cho bệnh nhân ('dispensing') và Xem tồn kho tủ thuốc ('cabinet')
-    const isPharmacist = user?.role === 'dispensary' || user?.role === 'pharmacist';
-    if (isPharmacist) {
-      const allowedPharmacistPages = ['dispensing', 'cabinet', 'patient-portal'];
-      if (!allowedPharmacistPages.includes(page)) {
-        return <OutpatientDispensing user={user} setPage={setPage} />;
-      }
-    }
-
-    switch (page) {
+  const renderPageComponent = (p) => {
+    switch (p) {
       case 'dashboard':
         return <Dashboard setPage={setPage} user={user} />;
       case 'medicine':
@@ -203,23 +273,40 @@ export default function App() {
       case 'patient-portal':
         return <PatientPortal onSwitchToStaffLogin={() => setPage('dashboard')} />;
       default:
-        return isPharmacist
-          ? <OutpatientDispensing user={user} setPage={setPage} />
-          : (user?.role === 'nurse' || user?.role === 'head_nurse' || user?.role === 'head') 
-          ? <CabinetManagement user={user} /> 
-          : <Dashboard setPage={setPage} user={user} />;
+        return <Dashboard setPage={setPage} user={user} />;
     }
   };
 
-  const getRoleDisplayName = (r) => {
-    switch (r) {
-      case 'pharmacist': return 'Dược sĩ Bệnh Viện';
-      case 'dispensary': return user?.departmentName ? `Dược sĩ Quầy (${user.departmentName})` : 'Dược sĩ Quầy Thuốc';
-      case 'nurse': return 'Điều dưỡng';
-      case 'head_nurse': return 'Điều dưỡng trưởng';
-      case 'head': return 'Trưởng khoa';
-      case 'director': return 'Ban Giám Đốc';
-      default: return 'Cán bộ Y tế';
+  const renderPage = () => {
+    if (user && !isPageAllowedForRole(page, user.role)) {
+      const fallback = getInitialPageForUser(user);
+      return renderPageComponent(fallback);
+    }
+    return renderPageComponent(page);
+  };
+
+  const getRoleDisplayName = (u) => {
+    if (!u) return 'Cán bộ Y tế';
+    const role = typeof u === 'string' ? u : u.role;
+    const username = typeof u === 'object' ? u.username : user?.username;
+    const dept = typeof u === 'object' ? u.departmentName : user?.departmentName;
+
+    switch (role) {
+      case 'director':
+        return username === 'duy' ? 'PGS.TS. Phó Giám Đốc' : 'PGS.TS. Giám Đốc Bệnh Viện';
+      case 'pharmacist':
+        if (username === 'thukho') return 'Thủ kho Kho Chẵn (Chính)';
+        return 'Thủ kho Kho Chẵn';
+      case 'dispensary':
+        return dept ? `Dược sĩ (${dept})` : 'Dược sĩ';
+      case 'head':
+        return dept ? `BS.CKII. Trưởng ${dept}` : 'BS. Trưởng khoa';
+      case 'head_nurse':
+        return dept ? `ĐD Trưởng (${dept})` : 'Điều dưỡng trưởng';
+      case 'nurse':
+        return dept ? `Điều dưỡng viên (${dept})` : 'Điều dưỡng viên';
+      default:
+        return 'Cán bộ Y tế';
     }
   };
 
@@ -242,10 +329,10 @@ export default function App() {
     return (
       <Login 
         onLoginSuccess={(u) => {
-          setUser(u);
-          localStorage.setItem('his-pharmacy-user', JSON.stringify(u));
-          const isPharm = u.role === 'dispensary' || u.role === 'pharmacist';
-          setPage(u.role === 'nurse' ? 'cabinet' : isPharm ? 'dispensing' : 'dashboard');
+          const sanitized = sanitizeUserData(u);
+          setUser(sanitized);
+          localStorage.setItem('his-pharmacy-user', JSON.stringify(sanitized));
+          setPage(getInitialPageForUser(sanitized));
         }} 
       />
     );
@@ -266,22 +353,22 @@ export default function App() {
         </div>
 
         <div className="nav-links">
-          {/* Hệ thống (Chỉ Ban Giám Đốc quản trị toàn viện) */}
+          {/* 1. BAN GIÁM ĐỐC (director) - Quản trị toàn viện, phê duyệt & giám sát */}
           {user.role === 'director' && (
             <>
-              <div className="nav-section-title" title="Hệ thống">Hệ thống</div>
+              <div className="nav-section-title" title="Ban Giám Đốc Bệnh Viện">Hệ Thống Lãnh Đạo</div>
               <a 
                 className={`nav-item ${page === 'dashboard' ? 'active' : ''}`}
                 onClick={() => setPage('dashboard')}
-                title="Tổng quan"
+                title="Tổng quan toàn viện"
               >
                 <LayoutDashboard className="nav-icon" />
-                <span>Tổng quan</span>
+                <span>Tổng quan toàn viện</span>
               </a>
               <a 
                 className={`nav-item ${page === 'medicine' ? 'active' : ''}`}
                 onClick={() => setPage('medicine')}
-                title="Danh mục thuốc viện"
+                title="Danh mục thuốc bệnh viện"
               >
                 <Database className="nav-icon" />
                 <span>Danh mục thuốc viện</span>
@@ -297,134 +384,67 @@ export default function App() {
               <a 
                 className={`nav-item ${page === 'audit-trail' ? 'active' : ''}`}
                 onClick={() => setPage('audit-trail')}
-                title="Nhật ký kiểm toán tự động"
+                title="Nhật ký kiểm toán hệ thống"
               >
                 <ShieldCheck className="nav-icon" style={{ color: '#3b82f6' }} />
                 <span>Nhật ký kiểm toán</span>
               </a>
-            </>
-          )}
 
-          {/* Phân hệ Dược sĩ: Chỉ Cấp phát thuốc cho bệnh nhân và Xem tồn kho tủ thuốc */}
-          {(user.role === 'dispensary' || user.role === 'pharmacist') && (
-            <>
-              <div className="nav-section-title" title="Dược sĩ Quầy Thuốc & Kho Lẻ">
-                {user.departmentName ? `Quầy Dược: ${user.departmentName}` : 'Dược sĩ Quầy Thuốc'}
-              </div>
+              <div className="nav-section-title" title="Kho Dược & Phê Duyệt">Kho Dược & Phê Duyệt</div>
               <a 
-                className={`nav-item ${page === 'dispensing' ? 'active' : ''}`}
-                onClick={() => setPage('dispensing')}
-                title="Cấp phát thuốc cho bệnh nhân theo đơn"
+                className={`nav-item ${page === 'imports' ? 'active' : ''}`}
+                onClick={() => setPage('imports')}
+                title="Duyệt nhập kho & Kiểm nhập"
               >
-                <Stethoscope className="nav-icon" />
-                <span>Cấp phát theo đơn</span>
-              </a>
-              <a 
-                className={`nav-item ${page === 'cabinet' ? 'active' : ''}`}
-                onClick={() => setPage('cabinet')}
-                title="Xem thuốc đó còn trong tủ thuốc hay không"
-              >
-                <Monitor className="nav-icon" />
-                <span>Xem tồn kho tủ thuốc</span>
-              </a>
-            </>
-          )}
-
-          {/* Tủ trực khoa lâm sàng */}
-          {(user.role === 'nurse' || user.role === 'head_nurse' || user.role === 'head') && (
-            <>
-              <div className="nav-section-title" title="Tủ trực lâm sàng">Tủ trực lâm sàng</div>
-              <a 
-                className={`nav-item ${page === 'dashboard' ? 'active' : ''}`}
-                onClick={() => setPage('dashboard')}
-                title="Tổng quan"
-              >
-                <LayoutDashboard className="nav-icon" />
-                <span>Tổng quan</span>
-              </a>
-              <a 
-                className={`nav-item ${page === 'cabinet' ? 'active' : ''}`}
-                onClick={() => setPage('cabinet')}
-                title="Tủ trực khoa"
-              >
-                <Monitor className="nav-icon" />
-                <span>Tủ trực khoa</span>
+                <Package className="nav-icon" />
+                <span>Phê duyệt nhập kho</span>
               </a>
               <a 
                 className={`nav-item ${page === 'requisitions' ? 'active' : ''}`}
                 onClick={() => setPage('requisitions')}
-                title="Yêu cầu lĩnh thuốc"
+                title="Giám sát cấp phát phiếu lĩnh"
               >
                 <ClipboardList className="nav-icon" />
-                <span>Yêu cầu lĩnh thuốc</span>
+                <span>Giám sát phiếu lĩnh</span>
               </a>
               <a 
                 className={`nav-item ${page === 'returns' ? 'active' : ''}`}
                 onClick={() => setPage('returns')}
-                title="Hoàn trả thuốc thừa"
+                title="Duyệt hoàn trả thuốc thừa"
               >
                 <RotateCcw className="nav-icon" />
-                <span>Hoàn trả thuốc thừa</span>
+                <span>Duyệt nhận hoàn trả</span>
+              </a>
+              <a 
+                className={`nav-item ${page === 'tracking' ? 'active' : ''}`}
+                onClick={() => setPage('tracking')}
+                title="Báo cáo Nhập - Xuất - Tồn toàn viện"
+              >
+                <BarChart3 className="nav-icon" />
+                <span>Thống kê Nhập Xuất Tồn</span>
               </a>
               <a 
                 className={`nav-item ${page === 'audit' ? 'active' : ''}`}
                 onClick={() => setPage('audit')}
-                title="Kiểm kê tủ trực"
+                title="Phê duyệt kiểm kê Kho Dược"
               >
                 <ClipboardList className="nav-icon" />
-                <span>Kiểm kê tủ trực</span>
+                <span>Phê duyệt kiểm kê</span>
               </a>
-              <a 
-                className={`nav-item ${page === 'recall' ? 'active' : ''}`}
-                onClick={() => setPage('recall')}
-                title="Truy vết thuốc thu hồi"
-              >
-                <ShieldAlert className="nav-icon" />
-                <span>Truy vết thuốc thu hồi</span>
-              </a>
-            </>
-          )}
 
-          {/* Quản trị rủi ro & Duyệt Kho chẵn (Chỉ Ban Giám Đốc) */}
-          {user.role === 'director' && (
-            <>
-              <div className="nav-section-title" title="Quản trị rủi ro">Quản trị rủi ro & Kho</div>
-              <a 
-                className={`nav-item ${page === 'imports' ? 'active' : ''}`}
-                onClick={() => setPage('imports')}
-                title="Duyệt nhập kho"
-              >
-                <Package className="nav-icon" />
-                <span>Duyệt nhập kho</span>
-              </a>
-              <a 
-                className={`nav-item ${page === 'liquidation' ? 'active' : ''}`}
-                onClick={() => setPage('liquidation')}
-                title="Thanh lý hao hụt"
-              >
-                <Trash2 className="nav-icon" />
-                <span>Thanh lý hao hụt</span>
-              </a>
-              <a 
-                className={`nav-item ${page === 'returns' ? 'active' : ''}`}
-                onClick={() => setPage('returns')}
-                title="Duyệt hoàn trả thuốc"
-              >
-                <RotateCcw className="nav-icon" />
-                <span>Duyệt hoàn trả thuốc</span>
-              </a>
+              <div className="nav-section-title" title="Dự Trù & Rủi Ro">Dự Trù & Rủi Ro</div>
               <a 
                 className={`nav-item ${page === 'restock' ? 'active' : ''}`}
                 onClick={() => setPage('restock')}
-                title="Duyệt đề xuất mua"
+                title="Phê duyệt dự trù & mua sắm thuốc"
               >
                 <ClipboardList className="nav-icon" />
-                <span>Duyệt đề xuất mua</span>
+                <span>Duyệt dự trù mua sắm</span>
               </a>
               <a 
                 className={`nav-item ${page === 'clearance' ? 'active' : ''}`}
                 onClick={() => setPage('clearance')}
-                title="Điều chuyển cận date"
+                title="Điều chuyển thuốc cận date"
               >
                 <ArrowLeftRight className="nav-icon" />
                 <span>Điều chuyển cận date</span>
@@ -432,45 +452,25 @@ export default function App() {
               <a 
                 className={`nav-item ${page === 'recall' ? 'active' : ''}`}
                 onClick={() => setPage('recall')}
-                title="Duyệt thu hồi & cách ly"
+                title="Phê duyệt thu hồi & Cách ly lô thuốc"
               >
                 <ShieldAlert className="nav-icon" />
-                <span>Duyệt thu hồi & cách ly</span>
+                <span>Thu hồi & Cách ly lô</span>
               </a>
               <a 
-                className={`nav-item ${page === 'audit' ? 'active' : ''}`}
-                onClick={() => setPage('audit')}
-                title="Duyệt kiểm kê kho"
+                className={`nav-item ${page === 'liquidation' ? 'active' : ''}`}
+                onClick={() => setPage('liquidation')}
+                title="Phê duyệt thanh lý & Hủy hao hụt"
               >
-                <ClipboardList className="nav-icon" />
-                <span>Duyệt kiểm kê kho</span>
+                <Trash2 className="nav-icon" />
+                <span>Thanh lý & Hao hụt</span>
               </a>
-            </>
-          )}
 
-          {/* Thống kê & Báo cáo (Ban Giám Đốc) */}
-          {user.role === 'director' && (
-            <>
-              <div className="nav-section-title" title="Thống kê & Báo cáo">Thống kê & Báo cáo</div>
-              <a 
-                className={`nav-item ${page === 'tracking' ? 'active' : ''}`}
-                onClick={() => setPage('tracking')}
-                title="Thống kê Nhập - Xuất - Tồn"
-              >
-                <BarChart3 className="nav-icon" />
-                <span>Thống kê Nhập - Xuất - Tồn</span>
-              </a>
-            </>
-          )}
-
-          {/* Giám sát Kho lẻ & Quầy Dược (Chỉ Ban Giám Đốc theo dõi toàn viện) */}
-          {user.role === 'director' && (
-            <>
-              <div className="nav-section-title" title="Kho lẻ & Quầy Dược">Kho lẻ & Quầy Dược</div>
+              <div className="nav-section-title" title="Lâm Sàng & Phân Phối">Phân Phối & Lâm Sàng</div>
               <a 
                 className={`nav-item ${page === 'dispensing' ? 'active' : ''}`}
                 onClick={() => setPage('dispensing')}
-                title="Giám sát cấp phát ngoại trú toàn viện"
+                title="Giám sát cấp phát thuốc theo đơn ngoại trú"
               >
                 <Stethoscope className="nav-icon" />
                 <span>Cấp phát ngoại trú</span>
@@ -478,10 +478,299 @@ export default function App() {
               <a 
                 className={`nav-item ${page === 'cabinet' ? 'active' : ''}`}
                 onClick={() => setPage('cabinet')}
-                title="Giám sát tủ trực các khoa"
+                title="Xem tủ kho thuốc & tồn kho từng khoa lâm sàng"
               >
                 <Monitor className="nav-icon" />
-                <span>Tủ trực các khoa</span>
+                <span>Tủ thuốc từng khoa</span>
+              </a>
+            </>
+          )}
+
+          {/* 2. KHO DƯỢC TRUNG TÂM / KHO CHẴN (pharmacist: thukho, anh) */}
+          {user.role === 'pharmacist' && (
+            <>
+              <div className="nav-section-title" title="Kho Dược Trung Tâm">
+                {user.username === 'thukho' ? 'Thủ Kho Kho Chẵn' : 'Kho Dược Trung Tâm'}
+              </div>
+              <a 
+                className={`nav-item ${page === 'dashboard' ? 'active' : ''}`}
+                onClick={() => setPage('dashboard')}
+                title="Tổng quan Kho Dược Trung Tâm"
+              >
+                <LayoutDashboard className="nav-icon" />
+                <span>Tổng quan Kho Dược</span>
+              </a>
+              <a 
+                className={`nav-item ${page === 'imports' ? 'active' : ''}`}
+                onClick={() => setPage('imports')}
+                title="Nhập kho & Kiểm nhập dược phẩm"
+              >
+                <Package className="nav-icon" />
+                <span>Nhập kho & Kiểm nhập</span>
+              </a>
+              <a 
+                className={`nav-item ${page === 'requisitions' ? 'active' : ''}`}
+                onClick={() => setPage('requisitions')}
+                title="Duyệt và xuất kho dược phẩm theo phiếu lĩnh của khoa phòng"
+              >
+                <ClipboardList className="nav-icon" />
+                <span>Xuất kho phiếu lĩnh</span>
+              </a>
+              <a 
+                className={`nav-item ${page === 'returns' ? 'active' : ''}`}
+                onClick={() => setPage('returns')}
+                title="Tiếp nhận thuốc hoàn trả từ khoa lâm sàng"
+              >
+                <RotateCcw className="nav-icon" />
+                <span>Tiếp nhận hoàn trả</span>
+              </a>
+              <a 
+                className={`nav-item ${page === 'tracking' ? 'active' : ''}`}
+                onClick={() => setPage('tracking')}
+                title="Thẻ kho & Thống kê Nhập - Xuất - Tồn"
+              >
+                <BarChart3 className="nav-icon" />
+                <span>Thống kê Nhập Xuất Tồn</span>
+              </a>
+              <a 
+                className={`nav-item ${page === 'audit' ? 'active' : ''}`}
+                onClick={() => setPage('audit')}
+                title="Kiểm kê Kho Dược & Đối soát tồn thực tế"
+              >
+                <ClipboardList className="nav-icon" />
+                <span>Kiểm kê Kho Dược</span>
+              </a>
+
+              <div className="nav-section-title" title="Dự Trù & Điều Phối">Dự Trù & Điều Phối</div>
+              <a 
+                className={`nav-item ${page === 'restock' ? 'active' : ''}`}
+                onClick={() => setPage('restock')}
+                title="Lập dự trù & Đặt hàng dược phẩm"
+              >
+                <ClipboardList className="nav-icon" />
+                <span>Dự trù & Đặt hàng</span>
+              </a>
+              <a 
+                className={`nav-item ${page === 'clearance' ? 'active' : ''}`}
+                onClick={() => setPage('clearance')}
+                title="Điều chuyển thuốc cận hạn sử dụng"
+              >
+                <ArrowLeftRight className="nav-icon" />
+                <span>Điều chuyển cận date</span>
+              </a>
+              <a 
+                className={`nav-item ${page === 'recall' ? 'active' : ''}`}
+                onClick={() => setPage('recall')}
+                title="Thu hồi & Cách ly lô thuốc khẩn cấp"
+              >
+                <ShieldAlert className="nav-icon" />
+                <span>Thu hồi & Cách ly lô</span>
+              </a>
+              <a 
+                className={`nav-item ${page === 'liquidation' ? 'active' : ''}`}
+                onClick={() => setPage('liquidation')}
+                title="Biên bản thanh lý thuốc & Hủy hao hụt"
+              >
+                <Trash2 className="nav-icon" />
+                <span>Thanh lý & Hao hụt</span>
+              </a>
+
+              <div className="nav-section-title" title="Lâm Sàng & Danh Mục">Lâm Sàng & Danh Mục</div>
+              <a 
+                className={`nav-item ${page === 'cabinet' ? 'active' : ''}`}
+                onClick={() => setPage('cabinet')}
+                title="Xem tủ kho thuốc & tồn kho từng khoa lâm sàng"
+              >
+                <Monitor className="nav-icon" />
+                <span>Tủ thuốc từng khoa</span>
+              </a>
+              <a 
+                className={`nav-item ${page === 'medicine' ? 'active' : ''}`}
+                onClick={() => setPage('medicine')}
+                title="Danh mục thuốc bệnh viện"
+              >
+                <Database className="nav-icon" />
+                <span>Danh mục thuốc viện</span>
+              </a>
+              <a 
+                className={`nav-item ${page === 'accounting-period' ? 'active' : ''}`}
+                onClick={() => setPage('accounting-period')}
+                title="Khóa sổ kỳ Dược cuối tháng"
+              >
+                <Lock className="nav-icon" style={{ color: '#ef4444' }} />
+                <span>Khóa sổ kỳ Dược</span>
+              </a>
+              <a 
+                className={`nav-item ${page === 'audit-trail' ? 'active' : ''}`}
+                onClick={() => setPage('audit-trail')}
+                title="Nhật ký kiểm toán & vết hoạt động hệ thống"
+              >
+                <ShieldCheck className="nav-icon" style={{ color: '#3b82f6' }} />
+                <span>Nhật ký hoạt động</span>
+              </a>
+            </>
+          )}
+
+          {/* 3. DƯỢC SĨ (dispensary: ds_khambenh, ds_capcuu, ds_noitonghop) - CHỈ CÓ QUYỀN CẤP PHÁT THUỐC VÀ XEM TỦ THUỐC */}
+          {user.role === 'dispensary' && (
+            <>
+              <div className="nav-section-title" title="Dược Sĩ Cấp Phát & Tủ Thuốc">
+                {user.departmentName ? `Dược Sĩ: ${user.departmentName}` : 'Dược Sĩ'}
+              </div>
+              <a 
+                className={`nav-item ${page === 'dispensing' ? 'active' : ''}`}
+                onClick={() => setPage('dispensing')}
+                title="Cấp phát thuốc cho bệnh nhân theo đơn ngoại trú"
+              >
+                <Stethoscope className="nav-icon" />
+                <span>Cấp phát theo đơn</span>
+              </a>
+              <a 
+                className={`nav-item ${page === 'cabinet' ? 'active' : ''}`}
+                onClick={() => setPage('cabinet')}
+                title="Xem tồn kho tủ thuốc lâm sàng & quầy"
+              >
+                <Monitor className="nav-icon" />
+                <span>Xem tủ thuốc</span>
+              </a>
+            </>
+          )}
+
+          {/* 4. BÁC SĨ TRƯỞNG KHOA LÂM SÀNG (head: tkkhambenh, tkcapcuu, tknoitonghop...) */}
+          {user.role === 'head' && (
+            <>
+              <div className="nav-section-title" title="Lãnh Đạo Khoa Lâm Sàng">
+                {user.departmentName ? `Trưởng ${user.departmentName}` : 'Trưởng Khoa Lâm Sàng'}
+              </div>
+              <a 
+                className={`nav-item ${page === 'dashboard' ? 'active' : ''}`}
+                onClick={() => setPage('dashboard')}
+                title="Tổng quan hoạt động khoa"
+              >
+                <LayoutDashboard className="nav-icon" />
+                <span>Tổng quan khoa</span>
+              </a>
+              <a 
+                className={`nav-item ${page === 'cabinet' ? 'active' : ''}`}
+                onClick={() => setPage('cabinet')}
+                title="Quản lý & Giám sát tủ trực khoa"
+              >
+                <Monitor className="nav-icon" />
+                <span>Quản lý tủ trực khoa</span>
+              </a>
+              <a 
+                className={`nav-item ${page === 'requisitions' ? 'active' : ''}`}
+                onClick={() => setPage('requisitions')}
+                title="Ký duyệt phiếu lĩnh thuốc bù cơ số"
+              >
+                <ClipboardList className="nav-icon" />
+                <span>Ký duyệt phiếu lĩnh</span>
+              </a>
+              <a 
+                className={`nav-item ${page === 'returns' ? 'active' : ''}`}
+                onClick={() => setPage('returns')}
+                title="Duyệt hoàn trả thuốc thừa về kho"
+              >
+                <RotateCcw className="nav-icon" />
+                <span>Duyệt hoàn trả thuốc</span>
+              </a>
+              <a 
+                className={`nav-item ${page === 'audit' ? 'active' : ''}`}
+                onClick={() => setPage('audit')}
+                title="Phê duyệt biên bản kiểm kê tủ trực định kỳ"
+              >
+                <ClipboardList className="nav-icon" />
+                <span>Duyệt kiểm kê tủ trực</span>
+              </a>
+              <a 
+                className={`nav-item ${page === 'recall' ? 'active' : ''}`}
+                onClick={() => setPage('recall')}
+                title="Cảnh báo & Xử lý thuốc thu hồi tại khoa"
+              >
+                <ShieldAlert className="nav-icon" />
+                <span>Cảnh báo thuốc thu hồi</span>
+              </a>
+              <a 
+                className={`nav-item ${page === 'audit-trail' ? 'active' : ''}`}
+                onClick={() => setPage('audit-trail')}
+                title="Nhật ký hoạt động & vết thao tác của khoa"
+              >
+                <ShieldCheck className="nav-icon" style={{ color: '#3b82f6' }} />
+                <span>Nhật ký hoạt động khoa</span>
+              </a>
+            </>
+          )}
+
+          {/* 5. ĐIỀU DƯỠNG TRƯỞNG KHOA (head_nurse: dieuduong, ddkhambenh, ddnoitonghop...) */}
+          {user.role === 'head_nurse' && (
+            <>
+              <div className="nav-section-title" title="Quản Lý Tủ Trực Khoa">
+                {user.departmentName ? `ĐD Trưởng ${user.departmentName}` : 'Điều Dưỡng Trưởng Khoa'}
+              </div>
+              <a 
+                className={`nav-item ${page === 'cabinet' ? 'active' : ''}`}
+                onClick={() => setPage('cabinet')}
+                title="Quản lý cơ số tủ trực & báo hỏng vỡ"
+              >
+                <Monitor className="nav-icon" />
+                <span>Quản lý tủ trực khoa</span>
+              </a>
+              <a 
+                className={`nav-item ${page === 'requisitions' ? 'active' : ''}`}
+                onClick={() => setPage('requisitions')}
+                title="Lập dự trù lĩnh bù cơ số tủ trực"
+              >
+                <ClipboardList className="nav-icon" />
+                <span>Lập phiếu lĩnh bù cơ số</span>
+              </a>
+              <a 
+                className={`nav-item ${page === 'returns' ? 'active' : ''}`}
+                onClick={() => setPage('returns')}
+                title="Lập phiếu hoàn trả thuốc thừa, thuốc hỏng"
+              >
+                <RotateCcw className="nav-icon" />
+                <span>Lập phiếu trả thuốc thừa</span>
+              </a>
+              <a 
+                className={`nav-item ${page === 'audit' ? 'active' : ''}`}
+                onClick={() => setPage('audit')}
+                title="Thực hiện kiểm kê tủ trực khoa định kỳ"
+              >
+                <ClipboardList className="nav-icon" />
+                <span>Kiểm kê tủ trực định kỳ</span>
+              </a>
+              <a 
+                className={`nav-item ${page === 'recall' ? 'active' : ''}`}
+                onClick={() => setPage('recall')}
+                title="Kiểm tra & Rà soát thuốc thu hồi tại tủ"
+              >
+                <ShieldAlert className="nav-icon" />
+                <span>Rà soát thuốc thu hồi</span>
+              </a>
+              <a 
+                className={`nav-item ${page === 'audit-trail' ? 'active' : ''}`}
+                onClick={() => setPage('audit-trail')}
+                title="Nhật ký hoạt động & vết thao tác của khoa"
+              >
+                <ShieldCheck className="nav-icon" style={{ color: '#3b82f6' }} />
+                <span>Nhật ký hoạt động khoa</span>
+              </a>
+            </>
+          )}
+
+          {/* 6. ĐIỀU DƯỠNG VIÊN LÂM SÀNG (nurse: quan) */}
+          {user.role === 'nurse' && (
+            <>
+              <div className="nav-section-title" title="Điều Dưỡng Lâm Sàng">
+                {user.departmentName ? `ĐDV ${user.departmentName}` : 'Điều Dưỡng Viên'}
+              </div>
+              <a 
+                className={`nav-item ${page === 'cabinet' ? 'active' : ''}`}
+                onClick={() => setPage('cabinet')}
+                title="Xuất thuốc tại giường bệnh & Báo hỏng vỡ tủ trực"
+              >
+                <Monitor className="nav-icon" />
+                <span>Tủ trực khoa (Xuất thuốc)</span>
               </a>
             </>
           )}
@@ -489,14 +778,14 @@ export default function App() {
 
         {/* Sidebar Footer User Info */}
         <div className="sidebar-footer">
-          <div className="user-quick-card" title={`${user.fullName} (${getRoleDisplayName(user.role)})`}>
+          <div className="user-quick-card" title={`${user.fullName} (${getRoleDisplayName(user)})`}>
             <div className="user-avatar">
               {user.fullName ? user.fullName.charAt(0).toUpperCase() : <User size={16} />}
             </div>
             {!isSidebarCollapsed && (
               <div className="user-info-text">
                 <div className="user-name">{user.fullName}</div>
-                <div className="user-role-label">{getRoleDisplayName(user.role)}</div>
+                <div className="user-role-label">{getRoleDisplayName(user)}</div>
               </div>
             )}
           </div>
@@ -549,11 +838,17 @@ export default function App() {
             <div className="top-bar-badge">
               <Building2 size={15} style={{ color: 'var(--color-primary)' }} />
               <span>
-                {(user.role === 'dispensary' || user.role === 'pharmacist')
-                  ? (user.departmentName ? `Quầy Dược (${user.departmentName})` : 'Quầy Dược Bệnh Viện')
-                  : (user.role === 'nurse' || user.role === 'head_nurse' || user.role === 'head') 
-                  ? `Khoa: ${user.departmentName || 'Lâm sàng'}` 
-                  : 'Ban Giám Đốc'}
+                {user.role === 'pharmacist'
+                  ? (user.username === 'thukho' ? 'Kho Dược Chính (Thủ Kho)' : 'Kho Dược Trung Tâm (Kho Chẵn)')
+                  : user.role === 'dispensary'
+                  ? (user.departmentName ? `Quầy Dược: ${user.departmentName}` : 'Quầy Dược Ngoại Trú')
+                  : user.role === 'head'
+                  ? `Lãnh Đạo: ${user.departmentName || 'Khoa Lâm Sàng'}`
+                  : user.role === 'head_nurse'
+                  ? `ĐD Trưởng: ${user.departmentName || 'Khoa Lâm Sàng'}`
+                  : user.role === 'nurse'
+                  ? `ĐDV: ${user.departmentName || 'Khoa Lâm Sàng'}`
+                  : 'Ban Giám Đốc Bệnh Viện'}
               </span>
             </div>
 
@@ -563,8 +858,8 @@ export default function App() {
               <span>{currentTime.toLocaleTimeString('vi-VN')}</span>
             </div>
 
-            {/* Accounting Period Quick Button: Chỉ hiển thị cho Ban Giám Đốc */}
-            {user.role === 'director' && (
+            {/* Accounting Period Quick Button: Hiển thị cho Ban Giám Đốc và Thủ kho chẵn */}
+            {(user.role === 'director' || user.role === 'pharmacist') && (
               <button
                 onClick={() => setPage('accounting-period')}
                 className={`btn-secondary ${page === 'accounting-period' ? 'active' : ''}`}
@@ -584,8 +879,8 @@ export default function App() {
               </button>
             )}
 
-            {/* Audit Trail Quick Button: Chỉ hiển thị cho Ban Giám Đốc */}
-            {user.role === 'director' && (
+            {/* Audit Trail Quick Button: Hiển thị cho Ban Giám Đốc, Dược chính và Lãnh đạo khoa */}
+            {(user.role === 'director' || user.role === 'pharmacist' || user.role === 'head' || user.role === 'head_nurse') && (
               <button
                 onClick={() => setPage('audit-trail')}
                 className={`btn-secondary ${page === 'audit-trail' ? 'active' : ''}`}
@@ -598,16 +893,16 @@ export default function App() {
                   borderColor: 'rgba(59, 130, 246, 0.3)',
                   background: page === 'audit-trail' ? 'rgba(59, 130, 246, 0.1)' : undefined
                 }}
-                title="Nhật ký kiểm toán hệ thống"
+                title={user.role === 'head' || user.role === 'head_nurse' ? 'Nhật ký hoạt động của khoa' : 'Nhật ký hoạt động & kiểm toán hệ thống'}
               >
                 <ShieldCheck size={14} />
-                <span>Kiểm toán</span>
+                <span>{user.role === 'head' || user.role === 'head_nurse' ? 'Nhật ký khoa' : 'Kiểm toán'}</span>
               </button>
             )}
 
             {/* Quick Access to Patient QR Portal */}
             <button
-              onClick={() => setPage(page === 'patient-portal' ? 'dashboard' : 'patient-portal')}
+              onClick={() => setPage(page === 'patient-portal' ? getInitialPageForUser(user) : 'patient-portal')}
               className={`btn-secondary ${page === 'patient-portal' ? 'active' : ''}`}
               style={{
                 padding: '0.45rem 0.75rem',

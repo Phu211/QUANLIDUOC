@@ -1047,7 +1047,8 @@ export default function Dashboard({ setPage, user }) {
           {user?.role === 'pharmacist' && (
             <>
               <button className="btn-premium" onClick={() => setPage('imports')}>Nhập Kho Chẵn</button>
-              <button className="btn-premium" onClick={() => setPage('requisitions')}>Duyệt Lĩnh Dược</button>
+              <button className="btn-premium" onClick={() => setPage('requisitions')}>Xuất Kho Phiếu Lĩnh</button>
+              <button className="btn-secondary" onClick={() => setPage('cabinet')}>Tủ Thuốc Từng Khoa</button>
               <button className="btn-premium" onClick={() => setPage('restock')}>Đề Xuất Đặt Hàng</button>
               <button className="btn-premium" onClick={() => setPage('tracking')}>Nhập Xuất Tồn</button>
             </>
@@ -1056,6 +1057,7 @@ export default function Dashboard({ setPage, user }) {
             <>
               <button className="btn-premium" onClick={() => setPage('liquidation')}>Xử Lý Thanh Lý</button>
               <button className="btn-premium" onClick={() => setPage('restock')}>Duyệt Đề Xuất Mua</button>
+              <button className="btn-secondary" onClick={() => setPage('cabinet')}>Tủ Thuốc Từng Khoa</button>
               <button className="btn-premium" onClick={() => setPage('tracking')}>Nhập Xuất Tồn</button>
             </>
           )}

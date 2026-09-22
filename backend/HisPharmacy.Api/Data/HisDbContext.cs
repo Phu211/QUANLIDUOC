@@ -198,6 +198,11 @@ public class HisDbContext : DbContext
 
         modelBuilder.Entity<AuditLog>().HasKey(e => e.LogID);
         modelBuilder.Entity<AuditLog>().Property(e => e.LogID).ValueGeneratedOnAdd();
+        modelBuilder.Entity<AuditLog>()
+            .HasOne<Department>()
+            .WithMany()
+            .HasForeignKey(a => a.DepartmentID)
+            .IsRequired(false);
 
         modelBuilder.Entity<QuarantineStock>().HasKey(e => e.QuarantineID);
         modelBuilder.Entity<QuarantineStock>().Property(e => e.QuarantineID).ValueGeneratedOnAdd();
@@ -714,6 +719,7 @@ public class InventoryMovement
 public class AuditLog
 {
     public int LogID { get; set; }
+    public int? DepartmentID { get; set; }
     public string? TableName { get; set; }
     public string Action { get; set; } = string.Empty; // 'INSERT', 'UPDATE', 'DELETE'
     public string? KeyValues { get; set; }

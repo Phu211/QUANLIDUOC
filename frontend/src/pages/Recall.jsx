@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { AlertOctagon, FileText, Check, Printer, RefreshCw, Layers, ShieldAlert, RotateCcw, Search, X, PenTool, Eraser, ThumbsUp } from 'lucide-react';
+import { exportExcelReport } from '../utils/excelExportHelper';
 
 const SIG = {
   duoc: (
@@ -390,7 +391,7 @@ export default function Recall({ user }) {
     (b.batchNumber || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const handleExportRecalls = () => {
+  const handleExportRecalls = async () => {
     if (!recalls || recalls.length === 0) {
       alert("Không có dữ liệu thu hồi/cách ly để xuất báo cáo.");
       return;
@@ -423,22 +424,30 @@ export default function Recall({ user }) {
         rec.actionType || '',
         rec.reason || '',
         new Date(rec.recallDate).toLocaleString('vi-VN'),
-        rec.recalledQuantity || 0,
+        Number(rec.recalledQuantity) || 0,
         rec.unit || rec.batch?.medicine?.unit || '',
         rec.approvedBy || '',
         statusStr
       ];
     });
 
-    const csvContent = "\uFEFF" + [headers.join(","), ...rows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(","))].join("\n");
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", `Bao_cao_thu_hoi_cach_ly_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    try {
+      await exportExcelReport({
+        fileName: `Bao_cao_thu_hoi_cach_ly_${new Date().toISOString().slice(0, 10)}`,
+        sheetName: 'Thu hồi cách ly',
+        departmentName: 'Kho Dược Bệnh Viện',
+        reportTitle: 'BÁO CÁO THEO DÕI THU HỒI & CÁCH LY THUỐC KHẨN CẤP',
+        subtitle: `Quyết định thu hồi / biệt trữ theo công văn Bộ Y tế (${recalls.length} quyết định)`,
+        creator: user?.fullName || user?.username || 'Dược sĩ kiểm nghiệm / Dược lâm sàng',
+        headers,
+        rows,
+        includeIndex: true,
+        showSignatures: true
+      });
+    } catch (err) {
+      console.error('Lỗi xuất Excel:', err);
+      alert('Không thể xuất báo cáo Excel: ' + err.message);
+    }
   };
 
   if (loading) return <div style={{ color: '#fff', padding: '2rem' }}>Đang tải dữ liệu nghiệp vụ thu hồi...</div>;

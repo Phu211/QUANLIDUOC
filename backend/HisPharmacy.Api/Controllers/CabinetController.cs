@@ -87,6 +87,23 @@ public class CabinetController : ControllerBase
                 userFullName
             );
 
+            // Ghi nhật ký hoạt động tủ trực cho khoa
+            _context.AuditLogs.Add(new AuditLog
+            {
+                DepartmentID = request.DepartmentID,
+                Username = userFullName,
+                UserRole = userRole,
+                Action = "CABINET_EXPORT",
+                EntityName = "DepartmentStocks",
+                EntityID = request.DepartmentID,
+                BeforeData = $"Bệnh nhân: {request.PatientName} ({request.PatientCode})",
+                AfterData = $"Xuất {items.Count} loại thuốc tủ trực cho người bệnh",
+                IPAddress = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "127.0.0.1",
+                Device = "Web Browser (Clinical)",
+                CreatedAt = DateTime.Now
+            });
+            await _context.SaveChangesAsync();
+
             // Broadcast real-time updates
             await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Cabinets");
             await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Inventory");
@@ -118,6 +135,23 @@ public class CabinetController : ControllerBase
             {
                 return BadRequest(new { Message = "Không có phiếu xuất tủ trực nào phù hợp chưa được bù để tổng hợp." });
             }
+
+            // Ghi nhật ký đề xuất bù tủ trực cho khoa
+            _context.AuditLogs.Add(new AuditLog
+            {
+                DepartmentID = departmentId,
+                Username = userFullName,
+                UserRole = userRole,
+                Action = "REFILL_REQUISITION",
+                EntityName = "MedicineRequisition",
+                EntityID = req.RequisitionID,
+                BeforeData = "Yêu cầu bù cơ số tủ trực",
+                AfterData = $"Tạo phiếu lĩnh bù {req.Details.Count} mặt hàng gửi Kho Dược",
+                IPAddress = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "127.0.0.1",
+                Device = "Web Browser (Clinical)",
+                CreatedAt = DateTime.Now
+            });
+            await _context.SaveChangesAsync();
 
             // Broadcast real-time updates
             await _hubContext.Clients.All.SendAsync("NotifyUpdate", "Cabinets");

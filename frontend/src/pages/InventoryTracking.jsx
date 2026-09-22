@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Info, HelpCircle, AlertTriangle, Layers, Calendar, RefreshCw } from 'lucide-react';
+import { exportExcelReport } from '../utils/excelExportHelper';
 
 export default function InventoryTracking({ user }) {
   const [reportType, setReportType] = useState('summary'); // 'summary' or 'batches'
@@ -89,7 +90,7 @@ export default function InventoryTracking({ user }) {
     return true;
   });
 
-  const handleExportInventory = () => {
+  const handleExportInventory = async () => {
     if (reportType === 'summary') {
       if (filteredSummary.length === 0) {
         alert("Không có số liệu tồn kho tổng hợp để xuất.");
@@ -113,22 +114,30 @@ export default function InventoryTracking({ user }) {
         item.genericName || '',
         item.specification || '',
         item.unit,
-        item.mainStoreQty || 0,
-        item.cabinetQty || 0,
-        item.totalQty || 0,
-        item.minInventory || 0,
+        Number(item.mainStoreQty) || 0,
+        Number(item.cabinetQty) || 0,
+        Number(item.totalQty) || 0,
+        Number(item.minInventory) || 0,
         item.isLowStock ? 'Dưới mức tối thiểu' : 'An toàn'
       ]);
 
-      const csvContent = "\uFEFF" + [headers.join(","), ...rows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(","))].join("\n");
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.setAttribute("href", url);
-      link.setAttribute("download", `Bao_cao_nhap_xuat_ton_tong_hop_${new Date().toISOString().slice(0, 10)}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      try {
+        await exportExcelReport({
+          fileName: `Bao_cao_nhap_xuat_ton_tong_hop_${new Date().toISOString().slice(0, 10)}`,
+          sheetName: 'Tồn kho tổng hợp',
+          departmentName: 'Kho Dược Trung Tâm',
+          reportTitle: 'BÁO CÁO NHẬP XUẤT TỒN DƯỢC PHẨM TỔNG HỢP',
+          subtitle: `Tổng số danh mục: ${filteredSummary.length} thuốc / vật tư`,
+          creator: user?.fullName || user?.username || 'Thủ kho / Dược sĩ',
+          headers,
+          rows,
+          includeIndex: true,
+          showSignatures: true
+        });
+      } catch (err) {
+        console.error('Lỗi xuất Excel:', err);
+        alert('Không thể xuất báo cáo Excel: ' + err.message);
+      }
     } else {
       if (filteredBatches.length === 0) {
         alert("Không có danh sách lô thuốc để xuất.");
@@ -142,7 +151,7 @@ export default function InventoryTracking({ user }) {
         "Đơn Giá Nhập",
         "Hạn Sử Dụng",
         "Số Lượng Tồn",
-        "Hạn Dùng"
+        "Trạng Thái Hạn Dùng"
       ];
       const rows = filteredBatches.map(item => {
         const today = new Date();
@@ -171,118 +180,117 @@ export default function InventoryTracking({ user }) {
           item.medicineName,
           item.batchNumber,
           item.location === 'MainStore' ? 'Kho Chẵn' : `Tủ trực: ${item.location}`,
-          item.importPrice || 0,
+          Number(item.importPrice) || 0,
           new Date(item.expiryDate).toLocaleDateString('vi-VN'),
-          item.quantity || 0,
+          Number(item.quantity) || 0,
           indicatorText
         ];
       });
 
-      const csvContent = "\uFEFF" + [headers.join(","), ...rows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(","))].join("\n");
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.setAttribute("href", url);
-      link.setAttribute("download", `Bao_cao_nhap_xuat_ton_chi_tiet_lo_${new Date().toISOString().slice(0, 10)}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      try {
+        await exportExcelReport({
+          fileName: `Bao_cao_nhap_xuat_ton_chi_tiet_lo_${new Date().toISOString().slice(0, 10)}`,
+          sheetName: 'Chi tiết lô thuốc',
+          departmentName: 'Kho Dược Trung Tâm',
+          reportTitle: 'BÁO CÁO NHẬP XUẤT TỒN CHI TIẾT THEO TỪNG SỐ LÔ',
+          subtitle: `Tổng số lô kiểm soát: ${filteredBatches.length} lô thuốc`,
+          creator: user?.fullName || user?.username || 'Thủ kho / Dược sĩ',
+          headers,
+          rows,
+          includeIndex: true,
+          showSignatures: true
+        });
+      } catch (err) {
+        console.error('Lỗi xuất Excel:', err);
+        alert('Không thể xuất báo cáo Excel: ' + err.message);
+      }
     }
   };
 
-  const handleExportExpiring = () => {
-    fetch('/api/dashboard/summary?timeUnit=month')
-      .then(res => res.json())
-      .then(summary => {
-        const alerts = summary?.expiringAlerts || [];
-        if (!alerts.length) {
-          alert("Không có dữ liệu thuốc cận hạn sử dụng!");
-          return;
-        }
-        const headers = [
-          "Tên Thuốc / Vật Tư", 
-          "Số Lô", 
-          "Hạn Sử Dụng", 
-          "Số Ngày Còn Lại", 
-          "Tồn Kho Chẵn", 
-          "Tồn Tủ Trực", 
-          "Tổng Tồn",
-          "Trạng Thái"
-        ];
-        const rows = alerts.map(a => [
-          a.medicineName,
-          a.batchNumber,
-          new Date(a.expiryDate).toLocaleDateString('vi-VN'),
-          a.daysLeft,
-          a.mainStoreQty,
-          a.cabinetQty,
-          a.mainStoreQty + a.cabinetQty,
-          a.daysLeft <= 0 ? "Đã hết hạn" : a.daysLeft <= 30 ? "Nguy cấp" : "Sắp hết hạn"
-        ]);
-        const csvContent = "\uFEFF" + [headers.join(","), ...rows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(","))].join("\n");
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.setAttribute("href", url);
-        link.setAttribute("download", `Bao_Cao_Thuoc_Can_Han_Dung_${new Date().toISOString().slice(0, 10)}.csv`);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-      })
-      .catch(err => alert("Lỗi khi tải dữ liệu cận hạn: " + err.message));
+  const handleExportExpiring = async () => {
+    try {
+      const res = await fetch('/api/dashboard/summary?timeUnit=month');
+      const summary = await res.json();
+      const alerts = summary?.expiringAlerts || [];
+      if (!alerts.length) {
+        alert("Không có dữ liệu thuốc cận hạn sử dụng!");
+        return;
+      }
+      const headers = [
+        "Tên Thuốc / Vật Tư", 
+        "Số Lô", 
+        "Hạn Sử Dụng", 
+        "Số Ngày Còn Lại", 
+        "Tồn Kho Chẵn", 
+        "Tồn Tủ Trực", 
+        "Tổng Tồn",
+        "Trạng Thái Cảnh Báo"
+      ];
+      const rows = alerts.map(a => [
+        a.medicineName,
+        a.batchNumber,
+        new Date(a.expiryDate).toLocaleDateString('vi-VN'),
+        Number(a.daysLeft) || 0,
+        Number(a.mainStoreQty) || 0,
+        Number(a.cabinetQty) || 0,
+        (Number(a.mainStoreQty) || 0) + (Number(a.cabinetQty) || 0),
+        a.daysLeft <= 0 ? "Đã hết hạn" : a.daysLeft <= 30 ? "Nguy cấp" : "Sắp hết hạn"
+      ]);
+
+      await exportExcelReport({
+        fileName: `Bao_Cao_Thuoc_Can_Han_Dung_${new Date().toISOString().slice(0, 10)}`,
+        sheetName: 'Thuốc cận hạn',
+        departmentName: 'Kho Dược Trung Tâm',
+        reportTitle: 'BÁO CÁO THEO DÕI THUỐC & VẬT TƯ CẬN HẠN DÙNG',
+        subtitle: `Số lượng lô cận hạn: ${alerts.length} lô`,
+        creator: user?.fullName || user?.username || 'Dược sĩ quản lý hạn dùng',
+        headers,
+        rows,
+        includeIndex: true,
+        showSignatures: true
+      });
+    } catch (err) {
+      console.error('Lỗi xuất Excel:', err);
+      alert("Lỗi khi tải dữ liệu cận hạn: " + err.message);
+    }
   };
 
-  const handleExportWaste = () => {
-    fetch('/api/dashboard/waste-analytics?timeUnit=month')
-      .then(res => res.json())
-      .then(wasteData => {
-        const monthlyLoss = wasteData?.monthlyLoss || [];
-        const wasteByGroup = wasteData?.wasteByGroup || [];
-        const wasteByDepartment = wasteData?.wasteByDepartment || [];
-        
-        const csvData = [];
-        
-        csvData.push(["Hạng Mục", "Thông Tin", "Giá Trị (VND)"]);
-        csvData.push(["HAO HỤT THEO THỜI GIAN", "", ""]);
-        monthlyLoss.forEach(item => {
-          csvData.push([
-            item.month,
-            "Chi phí tiêu hủy / quá hạn",
-            item.lossAmount.toLocaleString('vi-VN')
-          ]);
-        });
-        
-        csvData.push(["", "", ""]);
-        csvData.push(["CƠ CẤU HAO HỤT THEO NHÓM DƯỢC LÝ", "", ""]);
-        wasteByGroup.forEach(item => {
-          csvData.push([
-            item.medicineGroup,
-            "Tổng tiền hao hụt",
-            item.totalLoss.toLocaleString('vi-VN')
-          ]);
-        });
+  const handleExportWaste = async () => {
+    try {
+      const res = await fetch('/api/dashboard/waste-analytics?timeUnit=month');
+      const wasteData = await res.json();
+      const monthlyLoss = wasteData?.monthlyLoss || [];
+      const wasteByGroup = wasteData?.wasteByGroup || [];
+      const wasteByDepartment = wasteData?.wasteByDepartment || [];
+      
+      const rows = [];
+      monthlyLoss.forEach(item => {
+        rows.push(["Hao hụt theo thời gian", item.month, "Chi phí tiêu hủy / quá hạn", Number(item.lossAmount) || 0]);
+      });
+      wasteByGroup.forEach(item => {
+        rows.push(["Cơ cấu theo nhóm dược lý", item.medicineGroup, "Tổng tiền hao hụt", Number(item.totalLoss) || 0]);
+      });
+      wasteByDepartment.forEach(item => {
+        rows.push(["Hao hụt theo khoa lâm sàng", item.departmentName, "Tổng tiền hao hụt lâm sàng", Number(item.totalLoss) || 0]);
+      });
 
-        csvData.push(["", "", ""]);
-        csvData.push(["HAO HỤT THEO KHOA LÂM SÀNG", "", ""]);
-        wasteByDepartment.forEach(item => {
-          csvData.push([
-            item.departmentName,
-            "Tổng tiền hao hụt lâm sàng",
-            item.totalLoss.toLocaleString('vi-VN')
-          ]);
-        });
-        
-        const csvContent = "\uFEFF" + csvData.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(",")).join("\n");
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.setAttribute("href", url);
-        link.setAttribute("download", `Bao_Cao_Hao_Hut_Lang_Phi_${new Date().toISOString().slice(0, 10)}.csv`);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-      })
-      .catch(err => alert("Lỗi khi tải dữ liệu hao hụt: " + err.message));
+      const headers = ["Phân Loại Hao Hụt", "Danh Mục / Đơn Vị", "Nội Dung Ghi Nhận", "Số Tiền Hao Hụt (VNĐ)"];
+      await exportExcelReport({
+        fileName: `Bao_Cao_Hao_Hut_Lang_Phi_${new Date().toISOString().slice(0, 10)}`,
+        sheetName: 'Phân tích hao hụt',
+        departmentName: 'Kho Dược Trung Tâm',
+        reportTitle: 'BÁO CÁO PHÂN TÍCH HAO HỤT & LÃNG PHÍ DƯỢC PHẨM',
+        subtitle: `Dữ liệu phân tích tổn thất tài chính dược phẩm`,
+        creator: user?.fullName || user?.username || 'Dược sĩ quản trị',
+        headers,
+        rows,
+        includeIndex: true,
+        showSignatures: true
+      });
+    } catch (err) {
+      console.error('Lỗi xuất Excel:', err);
+      alert("Lỗi khi tải dữ liệu hao hụt: " + err.message);
+    }
   };
 
   if (loading) return <div style={{ color: '#fff', padding: '2rem' }}>Đang tải báo cáo tồn kho bệnh viện...</div>;

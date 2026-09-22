@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { RefreshCcw, Send, CheckCircle, XCircle, FileText, Plus, Trash, PenTool, Eraser, ThumbsUp, Printer, X } from 'lucide-react';
 import { handleIntegerKeyDown, sanitizeInteger, handleIntegerPaste } from '../utils/numberInputUtils';
+import { exportExcelReport } from '../utils/excelExportHelper';
 
 const SIG = {
   duoc: (
@@ -223,7 +224,7 @@ export default function Returns({ user }) {
     }
   };
 
-  const handleExportReturns = () => {
+  const handleExportReturns = async () => {
     if (!returns || returns.length === 0) {
       alert("Không có dữ liệu hoàn trả để xuất báo cáo.");
       return;
@@ -261,15 +262,23 @@ export default function Returns({ user }) {
       ];
     });
 
-    const csvContent = "\uFEFF" + [headers.join(","), ...rows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(","))].join("\n");
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", `Bao_cao_hoan_tra_thuoc_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    try {
+      await exportExcelReport({
+        fileName: `Bao_cao_hoan_tra_thuoc_${new Date().toISOString().slice(0, 10)}`,
+        sheetName: 'Phiếu hoàn trả',
+        departmentName: user?.department?.departmentName || 'Kho Dược Bệnh Viện',
+        reportTitle: 'BÁO CÁO TỔNG HỢP HOÀN TRẢ THUỐC VỀ KHO DƯỢC',
+        subtitle: `Tổng số phiếu hoàn trả: ${returns.length} phiếu`,
+        creator: user?.fullName || user?.username || 'Cán bộ Y tế',
+        headers,
+        rows,
+        includeIndex: true,
+        showSignatures: true
+      });
+    } catch (err) {
+      console.error('Lỗi xuất Excel:', err);
+      alert('Không thể xuất báo cáo Excel: ' + err.message);
+    }
   };
 
   const handleConfirmSignature = () => {

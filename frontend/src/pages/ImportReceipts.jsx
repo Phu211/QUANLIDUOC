@@ -9,6 +9,7 @@ import {
 import * as XLSX from 'xlsx';
 import { handleIntegerKeyDown, sanitizeInteger, handleIntegerPaste } from '../utils/numberInputUtils';
 import InvoiceOcrModal from '../components/InvoiceOcrModal';
+import { exportExcelReport } from '../utils/excelExportHelper';
 
 const SIG = {
   duoc: (
@@ -500,7 +501,7 @@ export default function ImportReceipts({ user }) {
       });
   };
 
-  const handleExportImports = () => {
+  const handleExportImports = async () => {
     if (!imports || imports.length === 0) {
       alert("Không có dữ liệu nhập kho để xuất báo cáo.");
       return;
@@ -517,7 +518,7 @@ export default function ImportReceipts({ user }) {
       "Người Kiểm Thứ Hai",
       "Người Giao Hàng",
       "Chi Tiết Thuốc/Vật Tư Nhập",
-      "Tổng Giá Trị (VND)",
+      "Tổng Giá Trị (VNĐ)",
       "Ngày Tạo",
       "Trạng Thái"
     ];
@@ -540,21 +541,29 @@ export default function ImportReceipts({ user }) {
         imp.secondInspector || '',
         imp.deliveryPersonName || '',
         detailsStr,
-        totalVal,
+        Number(totalVal) || 0,
         new Date(imp.createdAt).toLocaleString('vi-VN'),
         imp.status || ''
       ];
     });
 
-    const csvContent = "\uFEFF" + [headers.join(","), ...rows.map(row => row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(","))].join("\n");
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", `Bao_cao_nhap_kho_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    try {
+      await exportExcelReport({
+        fileName: `Bao_cao_nhap_kho_${new Date().toISOString().slice(0, 10)}`,
+        sheetName: 'Phiếu nhập kho',
+        departmentName: 'Kho Chẵn Dược Bệnh Viện',
+        reportTitle: 'BÁO CÁO TỔNG HỢP NHẬP KHO THUỐC & VẬT TƯ Y TẾ',
+        subtitle: `Thống kê các đơn nhập kho từ nhà cung cấp (${imports.length} phiếu)`,
+        creator: user?.fullName || user?.username || 'Thủ kho dược',
+        headers,
+        rows,
+        includeIndex: true,
+        showSignatures: true
+      });
+    } catch (err) {
+      console.error('Lỗi xuất Excel:', err);
+      alert('Không thể xuất báo cáo Excel: ' + err.message);
+    }
   };
 
   useEffect(() => {
