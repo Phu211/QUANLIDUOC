@@ -324,8 +324,8 @@ export default function InvoiceOcrModal({
         border: '1px solid var(--border-color)',
         borderRadius: '16px',
         width: '100%',
-        maxWidth: ocrResult || previewUrl ? '1350px' : '780px',
-        height: '92vh',
+        maxWidth: ocrResult || previewUrl ? '1440px' : '780px',
+        height: '95vh',
         display: 'flex',
         flexDirection: 'column',
         boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 40px rgba(2, 132, 199, 0.25)',
@@ -339,7 +339,8 @@ export default function InvoiceOcrModal({
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          background: 'linear-gradient(90deg, rgba(2, 132, 199, 0.1), transparent)'
+          background: 'linear-gradient(90deg, rgba(2, 132, 199, 0.1), transparent)',
+          flexShrink: 0
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
             <div style={{
@@ -399,7 +400,7 @@ export default function InvoiceOcrModal({
         </div>
 
         {/* Modal Body */}
-        <div style={{ padding: '1.25rem 1.5rem', flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ padding: '0.85rem 1.25rem', flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           
           {/* Error Banner */}
           {errorMessage && (
@@ -437,6 +438,7 @@ export default function InvoiceOcrModal({
               onDrop={handleDrop}
               style={{
                 flex: 1,
+                minHeight: 0,
                 border: dragActive ? '2px dashed #0284c7' : '2px dashed var(--border-color)',
                 borderRadius: '16px',
                 padding: '2.5rem 2rem',
@@ -500,12 +502,14 @@ export default function InvoiceOcrModal({
 
           {/* VIEW 2: Khi đã có tệp -> Giao diện chia đôi (Split View) */}
           {previewUrl && (
-            <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '40% 60%', gap: '1.25rem', overflow: 'hidden' }}>
+            <div style={{ flex: 1, minHeight: 0, height: '100%', display: 'grid', gridTemplateColumns: '40% 60%', gridTemplateRows: 'minmax(0, 1fr)', gap: '1.25rem', overflow: 'hidden' }}>
               
               {/* CỘT TRÁI: KHUNG XEM TRƯỚC TÀI LIỆU HÓA ĐƠN THỰC TẾ */}
               <div style={{
                 display: 'flex',
                 flexDirection: 'column',
+                minHeight: 0,
+                height: '100%',
                 border: '1px solid var(--border-color)',
                 borderRadius: '12px',
                 background: 'var(--bg-primary, #f8fafc)',
@@ -519,7 +523,8 @@ export default function InvoiceOcrModal({
                   alignItems: 'center',
                   justifyContent: 'space-between',
                   background: 'rgba(0,0,0,0.02)',
-                  fontSize: '0.78rem'
+                  fontSize: '0.78rem',
+                  flexShrink: 0
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--text-main)', fontWeight: '600', overflow: 'hidden' }}>
                     {isPdf ? <FileText size={15} color="#ef4444" /> : <ImageIcon size={15} color="#0284c7" />}
@@ -574,6 +579,7 @@ export default function InvoiceOcrModal({
                 {/* Khung hiển thị tài liệu */}
                 <div style={{
                   flex: 1,
+                  minHeight: 0,
                   overflow: 'auto',
                   display: 'flex',
                   alignItems: 'center',
@@ -605,7 +611,7 @@ export default function InvoiceOcrModal({
 
                 {/* Nút bấm quét nếu chưa quét */}
                 {!ocrResult && (
-                  <div style={{ padding: '0.85rem', borderTop: '1px solid var(--border-color)', background: 'var(--card-bg, #ffffff)' }}>
+                  <div style={{ padding: '0.85rem', borderTop: '1px solid var(--border-color)', background: 'var(--card-bg, #ffffff)', flexShrink: 0 }}>
                     <button
                       type="button"
                       className="btn-premium"
@@ -642,6 +648,8 @@ export default function InvoiceOcrModal({
               <div style={{
                 display: 'flex',
                 flexDirection: 'column',
+                minHeight: 0,
+                height: '100%',
                 border: '1px solid var(--border-color)',
                 borderRadius: '12px',
                 background: 'var(--bg-primary, #f8fafc)',
@@ -677,7 +685,7 @@ export default function InvoiceOcrModal({
                     )}
                   </div>
                 ) : (
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                  <div style={{ flex: 1, minHeight: 0, height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                     
                     {/* Thanh thông tin bóc tách thành công */}
                     <div style={{
@@ -688,7 +696,8 @@ export default function InvoiceOcrModal({
                       alignItems: 'center',
                       justifyContent: 'space-between',
                       flexWrap: 'wrap',
-                      gap: '0.5rem'
+                      gap: '0.5rem',
+                      flexShrink: 0
                     }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                         <CheckCircle2 size={18} color="#10b981" />
@@ -714,118 +723,139 @@ export default function InvoiceOcrModal({
                       </div>
                     </div>
 
-                    {/* Vùng nội dung cuộn */}
-                    <div style={{ flex: 1, overflowY: 'auto', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                    {/* Vùng nội dung bên phải */}
+                    <div style={{
+                      flex: 1,
+                      minHeight: 0,
+                      padding: '0.75rem 1rem',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.75rem',
+                      overflow: 'hidden'
+                    }}>
                       
-                      {/* Form Thông tin Hóa đơn & Nhà Cung Cấp */}
+                      {/* Form Thông tin Hóa đơn & Nhà Cung Cấp - Gọn gàng, tiết kiệm không gian */}
                       <div style={{
                         background: 'var(--card-bg, #ffffff)',
                         border: '1px solid var(--border-color)',
                         borderRadius: '10px',
-                        padding: '0.85rem',
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-                        gap: '0.75rem'
+                        padding: '0.65rem 0.85rem',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '0.45rem',
+                        flexShrink: 0
                       }}>
-                        <div>
-                          <label style={{ fontSize: '0.74rem', fontWeight: '700', color: 'var(--text-muted)', display: 'block', marginBottom: '0.3rem' }}>
-                            Số Hóa Đơn (VAT) (*)
-                          </label>
-                          <input
-                            type="text"
-                            className="form-input"
-                            value={ocrResult.invoiceNumber || ''}
-                            onChange={(e) => handleUpdateHeader('invoiceNumber', e.target.value)}
-                            style={{ height: '34px', fontSize: '0.82rem', fontWeight: '700' }}
-                            placeholder="Số HĐ"
-                          />
+                        {/* Hàng 1: 4 trường thông tin cơ bản */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.6rem' }}>
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: '700', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>
+                              Số HĐ (VAT) (*)
+                            </label>
+                            <input
+                              type="text"
+                              className="form-input ocr-input"
+                              value={ocrResult.invoiceNumber || ''}
+                              onChange={(e) => handleUpdateHeader('invoiceNumber', e.target.value)}
+                              style={{ height: '35px', fontSize: '0.84rem', fontWeight: '700' }}
+                              placeholder="Số HĐ"
+                            />
+                          </div>
+
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: '700', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>
+                              Ký Hiệu Mẫu HĐ
+                            </label>
+                            <input
+                              type="text"
+                              className="form-input ocr-input"
+                              value={ocrResult.invoiceSymbol || ''}
+                              onChange={(e) => handleUpdateHeader('invoiceSymbol', e.target.value)}
+                              style={{ height: '35px', fontSize: '0.84rem' }}
+                              placeholder="VD: 1C26TOP"
+                            />
+                          </div>
+
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: '700', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>
+                              Ngày Lập HĐ (*)
+                            </label>
+                            <input
+                              type="date"
+                              className="form-input ocr-input"
+                              value={ocrResult.invoiceDate || ''}
+                              onChange={(e) => handleUpdateHeader('invoiceDate', e.target.value)}
+                              style={{ height: '35px', fontSize: '0.84rem' }}
+                            />
+                          </div>
+
+                          <div>
+                            <label style={{ fontSize: '0.72rem', fontWeight: '700', color: 'var(--text-muted)', display: 'block', marginBottom: '0.25rem' }}>
+                              Số Phiếu Xuất / BBGH
+                            </label>
+                            <input
+                              type="text"
+                              className="form-input ocr-input"
+                              value={ocrResult.deliveryNoteNumber || ''}
+                              onChange={(e) => handleUpdateHeader('deliveryNoteNumber', e.target.value)}
+                              style={{ height: '35px', fontSize: '0.84rem' }}
+                              placeholder="VD: BBGH-0826"
+                            />
+                          </div>
                         </div>
 
+                        {/* Hàng 2: Nhà cung cấp & Tên đọc được từ hóa đơn */}
                         <div>
-                          <label style={{ fontSize: '0.74rem', fontWeight: '700', color: 'var(--text-muted)', display: 'block', marginBottom: '0.3rem' }}>
-                            Ký Hiệu Mẫu HĐ
-                          </label>
-                          <input
-                            type="text"
-                            className="form-input"
-                            value={ocrResult.invoiceSymbol || ''}
-                            onChange={(e) => handleUpdateHeader('invoiceSymbol', e.target.value)}
-                            style={{ height: '34px', fontSize: '0.82rem' }}
-                            placeholder="VD: 1C26TDH"
-                          />
-                        </div>
-
-                        <div>
-                          <label style={{ fontSize: '0.74rem', fontWeight: '700', color: 'var(--text-muted)', display: 'block', marginBottom: '0.3rem' }}>
-                            Ngày Lập HĐ (*)
-                          </label>
-                          <input
-                            type="date"
-                            className="form-input"
-                            value={ocrResult.invoiceDate || ''}
-                            onChange={(e) => handleUpdateHeader('invoiceDate', e.target.value)}
-                            style={{ height: '34px', fontSize: '0.82rem' }}
-                          />
-                        </div>
-
-                        <div>
-                          <label style={{ fontSize: '0.74rem', fontWeight: '700', color: 'var(--text-muted)', display: 'block', marginBottom: '0.3rem' }}>
-                            Số Phiếu Xuất Kho / BBGH
-                          </label>
-                          <input
-                            type="text"
-                            className="form-input"
-                            value={ocrResult.deliveryNoteNumber || ''}
-                            onChange={(e) => handleUpdateHeader('deliveryNoteNumber', e.target.value)}
-                            style={{ height: '34px', fontSize: '0.82rem' }}
-                            placeholder="VD: PX-0826"
-                          />
-                        </div>
-
-                        <div style={{ gridColumn: '1 / -1' }}>
-                          <label style={{ fontSize: '0.74rem', fontWeight: '700', color: 'var(--text-muted)', display: 'block', marginBottom: '0.3rem' }}>
-                            Nhà Cung Cấp / Công Ty Bán (*)
-                          </label>
-                          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                            <select
-                              className="form-input"
-                              value={ocrResult.supplierID || ''}
-                              onChange={(e) => handleSupplierSelect(e.target.value)}
-                              style={{ height: '34px', fontSize: '0.82rem', flex: 1 }}
-                            >
-                              <option value="">-- Khớp hoặc chọn Nhà cung cấp trong CSDL --</option>
-                              {suppliers.map(s => (
-                                <option key={s.supplierID} value={String(s.supplierID)}>
-                                  {s.supplierName} {s.contractNumber ? `(HĐ: ${s.contractNumber})` : ''}
-                                </option>
-                              ))}
-                            </select>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
+                            <label style={{ fontSize: '0.72rem', fontWeight: '700', color: 'var(--text-muted)' }}>
+                              Nhà Cung Cấp / Công Ty Bán (*)
+                            </label>
                             {ocrResult.supplierName && (
-                              <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }} title="Tên đọc từ hóa đơn">
-                                Đọc được: <strong>{ocrResult.supplierName}</strong>
+                              <span style={{ fontSize: '0.72rem', color: '#0284c7', background: 'rgba(2, 132, 199, 0.08)', padding: '0.15rem 0.55rem', borderRadius: '5px', fontWeight: '600' }} title="Tên đọc từ hóa đơn">
+                                Đọc từ hóa đơn: <strong>{ocrResult.supplierName}</strong>
                               </span>
                             )}
                           </div>
+                          <select
+                            className="form-input ocr-select"
+                            value={ocrResult.supplierID || ''}
+                            onChange={(e) => handleSupplierSelect(e.target.value)}
+                            style={{ height: '35px', fontSize: '0.84rem', width: '100%' }}
+                          >
+                            <option value="">-- Khớp hoặc chọn Nhà cung cấp trong CSDL --</option>
+                            {suppliers.map(s => (
+                              <option key={s.supplierID} value={String(s.supplierID)}>
+                                {s.supplierName} {s.contractNumber ? `(HĐ: ${s.contractNumber})` : ''}
+                              </option>
+                            ))}
+                          </select>
                         </div>
                       </div>
 
-                      {/* Bảng Chi Tiết Mặt Hàng Dược Phẩm */}
+                      {/* Bảng Chi Tiết Mặt Hàng Dược Phẩm - Chiếm trọn không gian còn lại */}
                       <div style={{
                         background: 'var(--card-bg, #ffffff)',
                         border: '1px solid var(--border-color)',
                         borderRadius: '10px',
-                        overflow: 'hidden'
+                        overflow: 'hidden',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        flex: 1,
+                        minHeight: 0
                       }}>
                         <div style={{
-                          padding: '0.6rem 0.85rem',
+                          padding: '0.5rem 0.85rem',
                           borderBottom: '1px solid var(--border-color)',
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'space-between',
-                          background: 'rgba(0,0,0,0.02)'
+                          background: 'rgba(0,0,0,0.02)',
+                          flexShrink: 0
                         }}>
-                          <span style={{ fontSize: '0.82rem', fontWeight: '700', color: 'var(--text-main)' }}>
-                            Chi tiết các mặt hàng thuốc trích xuất ({ocrResult.items?.length || 0})
+                          <span style={{ fontSize: '0.82rem', fontWeight: '700', color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            Chi tiết các mặt hàng thuốc trích xuất 
+                            <span className="badge-status" style={{ background: 'rgba(2, 132, 199, 0.12)', color: '#0284c7', fontSize: '0.72rem', padding: '0.1rem 0.5rem', borderRadius: '6px' }}>
+                              {ocrResult.items?.length || 0} mặt hàng
+                            </span>
                           </span>
                           <button
                             type="button"
@@ -837,18 +867,26 @@ export default function InvoiceOcrModal({
                           </button>
                         </div>
 
-                        <div style={{ overflowX: 'auto' }}>
+                        {/* Khung cuộn riêng của bảng với thead dính ở trên (sticky) */}
+                        <div style={{
+                          flex: 1,
+                          minHeight: 0,
+                          overflowY: 'auto',
+                          overflowX: 'auto',
+                          scrollbarWidth: 'thin',
+                          scrollbarColor: 'var(--color-primary) transparent'
+                        }}>
                           <table style={{ width: '100%', fontSize: '0.78rem', borderCollapse: 'collapse' }}>
-                            <thead>
-                              <tr style={{ background: 'rgba(0,0,0,0.03)', borderBottom: '1px solid var(--border-color)' }}>
-                                <th style={{ padding: '0.5rem', textAlign: 'left', minWidth: '200px' }}>Thuốc (Map vào CSDL)</th>
-                                <th style={{ padding: '0.5rem', textAlign: 'center', width: '110px' }}>Số Lô (*)</th>
-                                <th style={{ padding: '0.5rem', textAlign: 'center', width: '120px' }}>Hạn Dùng (*)</th>
-                                <th style={{ padding: '0.5rem', textAlign: 'center', width: '70px' }}>ĐVT</th>
-                                <th style={{ padding: '0.5rem', textAlign: 'right', width: '85px' }}>Số lượng</th>
-                                <th style={{ padding: '0.5rem', textAlign: 'right', width: '95px' }}>Đơn giá</th>
-                                <th style={{ padding: '0.5rem', textAlign: 'right', width: '100px' }}>Thành tiền</th>
-                                <th style={{ padding: '0.5rem', textAlign: 'center', width: '40px' }}></th>
+                            <thead style={{ position: 'sticky', top: 0, zIndex: 10, background: 'var(--card-bg, #ffffff)' }}>
+                              <tr style={{ background: 'var(--bg-primary, #f8fafc)', borderBottom: '1px solid var(--border-color)' }}>
+                                <th style={{ padding: '0.45rem 0.5rem', textAlign: 'left', minWidth: '190px' }}>Thuốc (Map vào CSDL)</th>
+                                <th style={{ padding: '0.45rem 0.5rem', textAlign: 'center', width: '105px' }}>Số Lô (*)</th>
+                                <th style={{ padding: '0.45rem 0.5rem', textAlign: 'center', width: '115px' }}>Hạn Dùng (*)</th>
+                                <th style={{ padding: '0.45rem 0.5rem', textAlign: 'center', width: '65px' }}>ĐVT</th>
+                                <th style={{ padding: '0.45rem 0.5rem', textAlign: 'right', width: '80px' }}>Số lượng</th>
+                                <th style={{ padding: '0.45rem 0.5rem', textAlign: 'right', width: '90px' }}>Đơn giá</th>
+                                <th style={{ padding: '0.45rem 0.5rem', textAlign: 'right', width: '95px' }}>Thành tiền</th>
+                                <th style={{ padding: '0.45rem 0.5rem', textAlign: 'center', width: '35px' }}></th>
                               </tr>
                             </thead>
                             <tbody>
@@ -859,15 +897,15 @@ export default function InvoiceOcrModal({
                                   <tr key={idx} style={{ borderBottom: '1px solid var(--border-color)', background: item.warning ? 'rgba(239, 68, 68, 0.03)' : 'transparent' }}>
                                     
                                     {/* Tên thuốc & Map CSDL */}
-                                    <td style={{ padding: '0.5rem' }}>
-                                      <div style={{ fontSize: '0.8rem', fontWeight: '700', color: 'var(--text-main)', marginBottom: '0.25rem' }}>
+                                    <td style={{ padding: '0.4rem 0.5rem' }}>
+                                      <div style={{ fontSize: '0.78rem', fontWeight: '700', color: 'var(--text-main)', marginBottom: '0.2rem' }}>
                                         {item.medicineName}
                                       </div>
                                       <select
-                                        className="form-input"
+                                        className="form-input ocr-select"
                                         value={item.medicineID || ''}
                                         onChange={(e) => handleMedicineSelect(idx, e.target.value)}
-                                        style={{ height: '28px', fontSize: '0.75rem', padding: '0 0.4rem', borderColor: item.isMatched ? '#10b981' : '#f59e0b' }}
+                                        style={{ height: '32px', fontSize: '0.78rem', borderColor: item.isMatched ? '#10b981' : '#f59e0b' }}
                                       >
                                         <option value="">-- Chọn thuốc trong kho để map --</option>
                                         {medicines.map(m => (
@@ -877,86 +915,86 @@ export default function InvoiceOcrModal({
                                         ))}
                                       </select>
                                       {item.warning && (
-                                        <div style={{ fontSize: '0.7rem', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '3px', marginTop: '2px' }}>
-                                          <AlertTriangle size={11} /> {item.warning}
+                                        <div style={{ fontSize: '0.68rem', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '3px', marginTop: '2px' }}>
+                                          <AlertTriangle size={10} /> {item.warning}
                                         </div>
                                       )}
                                     </td>
 
                                     {/* Số lô */}
-                                    <td style={{ padding: '0.5rem', textAlign: 'center' }}>
+                                    <td style={{ padding: '0.4rem 0.3rem', textAlign: 'center' }}>
                                       <input
                                         type="text"
-                                        className="form-input"
+                                        className="form-input ocr-input"
                                         value={item.batchNumber}
                                         onChange={(e) => handleUpdateItem(idx, 'batchNumber', e.target.value)}
-                                        style={{ height: '30px', fontSize: '0.78rem', textAlign: 'center', padding: '0 0.3rem', fontWeight: '700' }}
+                                        style={{ height: '32px', fontSize: '0.78rem', textAlign: 'center', fontWeight: '700' }}
                                         placeholder="Số lô"
                                       />
                                     </td>
 
                                     {/* Hạn dùng */}
-                                    <td style={{ padding: '0.5rem', textAlign: 'center' }}>
+                                    <td style={{ padding: '0.4rem 0.3rem', textAlign: 'center' }}>
                                       <input
                                         type="date"
-                                        className="form-input"
+                                        className="form-input ocr-input"
                                         value={item.expiryDate}
                                         onChange={(e) => handleUpdateItem(idx, 'expiryDate', e.target.value)}
-                                        style={{ height: '30px', fontSize: '0.76rem', padding: '0 0.3rem' }}
+                                        style={{ height: '32px', fontSize: '0.76rem' }}
                                       />
                                     </td>
 
                                     {/* Đơn vị tính */}
-                                    <td style={{ padding: '0.5rem', textAlign: 'center' }}>
+                                    <td style={{ padding: '0.4rem 0.3rem', textAlign: 'center' }}>
                                       <input
                                         type="text"
-                                        className="form-input"
+                                        className="form-input ocr-input"
                                         value={item.unit}
                                         onChange={(e) => handleUpdateItem(idx, 'unit', e.target.value)}
-                                        style={{ height: '30px', fontSize: '0.76rem', textAlign: 'center', padding: '0 0.2rem' }}
+                                        style={{ height: '32px', fontSize: '0.76rem', textAlign: 'center' }}
                                       />
                                     </td>
 
                                     {/* Số lượng */}
-                                    <td style={{ padding: '0.5rem', textAlign: 'right' }}>
+                                    <td style={{ padding: '0.4rem 0.3rem', textAlign: 'right' }}>
                                       <input
                                         type="text"
                                         inputMode="numeric"
-                                        className="form-input"
+                                        className="form-input ocr-input"
                                         value={item.quantity}
                                         onKeyDown={handleIntegerKeyDown}
                                         onChange={(e) => handleUpdateItem(idx, 'quantity', sanitizeInteger(e.target.value, false))}
-                                        style={{ height: '30px', fontSize: '0.78rem', textAlign: 'right', padding: '0 0.4rem', fontWeight: '700' }}
+                                        style={{ height: '32px', fontSize: '0.78rem', textAlign: 'right', fontWeight: '700' }}
                                       />
                                     </td>
 
                                     {/* Đơn giá */}
-                                    <td style={{ padding: '0.5rem', textAlign: 'right' }}>
+                                    <td style={{ padding: '0.4rem 0.3rem', textAlign: 'right' }}>
                                       <input
                                         type="text"
                                         inputMode="numeric"
-                                        className="form-input"
+                                        className="form-input ocr-input"
                                         value={item.importPrice}
                                         onKeyDown={handleIntegerKeyDown}
                                         onChange={(e) => handleUpdateItem(idx, 'importPrice', sanitizeInteger(e.target.value, false))}
-                                        style={{ height: '30px', fontSize: '0.78rem', textAlign: 'right', padding: '0 0.4rem' }}
+                                        style={{ height: '32px', fontSize: '0.78rem', textAlign: 'right' }}
                                       />
                                     </td>
 
                                     {/* Thành tiền */}
-                                    <td style={{ padding: '0.5rem', textAlign: 'right', fontWeight: '700', color: 'var(--color-primary)' }}>
+                                    <td style={{ padding: '0.4rem 0.3rem', textAlign: 'right', fontWeight: '700', color: 'var(--color-primary)', fontSize: '0.78rem' }}>
                                       {totalItem.toLocaleString('vi-VN')} đ
                                     </td>
 
                                     {/* Xóa dòng */}
-                                    <td style={{ padding: '0.5rem', textAlign: 'center' }}>
+                                    <td style={{ padding: '0.4rem 0.3rem', textAlign: 'center' }}>
                                       <button
                                         type="button"
                                         onClick={() => handleRemoveItem(idx)}
                                         style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '0.2rem' }}
                                         title="Xóa dòng này"
                                       >
-                                        <Trash2 size={14} />
+                                        <Trash2 size={13} />
                                       </button>
                                     </td>
                                   </tr>
@@ -978,7 +1016,8 @@ export default function InvoiceOcrModal({
                       alignItems: 'center',
                       justifyContent: 'space-between',
                       flexWrap: 'wrap',
-                      gap: '0.75rem'
+                      gap: '0.75rem',
+                      flexShrink: 0
                     }}>
                       <div>
                         <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Tổng giá trị hóa đơn: </span>
@@ -1033,7 +1072,8 @@ export default function InvoiceOcrModal({
           justifyContent: 'space-between',
           background: 'rgba(0,0,0,0.02)',
           fontSize: '0.76rem',
-          color: 'var(--text-muted)'
+          color: 'var(--text-muted)',
+          flexShrink: 0
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <ShieldCheck size={14} color="#10b981" />

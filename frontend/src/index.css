@@ -149,6 +149,26 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Custom WebKit Scrollbars */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.04);
+  border-radius: 9999px;
+}
+[data-theme="dark"] ::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.04);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.45);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-primary);
+}
+
 h1, h2, h3, h4, h5, h6, .font-outfit {
   font-family: var(--font-family-display);
   color: var(--text-main);
@@ -916,6 +936,13 @@ tr:hover td {
 
 .form-input::placeholder {
   color: var(--text-dim);
+}
+
+/* OCR Modal Specific Inputs to prevent text clipping */
+.ocr-input, .ocr-select {
+  padding: 0.35rem 0.65rem !important;
+  line-height: 1.4 !important;
+  box-sizing: border-box !important;
 }
 
 .form-row {
