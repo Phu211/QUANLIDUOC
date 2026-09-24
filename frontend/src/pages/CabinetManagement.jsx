@@ -11,9 +11,15 @@ import BreakageReportList from '../components/BreakageReportList';
 import { exportExcelReport } from '../utils/excelExportHelper';
 
 export default function CabinetManagement({ user }) {
-  const isSupervisor = user?.role === 'director' || user?.role === 'pharmacist';
+  const isSupervisor = user?.role === 'director' || user?.role === 'pharmacist' || user?.role === 'pharmacist_admin';
   const isReadOnly = isSupervisor || user?.role === 'dispensary';
   const isPharmacist = user?.role === 'dispensary' || user?.role === 'pharmacist';
+
+  const authHeaders = {
+    'X-User-Role': user?.role || '',
+    'X-User-DeptID': user?.departmentID ? user.departmentID.toString() : '',
+    'X-User-FullName': encodeURIComponent(user?.fullName || '')
+  };
 
   const [departments, setDepartments] = useState([]);
   const [selectedDept, setSelectedDept] = useState('');
@@ -142,11 +148,13 @@ export default function CabinetManagement({ user }) {
   };
 
   useEffect(() => {
-    fetch('/api/requisition/departments')
+    fetch('/api/requisition/departments', { headers: authHeaders })
       .then(res => res.json())
       .then(data => {
         setDepartments(data);
-        if (user?.departmentID) {
+        if (!isSupervisor && user?.departmentID) {
+          setSelectedDept(user.departmentID.toString());
+        } else if (user?.departmentID) {
           setSelectedDept(user.departmentID.toString());
         } else if (data.length > 0) {
           setSelectedDept(data[0].departmentID.toString());
@@ -159,12 +167,12 @@ export default function CabinetManagement({ user }) {
     if (!deptId) return;
     setLoading(true);
     Promise.all([
-      fetch(`/api/cabinet/stocks/${deptId}`).then(res => res.json()),
-      fetch(`/api/cabinet/transactions/${deptId}`).then(res => res.json())
+      fetch(`/api/cabinet/stocks/${deptId}`, { headers: authHeaders }).then(res => res.json()),
+      fetch(`/api/cabinet/transactions/${deptId}`, { headers: authHeaders }).then(res => res.json())
     ])
     .then(([stocksData, txsData]) => {
-      setCabinetStocks(stocksData);
-      setTransactions(txsData);
+      setCabinetStocks(Array.isArray(stocksData) ? stocksData : []);
+      setTransactions(Array.isArray(txsData) ? txsData : []);
       setLoading(false);
     })
     .catch(err => {
@@ -650,19 +658,35 @@ export default function CabinetManagement({ user }) {
             </button>
           )}
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
             <label className="form-label" style={{ margin: 0, textTransform: 'none', fontWeight: '600' }}>Khoa lâm sàng:</label>
             <select 
               className="form-input" 
-              style={{ minWidth: '220px', fontWeight: '500' }}
+              style={{
+                minWidth: '220px',
+                fontWeight: '500',
+                cursor: (!isSupervisor && !!user?.departmentID) ? 'not-allowed' : 'pointer',
+                opacity: (!isSupervisor && !!user?.departmentID) ? 0.85 : 1
+              }}
               value={selectedDept} 
-              onChange={e => setSelectedDept(e.target.value)}
-              disabled={!isReadOnly && !!user?.departmentID}
+              onChange={e => {
+                if (isSupervisor || !user?.departmentID) {
+                  setSelectedDept(e.target.value);
+                }
+              }}
+              disabled={!isSupervisor && !!user?.departmentID}
             >
-              {departments.map(d => (
-                <option key={d.departmentID} value={d.departmentID}>{d.departmentName}</option>
-              ))}
+              {departments
+                .filter(d => isSupervisor || !user?.departmentID || d.departmentID === user?.departmentID)
+                .map(d => (
+                  <option key={d.departmentID} value={d.departmentID}>{d.departmentName}</option>
+                ))}
             </select>
+            {!isSupervisor && !!user?.departmentID && (
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', gap: '0.25rem', whiteSpace: 'nowrap' }}>
+                🔒 (Cố định theo khoa phụ trách)
+              </span>
+            )}
           </div>
         </div>
       </div>

@@ -1701,7 +1701,7 @@ export default function ImportReceipts({ user }) {
                         boxShadow: '0 2px 8px rgba(2, 132, 199, 0.25)'
                       }}
                     >
-                      <ScanLine size={15} /> Quét Hóa Đơn Bằng AI (Smart OCR)
+                      <ScanLine size={15} /> Quét Hóa Đơn Tự Động (Smart OCR)
                     </button>
                   </div>
 

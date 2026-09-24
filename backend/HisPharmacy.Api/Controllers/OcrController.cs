@@ -67,7 +67,7 @@ public class OcrController : ControllerBase
         public List<OcrItemResult> Items { get; set; } = new();
         public string ExtractedRawText { get; set; } = string.Empty;
         public string Message { get; set; } = string.Empty;
-        public string AiEngine { get; set; } = "Google Gemini Multimodal Vision AI (Live)";
+        public string AiEngine { get; set; } = "Smart OCR Vision Engine";
     }
 
     [HttpPost("parse-invoice")]
@@ -88,7 +88,7 @@ public class OcrController : ControllerBase
             return BadRequest(new OcrParseResponse
             {
                 Success = false,
-                Message = "Dịch vụ Gemini AI chưa được cấu hình API Key trên máy chủ."
+                Message = "Dịch vụ bóc tách OCR chưa được cấu hình khóa kết nối trên máy chủ."
             });
         }
 

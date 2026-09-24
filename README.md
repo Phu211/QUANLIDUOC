@@ -5,12 +5,6 @@ Dự án Hệ thống Quản lý Dược Bệnh viện (HIS - Pharmacy) là gi�
 
 ---
 
-## 📖 Tài liệu Đặc tả Tính năng
-Xem toàn bộ danh mục 14 phân hệ tính năng, kiến trúc kỹ thuật và phân quyền RBAC tại:
-👉 **[DANH_SACH_TINH_NANG.md](./DANH_SACH_TINH_NANG.md)**
-
----
-
 ## 🛠️ Ngăn xếp Công nghệ (Tech Stack)
 * **Backend:** ASP.NET Core Web API, Entity Framework Core, SQL Server Express, Microsoft SignalR.
 * **Frontend:** React, Vite, Lucide Icons, Vanilla CSS (Dark/Light mode).

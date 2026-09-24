@@ -176,7 +176,7 @@ export default function InvoiceOcrModal({
         }))
       });
     } catch (err) {
-      setErrorMessage(err.message || "Đã xảy ra lỗi khi quét hóa đơn qua Gemini Vision AI.");
+      setErrorMessage(err.message || "Đã xảy ra lỗi khi quét hóa đơn qua hệ thống OCR.");
     } finally {
       setScanning(false);
     }
@@ -369,11 +369,11 @@ export default function InvoiceOcrModal({
                   fontWeight: '700',
                   padding: '0.2rem 0.55rem'
                 }}>
-                  <Sparkles size={11} style={{ marginRight: '4px', verticalAlign: '-1px' }} /> Google Gemini Vision AI
+                  <Sparkles size={11} style={{ marginRight: '4px', verticalAlign: '-1px' }} /> SMART OCR VISION
                 </span>
               </div>
               <p style={{ margin: '0.2rem 0 0 0', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                Tải ảnh hoặc PDF hóa đơn thực tế. AI tự động nhận diện Số HĐ, Ngày lập, Nhà cung cấp, Số lô và Hạn dùng.
+                Tải ảnh hoặc PDF hóa đơn thực tế. Hệ thống tự động nhận diện Số HĐ, Ngày lập, Nhà cung cấp, Số lô và Hạn dùng.
               </p>
             </div>
           </div>
@@ -631,12 +631,12 @@ export default function InvoiceOcrModal({
                       {scanning ? (
                         <>
                           <RefreshCw size={16} className="animate-spin" />
-                          Đang bóc tách qua Gemini Vision AI...
+                          Đang bóc tách dữ liệu hóa đơn...
                         </>
                       ) : (
                         <>
                           <Sparkles size={16} />
-                          Bắt Đầu Bóc Tách Hóa Đơn Bằng AI
+                          Bắt Đầu Bóc Tách Hóa Đơn (OCR)
                         </>
                       )}
                     </button>
@@ -669,9 +669,9 @@ export default function InvoiceOcrModal({
                     {scanning ? (
                       <>
                         <RefreshCw size={42} className="animate-spin" style={{ color: 'var(--color-primary)', marginBottom: '1rem' }} />
-                        <h4 style={{ color: 'var(--text-main)', margin: '0 0 0.5rem 0' }}>AI đang đọc dữ liệu hóa đơn...</h4>
+                        <h4 style={{ color: 'var(--text-main)', margin: '0 0 0.5rem 0' }}>Hệ thống đang đọc dữ liệu hóa đơn...</h4>
                         <p style={{ margin: 0, fontSize: '0.82rem', maxWidth: '360px' }}>
-                          Mô hình Gemini Vision đang phân tích bảng số liệu, nhận diện số hóa đơn, ngày lập, nhà cung cấp, số lô và hạn dùng.
+                          Công nghệ OCR đang phân tích bảng số liệu, nhận diện số hóa đơn, ngày lập, nhà cung cấp, số lô và hạn dùng.
                         </p>
                       </>
                     ) : (
@@ -679,7 +679,7 @@ export default function InvoiceOcrModal({
                         <ScanLine size={48} style={{ color: 'var(--text-dim)', marginBottom: '1rem', opacity: 0.5 }} />
                         <h4 style={{ color: 'var(--text-main)', margin: '0 0 0.5rem 0' }}>Sẵn sàng quét tài liệu</h4>
                         <p style={{ margin: 0, fontSize: '0.82rem', maxWidth: '340px' }}>
-                          Nhấn nút <strong>"Bắt Đầu Bóc Tách Hóa Đơn Bằng AI"</strong> ở cột bên trái để trích xuất số liệu tự động.
+                          Nhấn nút <strong>"Bắt Đầu Bóc Tách Hóa Đơn (OCR)"</strong> ở cột bên trái để trích xuất số liệu tự động.
                         </p>
                       </>
                     )}
@@ -708,7 +708,7 @@ export default function InvoiceOcrModal({
 
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                         <span className="badge-status" style={{ background: 'rgba(2, 132, 199, 0.15)', color: '#0284c7', fontSize: '0.72rem' }}>
-                          ⚡ {ocrResult.aiEngine || "Gemini Vision AI (Live)"}
+                          ⚡ Smart OCR Engine
                         </span>
                         <button
                           type="button"

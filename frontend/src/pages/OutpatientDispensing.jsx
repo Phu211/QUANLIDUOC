@@ -140,11 +140,20 @@ const renderDispenserSignature = (presc, currentUser) => {
 };
 
 export default function OutpatientDispensing({ user, setPage }) {
+  const isSupervisor = user?.role === 'director' || user?.role === 'pharmacist' || user?.role === 'pharmacist_admin';
+  const effectiveDeptId = (!isSupervisor && user?.departmentID) ? user.departmentID : (user?.departmentID || 1);
+
+  const authHeaders = {
+    'X-User-Role': user?.role || '',
+    'X-User-DeptID': user?.departmentID ? user.departmentID.toString() : '',
+    'X-User-FullName': encodeURIComponent(user?.fullName || '')
+  };
+
   // Navigation & Workspace Tabs
   const [activeTab, setActiveTab] = useState('dispense'); // 'dispense', 'history', 'inventory'
   
   // Data States
-  const [selectedDeptId, setSelectedDeptId] = useState(user?.departmentID || 1);
+  const [selectedDeptId, setSelectedDeptId] = useState(effectiveDeptId);
   const [departmentList, setDepartmentList] = useState([]);
   const [pendingPrescriptions, setPendingPrescriptions] = useState([]);
   const [selectedPrescription, setSelectedPrescription] = useState(null);
@@ -196,10 +205,12 @@ export default function OutpatientDispensing({ user, setPage }) {
   // Luôn đồng bộ tên Bác sĩ kê đơn theo tài khoản đang đăng nhập
   useEffect(() => {
     if (user) {
+      const targetDept = (!isSupervisor && user?.departmentID) ? user.departmentID : (user?.departmentID || selectedDeptId);
+      setSelectedDeptId(targetDept);
       setNewPresc(prev => ({
         ...prev,
         doctorName: getDoctorForUser(user),
-        departmentID: user?.departmentID || prev.departmentID || selectedDeptId
+        departmentID: targetDept
       }));
     }
   }, [user]);
@@ -217,7 +228,10 @@ export default function OutpatientDispensing({ user, setPage }) {
   // 1. Load initial pending prescriptions & inventory
   const loadPendingPrescriptions = async (deptId = selectedDeptId) => {
     try {
-      const res = await fetch(`/api/prescription/pending?departmentId=${deptId}`);
+      const targetDept = (!isSupervisor && user?.departmentID) ? user.departmentID : deptId;
+      const res = await fetch(`/api/prescription/pending?departmentId=${targetDept}`, {
+        headers: authHeaders
+      });
       if (res.ok) {
         const data = await res.json();
         setPendingPrescriptions(data);
@@ -235,7 +249,10 @@ export default function OutpatientDispensing({ user, setPage }) {
 
   const loadDispensingHistory = async (deptId = selectedDeptId) => {
     try {
-      const res = await fetch(`/api/prescription/history?departmentId=${deptId}&take=30`);
+      const targetDept = (!isSupervisor && user?.departmentID) ? user.departmentID : deptId;
+      const res = await fetch(`/api/prescription/history?departmentId=${targetDept}&take=30`, {
+        headers: authHeaders
+      });
       if (res.ok) {
         const data = await res.json();
         setHistoryList(data);
@@ -247,7 +264,10 @@ export default function OutpatientDispensing({ user, setPage }) {
 
   const loadDispensaryStocks = async (deptId = selectedDeptId) => {
     try {
-      const res = await fetch(`/api/prescription/available-medicines?departmentId=${deptId}`);
+      const targetDept = (!isSupervisor && user?.departmentID) ? user.departmentID : deptId;
+      const res = await fetch(`/api/prescription/available-medicines?departmentId=${targetDept}`, {
+        headers: authHeaders
+      });
       if (res.ok) {
         const data = await res.json();
         setDispensaryStocks(data);
@@ -260,7 +280,9 @@ export default function OutpatientDispensing({ user, setPage }) {
   const loadAdrReports = async () => {
     setLoadingAdr(true);
     try {
-      const res = await fetch('/api/patientportal/adr-reports');
+      const res = await fetch('/api/patientportal/adr-reports', {
+        headers: authHeaders
+      });
       if (res.ok) {
         const data = await res.json();
         setAdrReports(data);
@@ -273,24 +295,28 @@ export default function OutpatientDispensing({ user, setPage }) {
   };
 
   const handleDepartmentChange = (deptId) => {
-    setSelectedDeptId(deptId);
-    loadPendingPrescriptions(deptId);
-    loadDispensaryStocks(deptId);
-    loadDispensingHistory(deptId);
-    setNewPresc(prev => ({ ...prev, departmentID: deptId }));
+    const targetDept = (!isSupervisor && user?.departmentID) ? user.departmentID : deptId;
+    setSelectedDeptId(targetDept);
+    loadPendingPrescriptions(targetDept);
+    loadDispensaryStocks(targetDept);
+    loadDispensingHistory(targetDept);
+    setNewPresc(prev => ({ ...prev, departmentID: targetDept }));
   };
 
   // 2. Load Single Prescription with Automated FEFO Allocation
   const loadPrescriptionDetail = async (id) => {
     try {
       setSearchLoading(true);
-      const res = await fetch(`/api/prescription/${id}`);
+      const res = await fetch(`/api/prescription/${id}`, {
+        headers: authHeaders
+      });
       if (res.ok) {
         const data = await res.json();
         setSelectedPrescription(data);
         setBatchOverrides({}); // Reset overrides
       } else {
-        showToast("Không tìm thấy đơn thuốc yêu cầu.", "error");
+        const errData = await res.json().catch(() => null);
+        showToast(errData?.message || "Không tìm thấy đơn thuốc yêu cầu.", "error");
       }
     } catch (err) {
       console.error("Error loading prescription detail:", err);
@@ -303,14 +329,17 @@ export default function OutpatientDispensing({ user, setPage }) {
   // 3. Search or Barcode Scan Handler
   const handleSearchSubmit = async (e) => {
     if (e) e.preventDefault();
+    const targetDept = (!isSupervisor && user?.departmentID) ? user.departmentID : selectedDeptId;
     if (!searchQuery.trim()) {
-      loadPendingPrescriptions(selectedDeptId);
+      loadPendingPrescriptions(targetDept);
       return;
     }
 
     setSearchLoading(true);
     try {
-      const res = await fetch(`/api/prescription/search?query=${encodeURIComponent(searchQuery.trim())}&departmentId=${selectedDeptId}`);
+      const res = await fetch(`/api/prescription/search?query=${encodeURIComponent(searchQuery.trim())}&departmentId=${targetDept}`, {
+        headers: authHeaders
+      });
       if (res.ok) {
         const results = await res.json();
         if (results.length === 1) {
@@ -361,7 +390,10 @@ export default function OutpatientDispensing({ user, setPage }) {
 
       const res = await fetch(`/api/prescription/${selectedPrescription.prescriptionID}/dispense`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders
+        },
         body: JSON.stringify(payload)
       });
 
@@ -377,7 +409,9 @@ export default function OutpatientDispensing({ user, setPage }) {
         await loadDispensingHistory(selectedDeptId);
 
         // Automatically open the printable medical invoice and schedule modal
-        const refreshedRes = await fetch(`/api/prescription/${selectedPrescription.prescriptionID}`);
+        const refreshedRes = await fetch(`/api/prescription/${selectedPrescription.prescriptionID}`, {
+          headers: authHeaders
+        });
         if (refreshedRes.ok) {
           const freshData = await refreshedRes.json();
           setPrintModalData(freshData);
@@ -571,14 +605,14 @@ export default function OutpatientDispensing({ user, setPage }) {
 
   // Initial load
   useEffect(() => {
-    fetch('/api/requisition/departments')
+    fetch('/api/requisition/departments', { headers: authHeaders })
       .then(res => res.json())
       .then(depts => {
         setDepartmentList(depts);
       })
       .catch(err => console.error("Error loading departments:", err));
 
-    const initialDept = user?.departmentID || 1;
+    const initialDept = (!isSupervisor && user?.departmentID) ? user.departmentID : (user?.departmentID || 1);
     setSelectedDeptId(initialDept);
     loadPendingPrescriptions(initialDept);
     loadDispensaryStocks(initialDept);
@@ -759,7 +793,7 @@ export default function OutpatientDispensing({ user, setPage }) {
         insuranceRate: parseInt(newPresc.insuranceRate),
         diagnosis: newPresc.diagnosis,
         doctorName: newPresc.doctorName,
-        departmentID: 1,
+        departmentID: (!isSupervisor && user?.departmentID) ? user.departmentID : (newPresc.departmentID || selectedDeptId || 1),
         notes: newPresc.notes,
         details: newPresc.selectedMedicines.map(m => ({
           medicineID: m.medicineID,
@@ -776,7 +810,10 @@ export default function OutpatientDispensing({ user, setPage }) {
 
       const res = await fetch('/api/prescription/create', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders
+        },
         body: JSON.stringify(payload)
       });
 
@@ -866,7 +903,7 @@ export default function OutpatientDispensing({ user, setPage }) {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
-            {/* Department Switcher: Cho phép Giám Đốc, Thủ kho và Dược sĩ chuyển đổi quầy dược / phòng khám */}
+            {/* Department Switcher: Chỉ Ban Giám Đốc và Thủ kho chẵn mới được đổi quầy/khoa; Dược sĩ kho lẻ cố định theo khoa */}
             <div style={{
               display: 'flex',
               alignItems: 'center',
@@ -883,22 +920,31 @@ export default function OutpatientDispensing({ user, setPage }) {
                 value={selectedDeptId}
                 onChange={(e) => handleDepartmentChange(parseInt(e.target.value))}
                 className="form-input"
+                disabled={!isSupervisor && !!user?.departmentID}
                 style={{
                   padding: '0.2rem 0.5rem',
                   fontSize: '0.8rem',
                   borderRadius: '6px',
                   fontWeight: '700',
                   color: 'var(--color-primary)',
-                  cursor: 'pointer'
+                  cursor: (!isSupervisor && !!user?.departmentID) ? 'not-allowed' : 'pointer',
+                  opacity: (!isSupervisor && !!user?.departmentID) ? 0.85 : 1
                 }}
               >
-                <option value={0}>🏥 Toàn viện (Tất cả quầy)</option>
-                {departmentList.map(d => (
-                  <option key={d.departmentID} value={d.departmentID}>
-                    {d.departmentName}
-                  </option>
-                ))}
+                {isSupervisor && <option value={0}>🏥 Toàn viện (Tất cả quầy)</option>}
+                {departmentList
+                  .filter(d => isSupervisor || !user?.departmentID || d.departmentID === user?.departmentID)
+                  .map(d => (
+                    <option key={d.departmentID} value={d.departmentID}>
+                      {d.departmentName}
+                    </option>
+                  ))}
               </select>
+              {!isSupervisor && !!user?.departmentID && (
+                <span style={{ color: 'var(--text-muted)', fontSize: '0.72rem', display: 'inline-flex', alignItems: 'center', gap: '0.2rem', whiteSpace: 'nowrap' }}>
+                  🔒 Cố định theo khoa
+                </span>
+              )}
             </div>
 
             {/* Quick Stats Chips */}
@@ -1684,7 +1730,7 @@ export default function OutpatientDispensing({ user, setPage }) {
                 <Layers size={20} color="var(--color-primary)" /> Tồn Kho Quầy Dược Ngoại Trú (Kho Lẻ)
               </h3>
               <p style={{ margin: '0.2rem 0 0 0', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-                Tồn khả dụng theo từng mặt hàng tại Khoa Khám Bệnh / Quầy Dược (DepartmentID = 1)
+                Tồn khả dụng theo từng mặt hàng tại {departmentList.find(d => d.departmentID === selectedDeptId)?.departmentName || (user?.departmentName || 'Kho lẻ quầy Dược')}
               </p>
             </div>
 

@@ -21,18 +21,43 @@ public class PrescriptionController : ControllerBase
     }
 
     /// <summary>
+    /// Ràng buộc thẩm quyền phòng ban: Tài khoản Dược sĩ kho lẻ hoặc nhân viên thuộc khoa chỉ được xem/thao tác trên đúng khoa của mình
+    /// </summary>
+    private int ResolveEffectiveDepartmentId(int requestedDeptId)
+    {
+        var userRole = Request.Headers["X-User-Role"].ToString();
+        var deptIdHeader = Request.Headers["X-User-DeptID"].ToString();
+
+        // Ban Giám Đốc và Thủ kho Dược trung tâm có quyền xem toàn viện (0) hoặc từng khoa tùy chọn
+        if (userRole == "director" || userRole == "pharmacist" || userRole == "pharmacist_admin")
+        {
+            return requestedDeptId;
+        }
+
+        // Dược sĩ quầy / kho lẻ hoặc nhân sự trực thuộc khoa bắt buộc chỉ được xem khoa mình phụ trách
+        if (int.TryParse(deptIdHeader, out int userDeptId) && userDeptId > 0)
+        {
+            return userDeptId;
+        }
+
+        return requestedDeptId > 0 ? requestedDeptId : 1;
+    }
+
+    /// <summary>
     /// Lấy danh sách các đơn thuốc ngoại trú đang chờ cấp phát (Pending)
     /// </summary>
     [HttpGet("pending")]
     public async Task<IActionResult> GetPendingPrescriptions([FromQuery] int departmentId = 1)
     {
+        int effectiveDeptId = ResolveEffectiveDepartmentId(departmentId);
+
         var pendingPrescriptions = await _context.OutpatientPrescriptions
             .Include(p => p.Department)
             .Include(p => p.Details)
                 .ThenInclude(d => d.Medicine)
             .Include(p => p.Details)
                 .ThenInclude(d => d.AllocatedBatch)
-            .Where(p => p.Status == "Pending" && (departmentId == 0 || p.DepartmentID == departmentId))
+            .Where(p => p.Status == "Pending" && (effectiveDeptId == 0 || p.DepartmentID == effectiveDeptId))
             .OrderByDescending(p => p.PrescribedAt)
             .ToListAsync();
 
@@ -45,9 +70,11 @@ public class PrescriptionController : ControllerBase
     [HttpGet("search")]
     public async Task<IActionResult> SearchPrescription([FromQuery] string query, [FromQuery] int departmentId = 1)
     {
+        int effectiveDeptId = ResolveEffectiveDepartmentId(departmentId);
+
         if (string.IsNullOrWhiteSpace(query))
         {
-            return await GetPendingPrescriptions(departmentId);
+            return await GetPendingPrescriptions(effectiveDeptId);
         }
 
         var cleanQuery = query.Trim().ToLower();
@@ -59,7 +86,7 @@ public class PrescriptionController : ControllerBase
             .Include(p => p.Details)
                 .ThenInclude(d => d.AllocatedBatch)
             .Where(p => 
-                (departmentId == 0 || p.DepartmentID == departmentId) &&
+                (effectiveDeptId == 0 || p.DepartmentID == effectiveDeptId) &&
                 (p.PrescriptionCode.ToLower().Contains(cleanQuery) ||
                 p.Barcode.ToLower().Contains(cleanQuery) ||
                 p.PatientCode.ToLower().Contains(cleanQuery) ||
@@ -89,6 +116,17 @@ public class PrescriptionController : ControllerBase
         if (prescription == null)
         {
             return NotFound(new { message = "Không tìm thấy đơn thuốc yêu cầu." });
+        }
+
+        // Kiểm tra quyền: Người dùng thuộc khoa không được xem đơn của khoa khác
+        var userRole = Request.Headers["X-User-Role"].ToString();
+        var deptIdHeader = Request.Headers["X-User-DeptID"].ToString();
+        if (userRole != "director" && userRole != "pharmacist" && userRole != "pharmacist_admin")
+        {
+            if (int.TryParse(deptIdHeader, out int userDeptId) && userDeptId > 0 && prescription.DepartmentID != userDeptId)
+            {
+                return BadRequest(new { message = "Bạn không có quyền truy cập hoặc xem đơn thuốc của khoa/quầy khác." });
+            }
         }
 
         // Lấy tất cả tồn kho lẻ tại quầy/khoa này
@@ -224,6 +262,18 @@ public class PrescriptionController : ControllerBase
             if (prescription == null)
             {
                 return NotFound(new { message = "Không tìm thấy đơn thuốc." });
+            }
+
+            // Kiểm tra quyền cấp phát: Dược sĩ kho lẻ chỉ được cấp phát cho đơn của khoa mình
+            var userRole = Request.Headers["X-User-Role"].ToString();
+            var deptIdHeader = Request.Headers["X-User-DeptID"].ToString();
+            if (userRole != "director" && userRole != "pharmacist" && userRole != "pharmacist_admin")
+            {
+                if (int.TryParse(deptIdHeader, out int userDeptId) && userDeptId > 0 && prescription.DepartmentID != userDeptId)
+                {
+                    await transaction.RollbackAsync();
+                    return BadRequest(new { message = "Bạn không có quyền cấp phát đơn thuốc của khoa/quầy khác." });
+                }
             }
 
             if (prescription.Status == "Dispensed")
@@ -407,13 +457,15 @@ public class PrescriptionController : ControllerBase
     [HttpGet("history")]
     public async Task<IActionResult> GetDispensingHistory([FromQuery] int departmentId = 0, [FromQuery] int take = 30)
     {
+        int effectiveDeptId = ResolveEffectiveDepartmentId(departmentId);
+
         var history = await _context.OutpatientPrescriptions
             .Include(p => p.Department)
             .Include(p => p.Details)
                 .ThenInclude(d => d.Medicine)
             .Include(p => p.Details)
                 .ThenInclude(d => d.AllocatedBatch)
-            .Where(p => p.Status == "Dispensed" && (departmentId == 0 || p.DepartmentID == departmentId))
+            .Where(p => p.Status == "Dispensed" && (effectiveDeptId == 0 || p.DepartmentID == effectiveDeptId))
             .OrderByDescending(p => p.DispensedAt)
             .Take(take)
             .ToListAsync();
@@ -478,6 +530,17 @@ public class PrescriptionController : ControllerBase
         decimal insuranceCoverage = totalAmount * (insuranceRate / 100m);
         decimal patientCoPay = totalAmount - insuranceCoverage;
 
+        int targetDeptId = req.DepartmentID > 0 ? req.DepartmentID : 1;
+        var userRoleCreate = Request.Headers["X-User-Role"].ToString();
+        var deptIdHeaderCreate = Request.Headers["X-User-DeptID"].ToString();
+        if (userRoleCreate != "director" && userRoleCreate != "pharmacist" && userRoleCreate != "pharmacist_admin")
+        {
+            if (int.TryParse(deptIdHeaderCreate, out int userDeptId) && userDeptId > 0)
+            {
+                targetDeptId = userDeptId;
+            }
+        }
+
         var newPrescription = new OutpatientPrescription
         {
             PrescriptionCode = prescriptionCode,
@@ -491,7 +554,7 @@ public class PrescriptionController : ControllerBase
             InsuranceRate = insuranceRate,
             Diagnosis = req.Diagnosis ?? "Khám bệnh ngoại trú thông thường",
             DoctorName = req.DoctorName ?? "BS.CKII. Nguyễn Hữu Lực",
-            DepartmentID = req.DepartmentID > 0 ? req.DepartmentID : 1,
+            DepartmentID = targetDeptId,
             PrescribedAt = DateTime.Now,
             Status = "Pending",
             TotalAmount = totalAmount,
@@ -577,10 +640,13 @@ public class PrescriptionController : ControllerBase
     [HttpGet("available-medicines")]
     public async Task<IActionResult> GetDispensaryAvailableMedicines([FromQuery] int departmentId = 1)
     {
+        int effectiveDeptId = ResolveEffectiveDepartmentId(departmentId);
+        if (effectiveDeptId <= 0) effectiveDeptId = 1;
+
         var medicines = await _context.DepartmentStocks
             .Include(ds => ds.Batch)
                 .ThenInclude(b => b!.Medicine)
-            .Where(ds => ds.DepartmentID == departmentId && ds.CurrentQuantity > 0 && ds.Batch != null)
+            .Where(ds => ds.DepartmentID == effectiveDeptId && ds.CurrentQuantity > 0 && ds.Batch != null)
             .GroupBy(ds => ds.Batch!.MedicineID)
             .Select(g => new
             {

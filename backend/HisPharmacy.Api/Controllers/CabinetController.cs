@@ -22,9 +22,41 @@ public class CabinetController : ControllerBase
         _hubContext = hubContext;
     }
 
+    /// <summary>
+    /// Ràng buộc thẩm quyền: Nhân viên thuộc khoa chỉ được thao tác trên tủ trực của khoa mình
+    /// </summary>
+    private bool IsDepartmentAllowed(int targetDeptId, out string? errorMessage)
+    {
+        var userRole = Request.Headers["X-User-Role"].ToString();
+        var deptIdHeader = Request.Headers["X-User-DeptID"].ToString();
+
+        // Ban Giám Đốc và Thủ kho Dược trung tâm có quyền giám sát toàn bộ các khoa
+        if (userRole == "director" || userRole == "pharmacist" || userRole == "pharmacist_admin")
+        {
+            errorMessage = null;
+            return true;
+        }
+
+        // Người dùng thuộc khoa (Dược sĩ kho lẻ, Điều dưỡng, Trưởng khoa) chỉ được thao tác khoa mình
+        if (int.TryParse(deptIdHeader, out int userDeptId) && userDeptId > 0)
+        {
+            if (userDeptId != targetDeptId)
+            {
+                errorMessage = "Bạn không có quyền truy cập hoặc thao tác trên tủ trực của khoa khác.";
+                return false;
+            }
+        }
+
+        errorMessage = null;
+        return true;
+    }
+
     [HttpGet("stocks/{departmentId}")]
     public async Task<IActionResult> GetCabinetStocks(int departmentId)
     {
+        if (!IsDepartmentAllowed(departmentId, out var err))
+            return BadRequest(new { Error = err });
+
         var stocks = await _context.DepartmentStocks
             .Include(ds => ds.Batch)!.ThenInclude(b => b!.Medicine)
             .Where(ds => ds.DepartmentID == departmentId && ds.CurrentQuantity > 0)
@@ -36,6 +68,9 @@ public class CabinetController : ControllerBase
     [HttpGet("transactions/{departmentId}")]
     public async Task<IActionResult> GetCabinetTransactions(int departmentId)
     {
+        if (!IsDepartmentAllowed(departmentId, out var err))
+            return BadRequest(new { Error = err });
+
         var txs = await _context.CabinetTransactions
             .Include(t => t.Batch)!.ThenInclude(b => b!.Medicine)
             .Include(t => t.Requisition)
@@ -54,6 +89,9 @@ public class CabinetController : ControllerBase
         
         if (request == null)
             return BadRequest(new { Error = "Thông tin xuất tủ trực không hợp lệ." });
+
+        if (!IsDepartmentAllowed(request.DepartmentID, out var errDept))
+            return BadRequest(new { Error = errDept });
 
         var items = new List<CabinetExportItem>();
         if (request.Items != null && request.Items.Any())
@@ -126,6 +164,9 @@ public class CabinetController : ControllerBase
 
         if (userRole != "head_nurse" && userRole != "head")
             return BadRequest(new { Error = "Quyền truy cập bị từ chối. Chỉ Điều dưỡng trưởng khoa hoặc Trưởng khoa mới có quyền ký đề nghị bù tủ trực." });
+
+        if (!IsDepartmentAllowed(departmentId, out var errDept))
+            return BadRequest(new { Error = errDept });
         try
         {
             var signature = payload?.DigitalSignature;

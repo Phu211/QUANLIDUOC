@@ -31,7 +31,9 @@ import {
   Sparkles,
   Info,
   Laptop,
-  Building
+  Building,
+  SlidersHorizontal,
+  ArrowLeftRight
 } from 'lucide-react';
 
 // Từ điển ánh xạ bảng dữ liệu sang nghiệp vụ bệnh viện thân thiện
@@ -140,6 +142,81 @@ export default function AuditTrailPage({ user }) {
 
   // Selected row for diff inspection
   const [inspectLog, setInspectLog] = useState(null);
+
+  // Horizontal Scroll Drag State & Handlers
+  const tableContainerRef = React.useRef(null);
+  const [scrollPercent, setScrollPercent] = useState(0);
+  const isMouseDownRef = React.useRef(false);
+  const startXRef = React.useRef(0);
+  const scrollLeftRef = React.useRef(0);
+
+  const checkScrollability = () => {
+    if (!tableContainerRef.current) return;
+    const { scrollLeft, scrollWidth, clientWidth } = tableContainerRef.current;
+    const maxScroll = scrollWidth - clientWidth;
+    if (maxScroll > 0) {
+      setScrollPercent((scrollLeft / maxScroll) * 100);
+    } else {
+      setScrollPercent(0);
+    }
+  };
+
+  const handleTableScroll = () => {
+    checkScrollability();
+  };
+
+  const handleRangeScroll = (e) => {
+    const val = Number(e.target.value);
+    setScrollPercent(val);
+    if (tableContainerRef.current) {
+      const { scrollWidth, clientWidth } = tableContainerRef.current;
+      const maxScroll = scrollWidth - clientWidth;
+      tableContainerRef.current.scrollLeft = (val / 100) * maxScroll;
+    }
+  };
+
+  const scrollByAmount = (amount) => {
+    if (tableContainerRef.current) {
+      tableContainerRef.current.scrollBy({ left: amount, behavior: 'smooth' });
+    }
+  };
+
+  const scrollToPosition = (pos) => {
+    if (tableContainerRef.current) {
+      const { scrollWidth, clientWidth } = tableContainerRef.current;
+      tableContainerRef.current.scrollTo({ 
+        left: pos === 'end' ? scrollWidth - clientWidth : 0, 
+        behavior: 'smooth' 
+      });
+    }
+  };
+
+  const handleMouseDown = (e) => {
+    if (e.target.closest('button') || e.target.closest('input') || e.target.closest('a') || e.target.closest('select')) return;
+    isMouseDownRef.current = true;
+    startXRef.current = e.pageX - (tableContainerRef.current?.offsetLeft || 0);
+    scrollLeftRef.current = tableContainerRef.current?.scrollLeft || 0;
+    if (tableContainerRef.current) {
+      tableContainerRef.current.style.cursor = 'grabbing';
+      tableContainerRef.current.style.userSelect = 'none';
+    }
+  };
+
+  const handleMouseMove = (e) => {
+    if (!isMouseDownRef.current || !tableContainerRef.current) return;
+    e.preventDefault();
+    const x = e.pageX - (tableContainerRef.current.offsetLeft || 0);
+    const walk = (x - startXRef.current) * 1.5;
+    tableContainerRef.current.scrollLeft = scrollLeftRef.current - walk;
+  };
+
+  const handleMouseUpOrLeave = () => {
+    if (isMouseDownRef.current && tableContainerRef.current) {
+      isMouseDownRef.current = false;
+      tableContainerRef.current.style.cursor = 'grab';
+      tableContainerRef.current.style.removeProperty('user-select');
+    }
+  };
 
   useEffect(() => {
     fetchDistinctTables();
@@ -1110,8 +1187,8 @@ export default function AuditTrailPage({ user }) {
             <div style={{ display: 'flex', gap: '0.5rem' }}>
               <button 
                 type="submit" 
-                className="btn-premium"
-                style={{ padding: '0.55rem 1.1rem', fontSize: '0.85rem', display: 'inline-flex', alignItems: 'center', gap: '0.4rem', height: '38px' }}
+                className="btn-primary"
+                style={{ padding: '0.55rem 1rem', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.4rem', height: '38px' }}
               >
                 <Search size={15} />
                 <span>Tìm kiếm</span>
@@ -1149,6 +1226,151 @@ export default function AuditTrailPage({ user }) {
           </span>
         </div>
 
+        {/* THANH KÉO CUỘN NGANG (HORIZONTAL SCROLL DRAG CONTROLLER) */}
+        <div style={{
+          padding: '0.65rem 1.25rem',
+          background: 'var(--bg-primary)',
+          borderBottom: '1px solid var(--border-color)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.85rem',
+          flexWrap: 'wrap'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--color-primary)', fontWeight: '700', fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
+            <SlidersHorizontal size={15} />
+            <span>Thanh kéo ngang:</span>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+            <button
+              onClick={() => scrollToPosition('start')}
+              disabled={scrollPercent <= 1}
+              style={{
+                padding: '0.25rem 0.55rem',
+                fontSize: '0.72rem',
+                fontWeight: '600',
+                borderRadius: '6px',
+                border: '1px solid var(--border-color)',
+                background: 'var(--bg-secondary)',
+                color: 'var(--text-main)',
+                cursor: scrollPercent <= 1 ? 'not-allowed' : 'pointer',
+                opacity: scrollPercent <= 1 ? 0.5 : 1,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.2rem'
+              }}
+              title="Về đầu trang bảng (Cột bên trái)"
+            >
+              « Đầu bảng
+            </button>
+            <button
+              onClick={() => scrollByAmount(-220)}
+              disabled={scrollPercent <= 1}
+              style={{
+                padding: '0.25rem 0.55rem',
+                fontSize: '0.72rem',
+                fontWeight: '600',
+                borderRadius: '6px',
+                border: '1px solid var(--border-color)',
+                background: 'var(--bg-secondary)',
+                color: 'var(--text-main)',
+                cursor: scrollPercent <= 1 ? 'not-allowed' : 'pointer',
+                opacity: scrollPercent <= 1 ? 0.5 : 1,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.2rem'
+              }}
+              title="Cuộn sang trái 220px"
+            >
+              ‹ Sang trái
+            </button>
+          </div>
+
+          {/* Interactive Range Track */}
+          <div style={{ flex: 1, minWidth: '180px', display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={scrollPercent}
+              onChange={handleRangeScroll}
+              style={{
+                width: '100%',
+                height: '8px',
+                borderRadius: '6px',
+                cursor: 'ew-resize',
+                accentColor: 'var(--color-primary)',
+                background: `linear-gradient(to right, var(--color-primary) ${scrollPercent}%, var(--border-color) ${scrollPercent}%)`
+              }}
+              title="Kéo con trượt này sang trái hoặc sang phải để xem hết tất cả các cột"
+            />
+            <span style={{
+              fontSize: '0.72rem',
+              fontWeight: '700',
+              fontFamily: 'monospace',
+              padding: '0.15rem 0.45rem',
+              borderRadius: '5px',
+              background: 'var(--bg-secondary)',
+              border: '1px solid var(--border-color)',
+              color: 'var(--color-primary)',
+              minWidth: '45px',
+              textAlign: 'center'
+            }}>
+              {Math.round(scrollPercent)}%
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+            <button
+              onClick={() => scrollByAmount(220)}
+              disabled={scrollPercent >= 99}
+              style={{
+                padding: '0.25rem 0.55rem',
+                fontSize: '0.72rem',
+                fontWeight: '600',
+                borderRadius: '6px',
+                border: '1px solid var(--border-color)',
+                background: 'var(--bg-secondary)',
+                color: 'var(--text-main)',
+                cursor: scrollPercent >= 99 ? 'not-allowed' : 'pointer',
+                opacity: scrollPercent >= 99 ? 0.5 : 1,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.2rem'
+              }}
+              title="Cuộn sang phải 220px"
+            >
+              Sang phải ›
+            </button>
+            <button
+              onClick={() => scrollToPosition('end')}
+              disabled={scrollPercent >= 99}
+              style={{
+                padding: '0.25rem 0.55rem',
+                fontSize: '0.72rem',
+                fontWeight: '600',
+                borderRadius: '6px',
+                border: '1px solid var(--border-color)',
+                background: 'var(--bg-secondary)',
+                color: 'var(--text-main)',
+                cursor: scrollPercent >= 99 ? 'not-allowed' : 'pointer',
+                opacity: scrollPercent >= 99 ? 0.5 : 1,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.2rem'
+              }}
+              title="Đến cuối bảng (Cột Đối Chiếu bên phải cùng)"
+            >
+              Cuối bảng »
+            </button>
+          </div>
+
+          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: scrollPercent >= 95 ? '#10b981' : '#f59e0b' }} />
+            <span>{scrollPercent >= 95 ? 'Đã xem hết bên phải (Đối chiếu)' : 'Có thể giữ chuột kéo bảng hoặc kéo thanh trượt'}</span>
+          </div>
+        </div>
+
         {loading ? (
           <div style={{ padding: '3.5rem', textAlign: 'center', color: 'var(--text-muted)' }}>
             <RefreshCw size={30} className="spin" style={{ margin: 'auto', marginBottom: '0.75rem', color: 'var(--color-primary)' }} />
@@ -1163,28 +1385,37 @@ export default function AuditTrailPage({ user }) {
             </p>
           </div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.88rem' }}>
+          <div 
+            ref={tableContainerRef}
+            className="table-responsive" 
+            onScroll={handleTableScroll}
+            onMouseDown={handleMouseDown}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUpOrLeave}
+            onMouseLeave={handleMouseUpOrLeave}
+            style={{ width: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}
+          >
+            <table className="custom-table" style={{ width: '100%', minWidth: '1380px', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.86rem' }}>
               <thead>
                 <tr style={{ background: 'var(--table-header-bg)', borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)', fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  <th style={{ padding: '0.9rem 1rem', width: '60px' }}>Mã Vết</th>
-                  <th style={{ padding: '0.9rem 1rem', width: '145px' }}>Thời Gian</th>
-                  <th style={{ padding: '0.9rem 1rem', width: '170px' }}>Khoa Phòng</th>
-                  <th style={{ padding: '0.9rem 1rem', width: '180px' }}>Người Thực Hiện</th>
-                  <th style={{ padding: '0.9rem 1rem', width: '170px' }}>
+                  <th style={{ padding: '0.75rem 0.85rem', width: '60px' }}>Mã Vết</th>
+                  <th style={{ padding: '0.75rem 0.85rem', width: '140px', minWidth: '130px' }}>Thời Gian</th>
+                  <th style={{ padding: '0.75rem 0.85rem', width: '150px', minWidth: '140px' }}>Khoa Phòng</th>
+                  <th style={{ padding: '0.75rem 0.85rem', width: '160px', minWidth: '150px' }}>Người Thực Hiện</th>
+                  <th style={{ padding: '0.75rem 0.85rem', width: '160px', minWidth: '150px' }}>
                     {isFriendlyMode ? 'Phân Hệ Nghiệp Vụ' : 'Bảng Dữ Liệu'}
                   </th>
-                  <th style={{ padding: '0.9rem 1rem', minWidth: '220px' }}>
+                  <th style={{ padding: '0.75rem 0.85rem', minWidth: '220px' }}>
                     {isFriendlyMode ? 'Hoạt Động Thực Tế' : 'Diễn Giải Nghiệp Vụ'}
                   </th>
-                  <th style={{ padding: '0.9rem 1rem', textAlign: 'center', width: '130px' }}>Hành Động</th>
-                  <th style={{ padding: '0.9rem 1rem', width: '160px' }}>
+                  <th style={{ padding: '0.75rem 0.85rem', textAlign: 'center', width: '120px', minWidth: '120px' }}>Hành Động</th>
+                  <th style={{ padding: '0.75rem 0.85rem', width: '150px', minWidth: '140px' }}>
                     {isFriendlyMode ? 'Đối Tượng Tác Động' : 'Khóa Chính (Key)'}
                   </th>
-                  <th style={{ padding: '0.9rem 1rem', width: '160px' }}>
+                  <th style={{ padding: '0.75rem 0.85rem', width: '150px', minWidth: '140px' }}>
                     {isFriendlyMode ? 'Nội Dung Thay Đổi' : 'Cột Thay Đổi'}
                   </th>
-                  <th style={{ padding: '0.9rem 1rem', textAlign: 'center', width: '90px' }}>Đối Chiếu</th>
+                  <th className="sticky-action-col" style={{ padding: '0.75rem 0.85rem', textAlign: 'center', width: '100px', minWidth: '100px' }}>Đối Chiếu</th>
                 </tr>
               </thead>
               <tbody>
@@ -1202,12 +1433,12 @@ export default function AuditTrailPage({ user }) {
                   return (
                     <tr key={log.logID} style={{ borderBottom: '1px solid var(--border-color)', transition: 'background 0.2s' }}>
                       {/* Mã Vết */}
-                      <td style={{ padding: '0.9rem 1rem', fontFamily: 'monospace', color: 'var(--text-dim)', fontSize: '0.82rem' }}>
+                      <td style={{ padding: '0.75rem 0.85rem', fontFamily: 'monospace', color: 'var(--text-dim)', fontSize: '0.82rem' }}>
                         #{log.logID}
                       </td>
 
                       {/* Thời Gian */}
-                      <td style={{ padding: '0.9rem 1rem', fontSize: '0.82rem' }}>
+                      <td style={{ padding: '0.75rem 0.85rem', fontSize: '0.82rem' }}>
                         <div style={{ fontWeight: 600, color: 'var(--text-main)' }}>
                           {new Date(log.createdAt).toLocaleDateString('vi-VN')}
                         </div>
@@ -1218,7 +1449,7 @@ export default function AuditTrailPage({ user }) {
                       </td>
 
                       {/* Khoa Phòng */}
-                      <td style={{ padding: '0.9rem 1rem', fontSize: '0.82rem' }}>
+                      <td style={{ padding: '0.75rem 0.85rem', fontSize: '0.82rem' }}>
                         {log.departmentName ? (
                           <span style={{ 
                             display: 'inline-flex',
@@ -1251,7 +1482,7 @@ export default function AuditTrailPage({ user }) {
                       </td>
 
                       {/* Người Thực Hiện & Vai Trò */}
-                      <td style={{ padding: '0.9rem 1rem', fontSize: '0.85rem' }}>
+                      <td style={{ padding: '0.75rem 0.85rem', fontSize: '0.85rem' }}>
                         <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.35rem', color: 'var(--text-main)' }}>
                           <User size={14} style={{ color: 'var(--color-primary)' }} />
                           {log.username || 'Hệ thống'}
@@ -1276,7 +1507,7 @@ export default function AuditTrailPage({ user }) {
                       </td>
 
                       {/* Phân Hệ Nghiệp Vụ */}
-                      <td style={{ padding: '0.9rem 1rem' }}>
+                      <td style={{ padding: '0.75rem 0.85rem' }}>
                         {isFriendlyMode ? (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                             <span style={{ 
@@ -1318,15 +1549,15 @@ export default function AuditTrailPage({ user }) {
                         )}
                       </td>
 
-                      {/* Hoạt Động Thực Tế (Diễn giải nghiệp vụ cho người ngoài ngành) */}
-                      <td style={{ padding: '0.9rem 1rem' }}>
+                      {/* Hoạt Động Thực Tế */}
+                      <td style={{ padding: '0.75rem 0.85rem' }}>
                         <div style={{ fontWeight: 600, color: 'var(--text-main)', lineHeight: '1.45', fontSize: '0.86rem' }}>
                           {getBusinessNarrative(log)}
                         </div>
                       </td>
 
                       {/* Hành Động */}
-                      <td style={{ padding: '0.9rem 1rem', textAlign: 'center' }}>
+                      <td style={{ padding: '0.75rem 0.85rem', textAlign: 'center' }}>
                         {isFriendlyMode ? (
                           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
                             <span style={{ 
@@ -1365,7 +1596,7 @@ export default function AuditTrailPage({ user }) {
                       </td>
 
                       {/* Đối Tượng Tác Động / Khóa Chính */}
-                      <td style={{ padding: '0.9rem 1rem' }}>
+                      <td style={{ padding: '0.75rem 0.85rem' }}>
                         {isFriendlyMode ? (
                           <div>
                             <div style={{ fontWeight: 700, color: 'var(--text-main)', fontSize: '0.84rem' }}>
@@ -1385,7 +1616,7 @@ export default function AuditTrailPage({ user }) {
                       </td>
 
                       {/* Nội Dung Thay Đổi / Cột Thay Đổi */}
-                      <td style={{ padding: '0.9rem 1rem' }}>
+                      <td style={{ padding: '0.75rem 0.85rem' }}>
                         {log.changedColumns ? (
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', maxWidth: '200px' }}>
                             {log.changedColumns.split(',').map((c, i) => {
@@ -1399,7 +1630,7 @@ export default function AuditTrailPage({ user }) {
                                     padding: '0.15rem 0.45rem', 
                                     borderRadius: '4px', 
                                     border: '1px solid var(--border-color)',
-                                    fontSize: '0.75rem',
+                                    fontSize: '0.75rem', 
                                     fontWeight: isFriendlyMode ? 600 : 400,
                                     color: 'var(--text-main)'
                                   }}
@@ -1417,11 +1648,11 @@ export default function AuditTrailPage({ user }) {
                       </td>
 
                       {/* Chi Tiết Diff */}
-                      <td style={{ padding: '0.9rem 1rem', textAlign: 'center' }}>
+                      <td className="sticky-action-col" style={{ padding: '0.75rem 0.85rem', textAlign: 'center', whiteSpace: 'nowrap' }}>
                         <button 
                           onClick={() => setInspectLog(log)}
                           className="btn-secondary"
-                          style={{ padding: '0.4rem 0.75rem', fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}
+                          style={{ padding: '0.38rem 0.7rem', fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: '0.35rem', whiteSpace: 'nowrap' }}
                           title="Xem bảng so sánh chi tiết giá trị Cũ và Mới"
                         >
                           <Eye size={13} />
@@ -1435,6 +1666,61 @@ export default function AuditTrailPage({ user }) {
             </table>
           </div>
         )}
+        {/* Table Bottom Control Bar */}
+        <div style={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center', 
+          padding: '0.6rem 1rem', 
+          background: 'var(--bg-secondary)', 
+          borderTop: '1px solid var(--border-color)', 
+          fontSize: '0.8rem', 
+          color: 'var(--text-muted)',
+          flexWrap: 'wrap',
+          gap: '0.5rem'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <ArrowLeftRight size={14} style={{ color: 'var(--color-primary)' }} />
+            <span>Kéo thanh trượt hoặc giữ chuột rê trên bảng để duyệt các cột thông tin</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+            <button 
+              onClick={() => scrollToPosition(0)}
+              className="btn-secondary"
+              style={{ padding: '0.2rem 0.5rem', fontSize: '0.72rem' }}
+              title="Về đầu bảng (bên trái)"
+            >
+              « Đầu Bảng
+            </button>
+            <button 
+              onClick={() => scrollByAmount(-250)}
+              className="btn-secondary"
+              style={{ padding: '0.2rem 0.5rem', fontSize: '0.72rem' }}
+              title="Cuộn sang trái"
+            >
+              ‹ Sang Trái
+            </button>
+            <span style={{ padding: '0 0.35rem', fontWeight: 600, color: 'var(--color-primary)' }}>
+              {scrollPercent}%
+            </span>
+            <button 
+              onClick={() => scrollByAmount(250)}
+              className="btn-secondary"
+              style={{ padding: '0.2rem 0.5rem', fontSize: '0.72rem' }}
+              title="Cuộn sang phải"
+            >
+              Sang Phải ›
+            </button>
+            <button 
+              onClick={() => scrollToPosition(99999)}
+              className="btn-secondary"
+              style={{ padding: '0.2rem 0.5rem', fontSize: '0.72rem' }}
+              title="Đến cột Thao Tác / Đối Chiếu cuối cùng"
+            >
+              Đối Chiếu »
+            </button>
+          </div>
+        </div>
 
         {/* Pagination Bar */}
         <div style={{ 
